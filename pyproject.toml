@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "workchain"
+version = "0.1.0"
+description = "Programmatic construction and execution of persistent, multi-step workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-mongo>=2.0",
+    "motor>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "mongomock-motor>=0.0.20",
+]
+
+[tool.hatch.envs.hatch-test]
+extra-dependencies = [
+    "pytest-asyncio>=0.23",
+    "mongomock-motor>=0.0.20",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff.lint]
+ignore = [
+    "TRY003",   # inline exception messages are fine for a small library
+    "EM101",    # string literal in exception — same rationale
+    "EM102",    # f-string in exception — same rationale
+    "TCH001",   # TYPE_CHECKING imports — not worth the churn
+    "TCH002",   # TYPE_CHECKING imports (third-party)
+    "N817",     # CamelCase imported as acronym — local alias is clear
+    "BLE001",   # broad except in runner is intentional for step safety
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "ARG002",   # unused args in step stubs match interface signatures
+    "SLF001",   # private member access is expected in tests
+    "S101",     # assert is standard in tests
+    "FBT002",   # boolean positional args in test helpers are fine
+    "PLR2004",  # magic values in assertions are fine
+]
+"workchain/runner.py" = [
+    "ARG002",   # interface params like `run`, `context`, `failed_step_id` are part of the signature
+    "S101",     # assert used for intentional type narrowing
+]
+"workchain/steps.py" = [
+    "ARG002",   # `context` param is part of the step interface even when unused in base
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["workchain"]

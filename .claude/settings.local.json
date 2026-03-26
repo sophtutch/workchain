@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(grep -qE '\\\\.py$')",
+      "Bash(hatch fmt:*)",
+      "Bash(hatch test:*)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}
