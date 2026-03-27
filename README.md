@@ -2,17 +2,16 @@
 
 Programmatic construction and execution of persistent, multi-step workflows.
 
-Workflows are composed of typed, configurable steps arranged in a DAG. State is persisted to MongoDB via `pydantic-mongo`, and distributed execution is safe via TTL leases and optimistic locking.
-
 ## Features
 
-- **DAG-based workflows** — steps declare dependencies; cycle detection at build time
-- **Three step types** — synchronous, event-driven (suspend/resume), and polling
-- **Typed configuration** — each step declares a Pydantic `Config` model
-- **MongoDB persistence** — workflows survive restarts and span multiple processes
-- **Distributed execution** — atomic lease acquisition ensures only one runner processes a workflow at a time
-- **Optimistic locking** — concurrent modification is detected and surfaced, never silently lost
-- **Failure propagation** — per-step policy (`fail` or `skip`) controls how failures cascade through the DAG
+- **DAG-based workflows** — steps are arranged in a directed acyclic graph with automatic dependency resolution
+- **Three step types** — synchronous (`Step`), event-driven (`EventStep`), and polling-based (`PollingStep`)
+- **MongoDB persistence** — workflow state survives process restarts via async motor driver
+- **Distributed safety** — TTL-based leases with atomic acquisition ensure only one runner processes a workflow at a time
+- **Optimistic locking** — `doc_version` prevents concurrent modifications from corrupting state
+- **Typed configuration** — each step declares a Pydantic config model for compile-time safety
+- **Change stream notifications** — optional MongoDB Change Streams integration for event-driven processing
+- **Failure propagation** — per-step policies (`fail` or `skip`) control how failures cascade through the DAG
 
 ## Installation
 
@@ -26,143 +25,166 @@ For development:
 pip install -e ".[dev]"
 ```
 
-Requires Python 3.11+.
-
 ## Quick Start
 
-### 1. Define your steps
+### 1. Define a step
+
+Subclass `Step`, `EventStep`, or `PollingStep` and implement `execute()`:
 
 ```python
 from pydantic import BaseModel
 from workchain import Step, StepResult, Context
 
-class FetchConfig(BaseModel):
-    url: str
+class SendEmailConfig(BaseModel):
+    to: str
+    subject: str
 
-class FetchStep(Step[FetchConfig]):
-    Config = FetchConfig
+class SendEmailStep(Step[SendEmailConfig]):
+    Config = SendEmailConfig
 
     def execute(self, context: Context) -> StepResult:
-        data = fetch(self.config.url)
-        return StepResult.complete(output={"data": data})
+        # Access config and upstream step outputs
+        recipient = self.config.to
+        data = context.step_output("fetch")
+        send_email(recipient, self.config.subject, body=data)
+        return StepResult.complete(output={"sent": True})
 ```
 
 ### 2. Build a workflow
 
+Chain steps into a DAG using the `Workflow` builder:
+
 ```python
-from workchain import Workflow
+from workchain import Workflow, DependencyFailurePolicy
 
 workflow = (
-    Workflow(name="my_pipeline", version="1.0.0")
-    .add("fetch", FetchStep(config=FetchConfig(url="https://example.com/doc")))
-    .add("notify", NotifyStep(config=NotifyConfig(to="user@example.com")), depends_on=["fetch"])
+    Workflow(name="onboarding", version="1.0.0")
+    .add("fetch", FetchStep(config=FetchConfig(url="https://...")))
+    .add(
+        "notify",
+        SendEmailStep(config=SendEmailConfig(to="user@example.com", subject="Welcome")),
+        depends_on=["fetch"],
+        on_dependency_failure=DependencyFailurePolicy.SKIP,
+    )
 )
 ```
 
 ### 3. Run it
 
 ```python
-from pymongo import MongoClient
-from workchain import WorkflowRunner, MongoWorkflowStore
+from motor.motor_asyncio import AsyncIOMotorClient
+from workchain import MongoWorkflowStore, WorkflowRunner
 
-store = MongoWorkflowStore(
-    client=MongoClient("mongodb://localhost:27017"),
-    database="myapp",
-    owner_id="worker-1",
-)
-store.ensure_indexes()
+client = AsyncIOMotorClient("mongodb://localhost:27017")
+store = MongoWorkflowStore(client=client, database="myapp")
+await store.ensure_indexes()
 
-registry = {"FetchStep": FetchStep, "NotifyStep": NotifyStep}
+registry = {"FetchStep": FetchStep, "SendEmailStep": SendEmailStep}
 
 run = workflow.create_run()
-store.save(run)
+await store.save(run)
 
 runner = WorkflowRunner(store=store, registry=registry, workflow=workflow)
-runner.start()  # blocking loop; use runner.tick() for single-step processing
+await runner.start()  # blocking loop; use runner.tick() for single-step processing
 ```
 
 ## Step Types
 
 ### Step
 
-Synchronous execution. Implement `execute()` and return a result.
+Executes synchronously and returns immediately:
 
 ```python
-class SendEmailStep(Step[SendEmailConfig]):
-    Config = SendEmailConfig
+class FetchStep(Step[FetchConfig]):
+    Config = FetchConfig
 
     def execute(self, context: Context) -> StepResult:
-        send_email(self.config.to, self.config.subject)
-        return StepResult.complete(output={"sent": True})
+        data = fetch_from_api(self.config.url)
+        return StepResult.complete(output={"data": data})
 ```
 
 ### EventStep
 
-Suspends the workflow until an external signal arrives. Useful for human approvals, webhooks, or async callbacks.
+Suspends the workflow until an external signal arrives:
 
 ```python
 class ApprovalStep(EventStep):
     def execute(self, context: Context) -> StepResult:
-        ticket_id = create_approval_ticket()
-        return StepResult.suspend(correlation_id=ticket_id)
+        return StepResult.suspend(correlation_id="approval-123")
 
-    def on_resume(self, payload: dict, context: Context) -> StepResult:
-        context.set("approved", payload.get("approved", False))
-        return StepResult.complete(output=payload)
+    def on_resume(self, payload: dict, context: Context) -> None:
+        context.set("approved", payload["approved"])
 ```
 
-Resume externally:
+Resume from an external system:
 
 ```python
-runner.resume(correlation_id="ticket-123", payload={"approved": True})
+await runner.resume(correlation_id="approval-123", payload={"approved": True})
 ```
 
 ### PollingStep
 
-Periodically checks a condition until it's met. Supports configurable intervals and optional timeouts.
+Starts an async job, then polls periodically until it completes:
 
 ```python
-class JobCompletionConfig(BaseModel):
-    job_id: str
-    poll_interval_seconds: int = 10
-    timeout_seconds: int | None = 300
+class ProcessStep(PollingStep[ProcessConfig]):
+    Config = ProcessConfig
+    poll_interval_seconds = 5
+    timeout_seconds = 300
 
-class JobCompletionStep(PollingStep[JobCompletionConfig]):
-    Config = JobCompletionConfig
+    def execute(self, context: Context) -> StepResult:
+        job_id = start_background_job()
+        context.set("job_id", job_id)
+        return super().execute(context)  # returns StepResult.poll(...)
 
     def check(self, context: Context) -> bool:
-        return is_job_done(self.config.job_id)
+        return is_job_done(context.get("job_id"))
 
     def on_complete(self, context: Context) -> dict:
-        return {"job_id": self.config.job_id, "status": "done"}
+        return {"result": get_job_result(context.get("job_id"))}
 ```
 
-## Shared Context
+## Event-Driven Mode
 
-Steps share state through a JSON-serializable `Context` object. Downstream steps can access upstream outputs:
+Use MongoDB Change Streams for reactive processing instead of polling:
 
 ```python
-def execute(self, context: Context) -> StepResult:
-    fetch_output = context.step_output("fetch")
-    data = fetch_output["data"]
-    # ...
+watcher = store.watcher()
+await runner.start(watcher=watcher)  # requires MongoDB replica set
 ```
+
+The watcher automatically filters out self-triggered events to avoid feedback loops.
 
 ## Architecture
 
 ```
 workchain/
-├── exceptions.py     — Custom exception types
-├── models.py         — Pydantic/Mongo documents: WorkflowRun, StepRun, enums
 ├── context.py        — JSON-safe shared runtime state between steps
-├── steps.py          — Step, EventStep, PollingStep base classes + StepResult
-├── workflow.py       — Workflow builder + DAG validation
+├── exceptions.py     — All custom exception types
+├── models.py         — Pydantic models: WorkflowRun, StepRun, enums
 ├── runner.py         — WorkflowRunner: DAG resolution, leasing, heartbeat
+├── steps.py          — Step, EventStep, PollingStep base classes + StepResult
+├── watcher.py        — MongoDB Change Stream watcher for workflow events
+├── workflow.py       — Workflow builder + DAG validation (Kahn's algorithm)
 └── store/
     ├── base.py       — WorkflowStore protocol
-    └── mongo.py      — MongoWorkflowStore (pydantic-mongo, atomic ops)
+    └── mongo.py      — MongoWorkflowStore (motor, atomic ops)
 ```
 
-## Specification
+## Full Specification
 
-For the full technical specification — including model schemas, lease mechanics, runner execution loop, failure propagation, and MongoDB index recommendations — see [SPEC.md](SPEC.md).
+See [SPEC.md](SPEC.md) for the complete technical specification, including:
+
+- Detailed model field definitions
+- Runner execution loop internals
+- Lease acquisition and heartbeat mechanics
+- Failure propagation algorithm
+- MongoDB index recommendations
+
+## Running Tests
+
+```bash
+pytest tests/
+```
+
+Tests use [mongomock-motor](https://github.com/michaelkryukov/mongomock_motor) — no real MongoDB instance required.

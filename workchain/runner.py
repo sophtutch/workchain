@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,6 +20,16 @@ from workchain.store.base import WorkflowStore
 from workchain.workflow import Workflow
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow_naive() -> datetime:
+    """Return current UTC time as a naive datetime.
+
+    MongoDB (and mongomock) may strip timezone info on round-trip,
+    so we use naive UTC consistently for comparisons with stored datetimes.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
 
 # Type alias for the step registry
 StepRegistry = dict[str, type[Step]]
@@ -79,19 +90,87 @@ class WorkflowRunner:
     # Public API
     # ------------------------------------------------------------------
 
-    async def start(self) -> None:
+    async def start(self, *, watcher: Any = None) -> None:
         """
-        Start the runner loop (blocking). Processes runs until stop() is called.
-        Typically run as an asyncio task.
+        Start the runner loop. Processes runs until stop() is called.
+
+        If a ``WorkflowWatcher`` is provided, the runner reacts to change
+        stream events instead of blind polling — with a periodic fallback
+        for time-based events (due polls) that change streams cannot detect.
+
+        Without a watcher, falls back to the classic sleep-based polling loop.
+
+        Usage::
+
+            # Polling mode (no replica set required)
+            await runner.start()
+
+            # Event-driven mode (requires replica set)
+            watcher = store.watcher()
+            await runner.start(watcher=watcher)
         """
         self._running = True
         logger.info("WorkflowRunner[%s] started.", self.instance_id)
+        if watcher is not None:
+            await self._run_with_watcher(watcher)
+        else:
+            await self._run_with_polling()
+
+    async def _run_with_polling(self) -> None:
+        """Classic polling loop — tick on a fixed interval."""
         while self._running:
             try:
                 await self.tick()
             except Exception:
                 logger.exception("WorkflowRunner[%s] unhandled error in tick.", self.instance_id)
             await asyncio.sleep(self.poll_interval)
+
+    async def _run_with_watcher(self, watcher: Any) -> None:
+        """Event-driven loop — tick on change stream events + periodic fallback.
+
+        Uses an asyncio.Event to coalesce multiple signals into a single tick,
+        ensuring only one tick runs at a time.
+        """
+        work_available = asyncio.Event()
+
+        async def _watch_loop() -> None:
+            async with watcher:
+                async for event in watcher:
+                    if not self._running:
+                        break
+                    logger.debug(
+                        "WorkflowRunner[%s] watcher event: %s for run %s",
+                        self.instance_id,
+                        event.event_type.value,
+                        event.run_id,
+                    )
+                    work_available.set()
+
+        async def _poll_fallback() -> None:
+            """Periodic fallback for time-based events (due polls)."""
+            while self._running:
+                await asyncio.sleep(self.poll_interval)
+                work_available.set()
+
+        watch_task = asyncio.create_task(_watch_loop())
+        poll_task = asyncio.create_task(_poll_fallback())
+
+        try:
+            # Do an initial tick to pick up any existing work
+            work_available.set()
+            while self._running:
+                await work_available.wait()
+                work_available.clear()
+                try:
+                    await self.tick()
+                except Exception:
+                    logger.exception("WorkflowRunner[%s] unhandled error in tick.", self.instance_id)
+        finally:
+            watch_task.cancel()
+            poll_task.cancel()
+            for task in (watch_task, poll_task):
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def stop(self) -> None:
         """Signal the runner loop to stop after the current tick."""
@@ -100,12 +179,29 @@ class WorkflowRunner:
     async def tick(self) -> bool:
         """
         Attempt to claim and process one WorkflowRun.
+
+        Checks two sources of work:
+        1. Claimable runs (PENDING/RUNNING with expired or no lease)
+        2. Due poll runs (SUSPENDED with AWAITING_POLL steps whose next_poll_at has passed)
+
         Returns True if a run was processed, False if nothing was available.
         """
+        # 1. Try to claim a run that needs step execution
         run = await self.store.find_claimable()
-        if run is None:
-            return False
+        if run is not None:
+            return await self._process_claimed_run(run)
 
+        # 2. Check for SUSPENDED runs with due poll checks
+        due_runs = await self.store.find_due_polls()
+        for run in due_runs:
+            leased_run = await self.store.acquire_lease_for_resume(run.id, self.instance_id, self.lease_ttl)
+            if leased_run is not None:
+                return await self._process_claimed_run(leased_run)
+
+        return False
+
+    async def _process_claimed_run(self, run: WorkflowRun) -> bool:
+        """Execute a claimed/leased WorkflowRun with heartbeat and lease management."""
         logger.info(
             "WorkflowRunner[%s] claimed run %s (%s).",
             self.instance_id,
@@ -272,12 +368,12 @@ class WorkflowRunner:
 
     async def _check_due_polls(self, run: WorkflowRun, context: Context) -> None:
         """Re-execute any AWAITING_POLL steps whose next_poll_at has passed."""
-        now = datetime.now(UTC)
+        now = _utcnow_naive()
         for step_run in run.steps:
             if (
                 step_run.status == StepStatus.AWAITING_POLL
                 and step_run.next_poll_at is not None
-                and step_run.next_poll_at <= now
+                and step_run.next_poll_at.replace(tzinfo=None) <= now
             ):
                 await self._execute_poll_check(run, step_run, context)
 
@@ -290,7 +386,7 @@ class WorkflowRunner:
 
         # Timeout check
         if step_instance.timeout_seconds is not None and step_run.poll_started_at:
-            elapsed = (datetime.now(UTC) - step_run.poll_started_at).total_seconds()
+            elapsed = (_utcnow_naive() - step_run.poll_started_at.replace(tzinfo=None)).total_seconds()
             if elapsed > step_instance.timeout_seconds:
                 step_run.status = StepStatus.FAILED
                 step_run.error = "PollingStep timed out."
@@ -352,19 +448,23 @@ class WorkflowRunner:
         """Determine and set the overall WorkflowRun status."""
         statuses = {s.status for s in run.steps}
 
-        # If any step is actively in progress, keep RUNNING
-        active = {StepStatus.RUNNING, StepStatus.PENDING}
-        if statuses & active:
+        # If any step is actively RUNNING, keep RUNNING
+        if StepStatus.RUNNING in statuses:
             run.status = WorkflowStatus.RUNNING
             return
 
-        # If any step is suspended/polling, workflow is SUSPENDED
-        waiting = {StepStatus.SUSPENDED, StepStatus.AWAITING_POLL}
+        # If there are PENDING steps that can actually execute now, keep RUNNING
+        if StepStatus.PENDING in statuses and self._get_ready_steps(run):
+            run.status = WorkflowStatus.RUNNING
+            return
+
+        # If any step is suspended, polling, or pending-but-blocked, workflow is SUSPENDED
+        waiting = {StepStatus.SUSPENDED, StepStatus.AWAITING_POLL, StepStatus.PENDING}
         if statuses & waiting:
             run.status = WorkflowStatus.SUSPENDED
             return
 
-        # All steps are terminal
+        # All steps are in terminal states (COMPLETED, FAILED, SKIPPED)
         if StepStatus.FAILED in statuses:
             run.status = WorkflowStatus.FAILED
         else:

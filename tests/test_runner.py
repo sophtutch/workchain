@@ -18,7 +18,6 @@ from tests.conftest import (
     TimeoutPollStep,
 )
 from workchain import (
-    Context,
     DependencyFailurePolicy,
     StepStatus,
     Workflow,
@@ -36,7 +35,6 @@ def _make_runner(store, registry, workflow, **kwargs):
         instance_id="test-runner",
         lease_ttl_seconds=30,
         poll_interval_seconds=0.1,
-        **kwargs,
     )
 
 
@@ -216,32 +214,55 @@ class TestEventStep:
 
 
 class TestPollingStep:
-    async def test_polling_step_schedules_then_completes(self, in_memory_store, step_registry):
+    async def test_polling_step_completes_via_tick(self, in_memory_store, step_registry):
+        """Full lifecycle: tick() executes step → AWAITING_POLL → tick() picks up due poll → COMPLETED."""
         poll_step = CountingPollStep(checks_until_done=1)
         wf = Workflow(name="poll").add("poll", poll_step)
         run = wf.create_run()
         await in_memory_store.save(run)
 
         runner = _make_runner(in_memory_store, step_registry, wf)
-        await runner.tick()
 
-        # After first tick, step should be awaiting poll
+        # First tick: execute() → AWAITING_POLL
+        await runner.tick()
         assert run.get_step("poll").status == StepStatus.AWAITING_POLL
         assert run.status == WorkflowStatus.SUSPENDED
 
         # Set next_poll_at to the past so it's due
         run.get_step("poll").next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
-        # Reset lease so we can claim again
+        # Release lease so tick() can re-acquire
         run.lease_owner = None
         run.lease_expires_at = None
-        run.status = WorkflowStatus.SUSPENDED
 
-        # Call _check_due_polls directly since find_claimable checks LEASABLE_STATUSES
-        context = Context.from_dict(run.context)
-        await runner._check_due_polls(run, context)
-
+        # Second tick: find_due_polls → check() → COMPLETED
+        result = await runner.tick()
+        assert result is True
         assert run.get_step("poll").status == StepStatus.COMPLETED
         assert run.get_step("poll").output == {"checks": 1}
+        assert run.status == WorkflowStatus.COMPLETED
+
+    async def test_polling_step_multiple_checks(self, in_memory_store, step_registry):
+        """PollingStep that needs multiple check() cycles before completing."""
+        poll_step = CountingPollStep(checks_until_done=3)
+        wf = Workflow(name="poll").add("poll", poll_step)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+
+        # First tick: execute() → AWAITING_POLL
+        await runner.tick()
+        assert run.get_step("poll").status == StepStatus.AWAITING_POLL
+
+        # Tick through multiple poll cycles
+        for _i in range(3):
+            run.get_step("poll").next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
+            run.lease_owner = None
+            run.lease_expires_at = None
+            await runner.tick()
+
+        assert run.get_step("poll").status == StepStatus.COMPLETED
+        assert run.get_step("poll").output == {"checks": 3}
 
     async def test_polling_step_timeout(self, in_memory_store, step_registry):
         poll_step = TimeoutPollStep()
@@ -252,16 +273,44 @@ class TestPollingStep:
         runner = _make_runner(in_memory_store, step_registry, wf)
         await runner.tick()
 
-        # Set poll_started_at to the past and next_poll_at to now
+        # Set poll_started_at to the past and next_poll_at to now so tick picks it up
         step_run = run.get_step("poll")
         step_run.poll_started_at = datetime.now(UTC) - timedelta(seconds=10)
         step_run.next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
+        run.lease_owner = None
+        run.lease_expires_at = None
 
-        context = Context.from_dict(run.context)
-        await runner._execute_poll_check(run, step_run, context)
+        # tick() should find the due poll and timeout it
+        await runner.tick()
 
         assert step_run.status == StepStatus.FAILED
         assert "timed out" in step_run.error
+
+    async def test_polling_with_downstream_steps(self, in_memory_store, step_registry):
+        """After PollingStep completes, downstream steps execute in the same tick."""
+        poll_step = CountingPollStep(checks_until_done=1)
+        wf = Workflow(name="poll_chain").add("poll", poll_step).add("after", NoOpStep(), depends_on=["poll"])
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+
+        # First tick: poll step starts, goes to AWAITING_POLL
+        await runner.tick()
+        assert run.get_step("poll").status == StepStatus.AWAITING_POLL
+        assert run.get_step("after").status == StepStatus.PENDING
+
+        # Make poll due and tick again
+        run.get_step("poll").next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
+        run.lease_owner = None
+        run.lease_expires_at = None
+
+        await runner.tick()
+
+        # Both poll and downstream should complete
+        assert run.get_step("poll").status == StepStatus.COMPLETED
+        assert run.get_step("after").status == StepStatus.COMPLETED
+        assert run.status == WorkflowStatus.COMPLETED
 
 
 class TestTickBehavior:

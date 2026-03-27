@@ -6,7 +6,8 @@
       "Bash(grep -qE '\\\\.py$')",
       "Bash(hatch fmt:*)",
       "Bash(hatch test:*)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(\"C:\\\\dev\\\\codebase\\\\libs\\\\workchain\\\\README.md\")"
     ]
   }
 }

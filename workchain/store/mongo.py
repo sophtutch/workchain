@@ -227,6 +227,32 @@ class MongoWorkflowStore:
         return WorkflowRun.model_validate(raw)
 
     # ------------------------------------------------------------------
+    # Change stream watcher
+    # ------------------------------------------------------------------
+
+    def watcher(self) -> WorkflowWatcher:  # noqa: F821
+        """
+        Create a WorkflowWatcher that listens for changes via MongoDB Change Streams.
+
+        The watcher filters out changes made by this store's owner to avoid
+        self-triggering. Requires a MongoDB replica set.
+
+        Usage::
+
+            watcher = store.watcher()
+            async with watcher:
+                async for event in watcher:
+                    await runner.tick()
+
+        Or integrated with the runner::
+
+            await runner.start(watcher=store.watcher())
+        """
+        from workchain.watcher import WorkflowWatcher
+
+        return WorkflowWatcher(self._collection, self._owner_id)
+
+    # ------------------------------------------------------------------
     # Index helpers
     # ------------------------------------------------------------------
 

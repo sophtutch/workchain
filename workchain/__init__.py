@@ -15,6 +15,7 @@ from workchain.models import DependencyFailurePolicy, StepRun, StepStatus, Workf
 from workchain.runner import WorkflowRunner
 from workchain.steps import EventStep, PollingStep, Step, StepOutcome, StepResult
 from workchain.store import MongoWorkflowStore, WorkflowStore
+from workchain.watcher import WorkflowEvent, WorkflowEventType, WorkflowWatcher
 from workchain.workflow import StepDefinition, Workflow
 
 __all__ = [
@@ -40,6 +41,10 @@ __all__ = [
     "MongoWorkflowStore",
     # Runner
     "WorkflowRunner",
+    # Watcher (change streams)
+    "WorkflowWatcher",
+    "WorkflowEvent",
+    "WorkflowEventType",
     # Exceptions
     "WorkchainError",
     "WorkflowValidationError",
