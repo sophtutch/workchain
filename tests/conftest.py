@@ -99,6 +99,35 @@ class ContextReaderStep(Step):
         return StepResult.complete(output={"read_value": upstream.get("sum")})
 
 
+class FlakeyStep(Step):
+    """Fails a configurable number of times then succeeds."""
+
+    def __init__(self, config=None, *, fail_count: int = 2):
+        super().__init__(config=config)
+        self._fail_count = fail_count
+        self._call_count = 0
+
+    def execute(self, context: Context) -> StepResult:
+        self._call_count += 1
+        if self._call_count <= self._fail_count:
+            return StepResult.fail(error=f"flakey failure {self._call_count}")
+        return StepResult.complete(output={"attempts": self._call_count})
+
+
+class SlowStep(Step):
+    """Step that sleeps for a given duration (for timeout testing)."""
+
+    def __init__(self, config=None, *, duration: float = 5.0):
+        super().__init__(config=config)
+        self._duration = duration
+
+    def execute(self, context: Context) -> StepResult:
+        import time
+
+        time.sleep(self._duration)
+        return StepResult.complete(output={"slept": self._duration})
+
+
 # ---------------------------------------------------------------------------
 # In-memory WorkflowStore for runner unit tests (async)
 # ---------------------------------------------------------------------------
@@ -152,14 +181,24 @@ class InMemoryWorkflowStore:
         for run in self._runs.values():
             if run.status != WorkflowStatus.SUSPENDED:
                 continue
+            due = False
             for step in run.steps:
                 if (
                     step.status == StepStatus.AWAITING_POLL
                     and step.next_poll_at is not None
                     and step.next_poll_at <= now
                 ):
-                    result.append(run)
+                    due = True
                     break
+                if (
+                    step.status == StepStatus.PENDING
+                    and step.retry_after is not None
+                    and step.retry_after <= now
+                ):
+                    due = True
+                    break
+            if due:
+                result.append(run)
         return result
 
     async def find_by_correlation_id(self, correlation_id: str) -> WorkflowRun | None:
@@ -217,4 +256,6 @@ def step_registry():
         "CountingPollStep": CountingPollStep,
         "TimeoutPollStep": TimeoutPollStep,
         "ContextReaderStep": ContextReaderStep,
+        "FlakeyStep": FlakeyStep,
+        "SlowStep": SlowStep,
     }

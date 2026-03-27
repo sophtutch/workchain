@@ -137,21 +137,41 @@ class MongoWorkflowStore:
     async def find_due_polls(self) -> list[WorkflowRun]:
         """
         Return runs that have at least one AWAITING_POLL step whose
-        next_poll_at is in the past and whose lease has expired (or is None).
+        next_poll_at is in the past, **or** a PENDING step whose retry_after
+        is in the past. Lease must be expired or absent.
         """
         now = datetime.now(UTC)
         cursor = self._collection.find(
             {
                 "status": WorkflowStatus.SUSPENDED.value,
-                "steps": {
-                    "$elemMatch": {
-                        "status": StepStatus.AWAITING_POLL.value,
-                        "next_poll_at": {"$lte": now},
-                    }
-                },
                 "$or": [
-                    {"lease_expires_at": None},
-                    {"lease_expires_at": {"$lt": now}},
+                    # Due poll checks
+                    {
+                        "steps": {
+                            "$elemMatch": {
+                                "status": StepStatus.AWAITING_POLL.value,
+                                "next_poll_at": {"$lte": now},
+                            }
+                        },
+                    },
+                    # Due retries
+                    {
+                        "steps": {
+                            "$elemMatch": {
+                                "status": StepStatus.PENDING.value,
+                                "retry_after": {"$lte": now},
+                            }
+                        },
+                    },
+                ],
+                # Lease guard (separate top-level condition using $and)
+                "$and": [
+                    {
+                        "$or": [
+                            {"lease_expires_at": None},
+                            {"lease_expires_at": {"$lt": now}},
+                        ]
+                    }
                 ],
             }
         )
@@ -264,4 +284,5 @@ class MongoWorkflowStore:
         await self._collection.create_index([("status", 1), ("lease_expires_at", 1)])
         await self._collection.create_index([("steps.resume_correlation_id", 1)], sparse=True)
         await self._collection.create_index([("steps.next_poll_at", 1), ("status", 1)], sparse=True)
+        await self._collection.create_index([("steps.retry_after", 1), ("status", 1)], sparse=True)
         logger.info("workchain: MongoDB indexes ensured on 'workflow_runs'.")

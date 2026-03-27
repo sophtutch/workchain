@@ -53,8 +53,9 @@ class WorkflowStore(Protocol):
     async def find_due_polls(self) -> list[WorkflowRun]:
         """
         Return WorkflowRuns with status SUSPENDED that have at least one step
-        in AWAITING_POLL status whose next_poll_at <= now.
-        These runs are candidates for the poll scheduler to re-activate.
+        in AWAITING_POLL status whose next_poll_at <= now, **or** a PENDING step
+        whose retry_after <= now.
+        These runs are candidates for the poll/retry scheduler to re-activate.
         """
         ...
 

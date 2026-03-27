@@ -13,12 +13,15 @@ from tests.conftest import (
     CountingPollStep,
     ExplodingStep,
     FailingStep,
+    FlakeyStep,
     NoOpStep,
+    SlowStep,
     SuspendStep,
     TimeoutPollStep,
 )
 from workchain import (
     DependencyFailurePolicy,
+    RetryPolicy,
     StepStatus,
     Workflow,
     WorkflowRunner,
@@ -375,3 +378,196 @@ class TestStepTimestamps:
         await runner.tick()
 
         assert run.get_step("s1").completed_at is not None
+
+
+class TestRetryPolicy:
+    async def test_immediate_retry_succeeds(self, in_memory_store, step_registry):
+        """Step that fails once then succeeds with immediate retry."""
+        flakey = FlakeyStep(fail_count=1)
+        policy = RetryPolicy(max_retries=2)
+        wf = Workflow(name="retry").add("s1", flakey, retry_policy=policy)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        step = run.get_step("s1")
+        assert step.status == StepStatus.COMPLETED
+        assert step.output == {"attempts": 2}
+        assert step.retry_count == 1
+        assert run.status == WorkflowStatus.COMPLETED
+
+    async def test_retries_exhausted(self, in_memory_store, step_registry):
+        """Step that fails more times than max_retries allows."""
+        flakey = FlakeyStep(fail_count=5)
+        policy = RetryPolicy(max_retries=2)
+        wf = Workflow(name="retry").add("s1", flakey, retry_policy=policy)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        step = run.get_step("s1")
+        assert step.status == StepStatus.FAILED
+        assert step.retry_count == 2
+        assert run.status == WorkflowStatus.FAILED
+
+    async def test_delayed_retry(self, in_memory_store, step_registry):
+        """Step with delay sets retry_after and goes SUSPENDED until due."""
+        flakey = FlakeyStep(fail_count=1)
+        policy = RetryPolicy(max_retries=2, delay_seconds=10)
+        wf = Workflow(name="retry").add("s1", flakey, retry_policy=policy)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        step = run.get_step("s1")
+        # Step should be PENDING with a future retry_after
+        assert step.status == StepStatus.PENDING
+        assert step.retry_after is not None
+        assert step.retry_count == 1
+        # Workflow should be SUSPENDED (step not ready due to retry_after)
+        assert run.status == WorkflowStatus.SUSPENDED
+
+        # Move retry_after to the past so it becomes due
+        step.retry_after = datetime.now(UTC) - timedelta(seconds=1)
+        run.lease_owner = None
+        run.lease_expires_at = None
+
+        # Tick again — should pick up the due retry
+        await runner.tick()
+
+        assert step.status == StepStatus.COMPLETED
+        assert step.output == {"attempts": 2}
+        assert run.status == WorkflowStatus.COMPLETED
+
+    async def test_exponential_backoff(self, in_memory_store, step_registry):
+        """Verify delay increases with backoff_multiplier."""
+        flakey = FlakeyStep(fail_count=10)  # always fails within this test
+        policy = RetryPolicy(max_retries=2, delay_seconds=1.0, backoff_multiplier=2.0)
+        wf = Workflow(name="backoff").add("s1", flakey, retry_policy=policy)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+
+        # First tick: execute fails, scheduled for retry with 1s delay
+        await runner.tick()
+        step = run.get_step("s1")
+        assert step.retry_count == 1
+        first_retry_after = step.retry_after
+        assert first_retry_after is not None
+
+        # Make due and tick again: fails, scheduled with 2s delay
+        step.retry_after = datetime.now(UTC) - timedelta(seconds=1)
+        run.lease_owner = None
+        run.lease_expires_at = None
+        await runner.tick()
+        assert step.retry_count == 2
+        second_retry_after = step.retry_after
+        assert second_retry_after is not None
+
+        # Make due and tick again: fails, now exhausted (retry_count == max_retries)
+        step.retry_after = datetime.now(UTC) - timedelta(seconds=1)
+        run.lease_owner = None
+        run.lease_expires_at = None
+        await runner.tick()
+        assert step.status == StepStatus.FAILED
+        assert step.retry_count == 2  # stays at 2, exhausted on this attempt
+
+    async def test_max_delay_cap(self):
+        """RetryPolicy.compute_delay respects max_delay_seconds."""
+        policy = RetryPolicy(
+            max_retries=5, delay_seconds=1.0, backoff_multiplier=10.0, max_delay_seconds=5.0
+        )
+        assert policy.compute_delay(1) == 1.0
+        assert policy.compute_delay(2) == 5.0  # 10.0 capped to 5.0
+        assert policy.compute_delay(3) == 5.0  # 100.0 capped to 5.0
+
+    async def test_retry_with_downstream_steps(self, in_memory_store, step_registry):
+        """Downstream steps wait until retry succeeds."""
+        flakey = FlakeyStep(fail_count=1)
+        policy = RetryPolicy(max_retries=2)
+        wf = (
+            Workflow(name="retry_chain")
+            .add("s1", flakey, retry_policy=policy)
+            .add("s2", NoOpStep(), depends_on=["s1"])
+        )
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        assert run.get_step("s1").status == StepStatus.COMPLETED
+        assert run.get_step("s2").status == StepStatus.COMPLETED
+        assert run.status == WorkflowStatus.COMPLETED
+
+    async def test_retry_exhausted_propagates_failure(self, in_memory_store, step_registry):
+        """When retries are exhausted, failure propagates to dependents."""
+        flakey = FlakeyStep(fail_count=5)
+        policy = RetryPolicy(max_retries=1)
+        wf = (
+            Workflow(name="retry_fail")
+            .add("s1", flakey, retry_policy=policy)
+            .add("s2", NoOpStep(), depends_on=["s1"])
+        )
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        assert run.get_step("s1").status == StepStatus.FAILED
+        assert run.get_step("s2").status == StepStatus.FAILED
+        assert run.status == WorkflowStatus.FAILED
+
+
+class TestStepTimeout:
+    async def test_step_times_out(self, in_memory_store, step_registry):
+        """Step that exceeds timeout is marked FAILED."""
+        slow = SlowStep(duration=5.0)
+        wf = Workflow(name="timeout").add("s1", slow, timeout_seconds=0.1)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        step = run.get_step("s1")
+        assert step.status == StepStatus.FAILED
+        assert "timed out" in step.error
+        assert run.status == WorkflowStatus.FAILED
+
+    async def test_step_completes_within_timeout(self, in_memory_store, step_registry):
+        """Step that finishes before timeout succeeds normally."""
+        wf = Workflow(name="timeout_ok").add("s1", NoOpStep(), timeout_seconds=5.0)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        assert run.get_step("s1").status == StepStatus.COMPLETED
+        assert run.status == WorkflowStatus.COMPLETED
+
+    async def test_timeout_with_retry(self, in_memory_store, step_registry):
+        """Timeout triggers retry when retry_policy is configured."""
+        slow = SlowStep(duration=5.0)
+        policy = RetryPolicy(max_retries=1)
+        wf = Workflow(name="timeout_retry").add("s1", slow, timeout_seconds=0.1, retry_policy=policy)
+        run = wf.create_run()
+        await in_memory_store.save(run)
+
+        runner = _make_runner(in_memory_store, step_registry, wf)
+        await runner.tick()
+
+        step = run.get_step("s1")
+        # First attempt timed out, retried, timed out again -> FAILED
+        assert step.status == StepStatus.FAILED
+        assert step.retry_count == 1
+        assert "timed out" in step.error

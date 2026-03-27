@@ -11,7 +11,7 @@ from workchain.exceptions import (
     WorkflowRunNotFoundError,
     WorkflowValidationError,
 )
-from workchain.models import DependencyFailurePolicy, StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from workchain.models import DependencyFailurePolicy, RetryPolicy, StepRun, StepStatus, WorkflowRun, WorkflowStatus
 from workchain.runner import WorkflowRunner
 from workchain.steps import EventStep, PollingStep, Step, StepOutcome, StepResult
 from workchain.store import MongoWorkflowStore, WorkflowStore
@@ -36,6 +36,7 @@ __all__ = [
     "WorkflowStatus",
     "StepStatus",
     "DependencyFailurePolicy",
+    "RetryPolicy",
     # Store
     "WorkflowStore",
     "MongoWorkflowStore",

@@ -48,6 +48,30 @@ class DependencyFailurePolicy(str, Enum):
     SKIP = "skip"
 
 
+class RetryPolicy(BaseModel):
+    """Configurable retry behaviour for a step.
+
+    Attributes:
+        max_retries: Maximum number of retry attempts (0 = no retries).
+        delay_seconds: Initial delay before the first retry.
+        backoff_multiplier: Multiplier applied to delay after each attempt.
+            1.0 = fixed delay, 2.0 = exponential backoff.
+        max_delay_seconds: Upper bound on the computed delay. None = unlimited.
+    """
+
+    max_retries: int = 0
+    delay_seconds: float = 0
+    backoff_multiplier: float = 1.0
+    max_delay_seconds: float | None = None
+
+    def compute_delay(self, attempt: int) -> float:
+        """Return the delay in seconds before retry number *attempt* (1-based)."""
+        delay = self.delay_seconds * (self.backoff_multiplier ** (attempt - 1))
+        if self.max_delay_seconds is not None:
+            delay = min(delay, self.max_delay_seconds)
+        return delay
+
+
 class StepRun(BaseModel):
     """Runtime state of a single step within a WorkflowRun."""
 
@@ -66,6 +90,10 @@ class StepRun(BaseModel):
     # PollingStep fields
     next_poll_at: datetime | None = None
     poll_started_at: datetime | None = None
+
+    # Retry fields
+    retry_count: int = 0
+    retry_after: datetime | None = None
 
     # Timestamps
     started_at: datetime | None = None

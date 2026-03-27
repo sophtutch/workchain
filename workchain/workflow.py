@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from workchain.exceptions import WorkflowValidationError
-from workchain.models import DependencyFailurePolicy, StepRun, WorkflowRun, WorkflowStatus
+from workchain.models import DependencyFailurePolicy, RetryPolicy, StepRun, WorkflowRun, WorkflowStatus
 from workchain.steps import Step
 
 # ---------------------------------------------------------------------------
@@ -20,6 +20,8 @@ class StepDefinition(BaseModel):
     step: Step  # the step instance (carries config)
     depends_on: list[str] = Field(default_factory=list)
     on_dependency_failure: DependencyFailurePolicy = DependencyFailurePolicy.FAIL
+    retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
+    timeout_seconds: float | None = None
 
     @property
     def step_type(self) -> str:
@@ -56,6 +58,8 @@ class Workflow:
         step: Step,
         depends_on: list[str] | None = None,
         on_dependency_failure: DependencyFailurePolicy = DependencyFailurePolicy.FAIL,
+        retry_policy: RetryPolicy | None = None,
+        timeout_seconds: float | None = None,
     ) -> Workflow:
         """
         Add a step to the workflow.
@@ -64,6 +68,8 @@ class Workflow:
         :param step: An instantiated Step (with its config already set).
         :param depends_on: List of step_ids that must complete before this step runs.
         :param on_dependency_failure: DependencyFailurePolicy.FAIL (default) or DependencyFailurePolicy.SKIP.
+        :param retry_policy: Optional RetryPolicy controlling retry behaviour on failure.
+        :param timeout_seconds: Optional wall-clock timeout for step execution.
         :returns: self, for chaining.
         """
         if step_id in self._step_ids:
@@ -76,6 +82,8 @@ class Workflow:
                 step=step,
                 depends_on=deps,
                 on_dependency_failure=on_dependency_failure,
+                retry_policy=retry_policy or RetryPolicy(),
+                timeout_seconds=timeout_seconds,
             )
         )
         self._step_ids.add(step_id)
