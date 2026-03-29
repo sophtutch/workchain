@@ -26,26 +26,36 @@ class WorkflowStatus(str, Enum):
     SUSPENDED = "suspended"
 
 
-# Statuses that indicate a workflow may still make progress (or be resumed)
-ACTIVE_WORKFLOW_STATUSES = {
-    WorkflowStatus.PENDING,
-    WorkflowStatus.RUNNING,
-    WorkflowStatus.SUSPENDED,
-}
-
-# Statuses eligible for lease acquisition by the runner
-LEASABLE_STATUSES = {
-    WorkflowStatus.PENDING,
-    WorkflowStatus.RUNNING,
-}
-
-# A separate query handles AWAITING_POLL runs when their next_poll_at is due
-POLLABLE_STATUS = WorkflowStatus.SUSPENDED
-
-
 class DependencyFailurePolicy(str, Enum):
     FAIL = "fail"
     SKIP = "skip"
+
+
+_ABSOLUTE_MAX_DELAY_SECONDS: float = 86_400.0  # 24 hours
+
+
+class RetryPolicy(BaseModel):
+    """Configurable retry behaviour for a step.
+
+    Attributes:
+        max_retries: Maximum number of retry attempts (0 = no retries).
+        delay_seconds: Initial delay before the first retry.
+        backoff_multiplier: Multiplier applied to delay after each attempt.
+            1.0 = fixed delay, 2.0 = exponential backoff.
+        max_delay_seconds: Upper bound on the computed delay. None = unlimited.
+    """
+
+    max_retries: int = 0
+    delay_seconds: float = 0
+    backoff_multiplier: float = 1.0
+    max_delay_seconds: float | None = None
+
+    def compute_delay(self, attempt: int) -> float:
+        """Return the delay in seconds before retry number *attempt* (1-based)."""
+        delay = self.delay_seconds * (self.backoff_multiplier ** (attempt - 1))
+        if self.max_delay_seconds is not None:
+            delay = min(delay, self.max_delay_seconds)
+        return min(delay, _ABSOLUTE_MAX_DELAY_SECONDS)
 
 
 class StepRun(BaseModel):
@@ -66,6 +76,11 @@ class StepRun(BaseModel):
     # PollingStep fields
     next_poll_at: datetime | None = None
     poll_started_at: datetime | None = None
+    last_polled_at: datetime | None = None
+
+    # Retry fields
+    retry_count: int = 0
+    retry_after: datetime | None = None
 
     # Timestamps
     started_at: datetime | None = None
@@ -91,6 +106,9 @@ class WorkflowRun(BaseModel):
     lease_expires_at: datetime | None = None
     lease_renewed_at: datetime | None = None
 
+    # Work scheduling — materialized for query efficiency
+    needs_work_after: datetime | None = None
+
     # Optimistic concurrency
     doc_version: int = 0
 
@@ -103,3 +121,73 @@ class WorkflowRun(BaseModel):
 
     def is_terminal(self) -> bool:
         return self.status in {WorkflowStatus.COMPLETED, WorkflowStatus.FAILED}
+
+    def compute_status(self) -> WorkflowStatus:
+        """Derive workflow status from step states.
+
+        Priority order:
+        1. Any RUNNING step → RUNNING
+        2. Any PENDING step that is ready (deps met, no future retry_after) → RUNNING
+        3. Any waiting step (SUSPENDED, AWAITING_POLL, PENDING) → SUSPENDED
+        4. All terminal: FAILED if any failed, else COMPLETED
+        """
+        statuses = {s.status for s in self.steps}
+
+        if StepStatus.RUNNING in statuses:
+            return WorkflowStatus.RUNNING
+
+        if StepStatus.PENDING in statuses:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            completed_ids = {s.step_id for s in self.steps if s.status == StepStatus.COMPLETED}
+            for s in self.steps:
+                if s.status != StepStatus.PENDING:
+                    continue
+                if not set(s.depends_on).issubset(completed_ids):
+                    continue
+                if s.retry_after is not None and s.retry_after.replace(tzinfo=None) > now:
+                    continue
+                return WorkflowStatus.RUNNING
+
+        waiting = {StepStatus.SUSPENDED, StepStatus.AWAITING_POLL, StepStatus.PENDING}
+        if statuses & waiting:
+            return WorkflowStatus.SUSPENDED
+
+        if StepStatus.FAILED in statuses:
+            return WorkflowStatus.FAILED
+        return WorkflowStatus.COMPLETED
+
+    def compute_needs_work_after(self) -> datetime | None:
+        """Return the earliest time this run may have actionable work, or None.
+
+        Returns ``None`` when the run is terminal or only waiting on external
+        events (suspended EventSteps).  A past or present datetime means work
+        is available now.  A future datetime means scheduled work (poll check
+        due, retry due).
+        """
+        if self.is_terminal():
+            return None
+
+        completed_ids = {s.step_id for s in self.steps if s.status == StepStatus.COMPLETED}
+        now = datetime.now(UTC)
+        earliest: datetime | None = None
+
+        for s in self.steps:
+            candidate: datetime | None = None
+
+            if s.status == StepStatus.RUNNING:
+                candidate = now
+            elif s.status == StepStatus.PENDING:
+                if set(s.depends_on).issubset(completed_ids):
+                    candidate = s.retry_after if s.retry_after is not None else now
+            elif s.status == StepStatus.AWAITING_POLL:
+                candidate = s.next_poll_at if s.next_poll_at is not None else now
+
+            if candidate is not None:
+                earliest = min(earliest, candidate) if earliest is not None else candidate
+
+        return earliest
+
+    def recompute_status(self) -> None:
+        """Recompute ``status`` and ``needs_work_after`` from step states."""
+        self.status = self.compute_status()
+        self.needs_work_after = self.compute_needs_work_after()

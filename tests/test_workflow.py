@@ -91,7 +91,9 @@ class TestCreateRun:
         run = wf.create_run()
         assert run.workflow_name == "pipeline"
         assert run.workflow_version == "2.0"
-        assert run.status == WorkflowStatus.PENDING
+        # Status is computed: step "a" is PENDING with no deps → ready → RUNNING
+        assert run.status == WorkflowStatus.RUNNING
+        assert run.needs_work_after is not None
         assert len(run.steps) == 2
 
     def test_step_runs_have_correct_metadata(self):

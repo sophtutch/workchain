@@ -20,6 +20,11 @@ dev = [
     "pytest-asyncio>=0.23",
     "mongomock-motor>=0.0.20",
 ]
+examples = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "mongomock-motor>=0.0.20",
+]
 
 [tool.hatch.envs.hatch-test]
 extra-dependencies = [
@@ -55,6 +60,12 @@ ignore = [
 ]
 "workchain/steps.py" = [
     "ARG002",   # `context` param is part of the step interface even when unused in base
+]
+"examples/*" = [
+    "T201",     # print() is the intended output mechanism in examples
+    "SLF001",   # private member access needed to drive runner internals in demo
+    "ARG002",   # unused args match interface signatures
+    "PLR2004",  # magic values in display formatting are fine
 ]
 
 [tool.hatch.build.targets.wheel]
