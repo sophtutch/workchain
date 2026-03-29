@@ -87,55 +87,6 @@ class TestSaveWithVersion:
         assert run.updated_at >= original_updated
 
 
-class TestFindClaimable:
-    async def test_claims_pending_run(self, mongo_store):
-        run = _make_run(status=WorkflowStatus.PENDING)
-        await mongo_store.save(run)
-
-        claimed = await mongo_store.find_claimable()
-        assert claimed is not None
-        assert claimed.lease_owner == "worker-1"
-        assert claimed.lease_expires_at is not None
-
-    async def test_claims_running_run(self, mongo_store):
-        run = _make_run(status=WorkflowStatus.RUNNING)
-        await mongo_store.save(run)
-
-        claimed = await mongo_store.find_claimable()
-        assert claimed is not None
-
-    async def test_skips_completed_run(self, mongo_store):
-        run = _make_run(status=WorkflowStatus.COMPLETED)
-        await mongo_store.save(run)
-
-        assert await mongo_store.find_claimable() is None
-
-    async def test_skips_actively_leased_run(self, mongo_store):
-        run = _make_run(
-            status=WorkflowStatus.PENDING,
-            lease_owner="other-worker",
-            lease_expires_at=datetime.now(UTC) + timedelta(seconds=300),
-        )
-        await mongo_store.save(run)
-
-        assert await mongo_store.find_claimable() is None
-
-    async def test_claims_run_with_expired_lease(self, mongo_store):
-        run = _make_run(
-            status=WorkflowStatus.PENDING,
-            lease_owner="dead-worker",
-            lease_expires_at=datetime.now(UTC) - timedelta(seconds=10),
-        )
-        await mongo_store.save(run)
-
-        claimed = await mongo_store.find_claimable()
-        assert claimed is not None
-        assert claimed.lease_owner == "worker-1"
-
-    async def test_returns_none_when_empty(self, mongo_store):
-        assert await mongo_store.find_claimable() is None
-
-
 class TestFindByCorrelationId:
     async def test_finds_run_by_correlation_id(self, mongo_store):
         run = _make_run(
@@ -157,41 +108,6 @@ class TestFindByCorrelationId:
 
     async def test_returns_none_for_unknown_correlation(self, mongo_store):
         assert await mongo_store.find_by_correlation_id("no-such-id") is None
-
-
-class TestFindDuePolls:
-    async def test_finds_due_polls(self, mongo_store):
-        run = _make_run(
-            status=WorkflowStatus.SUSPENDED,
-            steps=[
-                StepRun(
-                    step_id="poll",
-                    step_type="PollStep",
-                    status=StepStatus.AWAITING_POLL,
-                    next_poll_at=datetime.now(UTC) - timedelta(seconds=10),
-                )
-            ],
-        )
-        await mongo_store.save(run)
-
-        due = await mongo_store.find_due_polls()
-        assert len(due) == 1
-
-    async def test_skips_future_polls(self, mongo_store):
-        run = _make_run(
-            status=WorkflowStatus.SUSPENDED,
-            steps=[
-                StepRun(
-                    step_id="poll",
-                    step_type="PollStep",
-                    status=StepStatus.AWAITING_POLL,
-                    next_poll_at=datetime.now(UTC) + timedelta(hours=1),
-                )
-            ],
-        )
-        await mongo_store.save(run)
-
-        assert await mongo_store.find_due_polls() == []
 
 
 class TestLeaseManagement:
@@ -272,6 +188,60 @@ class TestAcquireLeaseForResume:
         result = await mongo_store.acquire_lease_for_resume(run.id, "worker-1", 30)
         assert result is not None
         assert result.lease_owner == "worker-1"
+
+
+class TestFindActionable:
+    async def test_finds_run_with_past_needs_work_after(self, mongo_store):
+        run = _make_run(needs_work_after=datetime.now(UTC) - timedelta(seconds=10))
+        await mongo_store.save(run)
+
+        claimed = await mongo_store.find_actionable()
+        assert claimed is not None
+        assert claimed.lease_owner == "worker-1"
+
+    async def test_skips_future_needs_work_after(self, mongo_store):
+        run = _make_run(needs_work_after=datetime.now(UTC) + timedelta(hours=1))
+        await mongo_store.save(run)
+
+        assert await mongo_store.find_actionable() is None
+
+    async def test_skips_none_needs_work_after(self, mongo_store):
+        run = _make_run(needs_work_after=None)
+        await mongo_store.save(run)
+
+        assert await mongo_store.find_actionable() is None
+
+    async def test_skips_actively_leased(self, mongo_store):
+        run = _make_run(
+            needs_work_after=datetime.now(UTC) - timedelta(seconds=10),
+            lease_owner="other-worker",
+            lease_expires_at=datetime.now(UTC) + timedelta(seconds=300),
+        )
+        await mongo_store.save(run)
+
+        assert await mongo_store.find_actionable() is None
+
+    async def test_claims_expired_lease(self, mongo_store):
+        run = _make_run(
+            needs_work_after=datetime.now(UTC) - timedelta(seconds=10),
+            lease_owner="dead-worker",
+            lease_expires_at=datetime.now(UTC) - timedelta(seconds=10),
+        )
+        await mongo_store.save(run)
+
+        claimed = await mongo_store.find_actionable()
+        assert claimed is not None
+        assert claimed.lease_owner == "worker-1"
+
+    async def test_returns_earliest_due_first(self, mongo_store):
+        older = _make_run(needs_work_after=datetime.now(UTC) - timedelta(minutes=10))
+        newer = _make_run(needs_work_after=datetime.now(UTC) - timedelta(seconds=1))
+        await mongo_store.save(newer)
+        await mongo_store.save(older)
+
+        claimed = await mongo_store.find_actionable()
+        assert claimed is not None
+        assert claimed.id == older.id
 
 
 class TestEnsureIndexes:

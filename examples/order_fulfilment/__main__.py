@@ -218,17 +218,15 @@ async def run_demo() -> None:
         if ship_step and ship_step.next_poll_at:
             ship_step.next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
 
-        # Release lease so tick() can re-acquire
+        # Release lease and recompute so tick() can find it via needs_work_after
         run.lease_owner = None
         run.lease_expires_at = None
+        run.recompute_status()
+        await store.save_with_version(run)
 
         await asyncio.sleep(0.8)  # simulate passage of time between polls
 
         processed = await runner.tick()
-        if not processed:
-            # tick didn't find work -- save our manual changes and retry
-            await store.save_with_version(run)
-            processed = await runner.tick()
 
         run = await store.load(str(run.id))
         print_workflow_state(run)

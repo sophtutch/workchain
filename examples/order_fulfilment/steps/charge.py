@@ -55,7 +55,7 @@ class ChargePaymentStep(EventStep[ChargePaymentConfig]):
 
         return StepResult.suspend(correlation_id=correlation_id)
 
-    def on_resume(self, payload: dict[str, Any], context: Context) -> None:
+    def on_resume(self, payload: dict[str, Any], context: Context) -> dict[str, Any]:
         """Process the payment webhook callback."""
         success = payload.get("success", False)
         charge_id = payload.get("charge_id", "unknown")
@@ -64,19 +64,19 @@ class ChargePaymentStep(EventStep[ChargePaymentConfig]):
         if not success:
             error = payload.get("error", "Payment declined")
             step_log("charge", f"FAILED -- Payment FAILED: {error}")
-            context.set("payment_result", {"success": False, "error": error})
-            return
+            result = {"success": False, "error": error}
+            context.set("payment_result", result)
+            return result
 
         step_log("charge", f"OK -- Payment SUCCEEDED, charge_id: {charge_id}")
         if provider_ref:
             step_log("charge", f"  Provider ref: {provider_ref}")
 
-        context.set(
-            "payment_result",
-            {
-                "success": True,
-                "charge_id": charge_id,
-                "provider_ref": provider_ref,
-                "charged_at": datetime.now(UTC).isoformat(),
-            },
-        )
+        result = {
+            "success": True,
+            "charge_id": charge_id,
+            "provider_ref": provider_ref,
+            "charged_at": datetime.now(UTC).isoformat(),
+        }
+        context.set("payment_result", result)
+        return result

@@ -9,12 +9,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 
 from workchain.exceptions import ConcurrentModificationError, WorkflowRunNotFoundError
-from workchain.models import (
-    LEASABLE_STATUSES,
-    StepStatus,
-    WorkflowRun,
-    WorkflowStatus,
-)
+from workchain.models import WorkflowRun
 
 logger = logging.getLogger(__name__)
 
@@ -97,19 +92,17 @@ class MongoWorkflowStore:
     # Lease acquisition (atomic)
     # ------------------------------------------------------------------
 
-    async def find_claimable(self) -> WorkflowRun | None:
+    async def find_actionable(self) -> WorkflowRun | None:
         """
-        Atomically find and claim one eligible WorkflowRun.
-        Uses findOneAndUpdate to ensure only one runner wins.
+        Atomically find and claim one WorkflowRun that has actionable work
+        using the materialized ``needs_work_after`` field.
         """
         now = datetime.now(UTC)
         expires_at = now + timedelta(seconds=self._lease_ttl)
 
-        leasable = [s.value for s in LEASABLE_STATUSES]
-
         raw = await self._collection.find_one_and_update(
             {
-                "status": {"$in": leasable},
+                "needs_work_after": {"$lte": now},
                 "$or": [
                     {"lease_expires_at": None},
                     {"lease_expires_at": {"$lt": now}},
@@ -122,61 +115,14 @@ class MongoWorkflowStore:
                     "lease_renewed_at": now,
                 }
             },
-            return_document=True,  # return the updated document
+            sort=[("needs_work_after", 1)],
+            return_document=True,
         )
 
         if raw is None:
             return None
 
         return WorkflowRun.model_validate(raw)
-
-    # ------------------------------------------------------------------
-    # Poll scheduling
-    # ------------------------------------------------------------------
-
-    async def find_due_polls(self) -> list[WorkflowRun]:
-        """
-        Return runs that have at least one AWAITING_POLL step whose
-        next_poll_at is in the past, **or** a PENDING step whose retry_after
-        is in the past. Lease must be expired or absent.
-        """
-        now = datetime.now(UTC)
-        cursor = self._collection.find(
-            {
-                "status": WorkflowStatus.SUSPENDED.value,
-                "$or": [
-                    # Due poll checks
-                    {
-                        "steps": {
-                            "$elemMatch": {
-                                "status": StepStatus.AWAITING_POLL.value,
-                                "next_poll_at": {"$lte": now},
-                            }
-                        },
-                    },
-                    # Due retries
-                    {
-                        "steps": {
-                            "$elemMatch": {
-                                "status": StepStatus.PENDING.value,
-                                "retry_after": {"$lte": now},
-                            }
-                        },
-                    },
-                ],
-                # Lease guard (separate top-level condition using $and)
-                "$and": [
-                    {
-                        "$or": [
-                            {"lease_expires_at": None},
-                            {"lease_expires_at": {"$lt": now}},
-                        ]
-                    }
-                ],
-            }
-        )
-        docs = await cursor.to_list(length=None)
-        return [WorkflowRun.model_validate(doc) for doc in docs]
 
     # ------------------------------------------------------------------
     # Event step resume
@@ -220,7 +166,7 @@ class MongoWorkflowStore:
     async def acquire_lease_for_resume(self, run_id, owner_id: str, lease_ttl_seconds: int) -> WorkflowRun | None:
         """
         Atomically acquire a lease on a specific WorkflowRun for the resume path.
-        Unlike find_claimable(), this targets a specific run by ID regardless of status,
+        Unlike find_actionable(), this targets a specific run by ID regardless of status,
         but still requires the lease to be available (expired or None).
         Returns the leased run, or None if the lease could not be acquired.
         """
@@ -281,8 +227,6 @@ class MongoWorkflowStore:
         Create recommended indexes. Call once at application startup.
         Safe to call on an already-indexed collection.
         """
-        await self._collection.create_index([("status", 1), ("lease_expires_at", 1)])
+        await self._collection.create_index([("needs_work_after", 1), ("lease_expires_at", 1)], sparse=True)
         await self._collection.create_index([("steps.resume_correlation_id", 1)], sparse=True)
-        await self._collection.create_index([("steps.next_poll_at", 1), ("status", 1)], sparse=True)
-        await self._collection.create_index([("steps.retry_after", 1), ("status", 1)], sparse=True)
         logger.info("workchain: MongoDB indexes ensured on 'workflow_runs'.")

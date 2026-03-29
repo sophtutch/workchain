@@ -183,18 +183,20 @@ This enables **human-in-the-loop workflows** where a person or external system m
 
 ### PollingStep & Scheduling
 
-When `ProcessJobStep.execute()` returns `StepResult.poll(next_poll_at=...)`, the runner:
-1. Stores next_poll_at in `StepRun.next_poll_at`
+When `ProcessJobStep.execute()` returns `StepResult.poll()`, the runner:
+1. Computes `next_poll_at` from the step's `poll_interval_seconds`
 2. Marks step status as `awaiting_poll`
-3. Marks workflow status as `suspended`
-4. Releases the lease
+3. Recomputes workflow status (typically `suspended`)
+4. Sets `needs_work_after` on the run so it is discoverable when the poll is due
+5. Releases the lease
 
 On the next runner tick (or a different runner):
-1. If current time >= next_poll_at:
+1. If `needs_work_after <= now` (poll is due):
    - Calls `step.check(context)` to see if condition is met
+   - Records `last_polled_at` on the step
    - If True: calls `on_complete()`, marks step `completed`
-   - If False: calls `execute()` again to reschedule: `StepResult.poll(next_poll_at=...)`
-2. If timeout_seconds exceeded: marks step `failed`, propagates failure
+   - If False: derives `next_poll_at` from `last_polled_at + poll_interval_seconds`
+2. If `timeout_seconds` exceeded: marks step `failed`, propagates failure
 
 This enables **polling of async jobs** without holding resources. Another runner or a scheduled task can pick up the check later.
 

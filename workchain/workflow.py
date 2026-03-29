@@ -141,12 +141,14 @@ class Workflow:
             )
             for s in self._steps
         ]
-        return WorkflowRun(
+        run = WorkflowRun(
             workflow_name=self.name,
             workflow_version=self.version,
             status=WorkflowStatus.PENDING,
             steps=steps,
         )
+        run.recompute_status()
+        return run
 
     def get_step_definitions(self) -> list[StepDefinition]:
         return list(self._steps)

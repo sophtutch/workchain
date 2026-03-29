@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from datetime import UTC, datetime
 
 from mongomock_motor import AsyncMongoMockClient
 
@@ -40,7 +41,6 @@ from examples.document_approval.steps import (
     SendNotificationStep,
 )
 from workchain import (
-    Context,
     DependencyFailurePolicy,
     MongoWorkflowStore,
     Workflow,
@@ -238,8 +238,6 @@ async def run_auto_approve() -> None:
     # Reset lease so runner can claim again
     run.lease_owner = None
     run.lease_expires_at = None
-    # The runner already set status to RUNNING/SUSPENDED — find_claimable needs it claimable
-    # After resume, the run has pending steps so it should be RUNNING
     run = await tick_until_suspended_or_done(runner, store, run)
 
     # If suspended for polling, keep ticking with poll intervals
@@ -247,18 +245,17 @@ async def run_auto_approve() -> None:
         # Simulate time passing for poll checks
         poll_step = run.get_step("process")
         if poll_step and poll_step.next_poll_at:
-            poll_step.next_poll_at = poll_step.next_poll_at.__class__.now(tz=None)
+            from datetime import timedelta
+
+            poll_step.next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
         run.lease_owner = None
         run.lease_expires_at = None
-        # Drive poll checks directly
-        context = Context.from_dict(run.context)
-        await runner._check_due_polls(run, context)
-        run.context = context.to_dict()
+        run.recompute_status()
         await store.save_with_version(run)
+
+        await runner.tick()
+        run = await store.load(str(run.id))
         print_workflow_state(run)
-        if run.status != WorkflowStatus.SUSPENDED:
-            break
-        run = await tick_until_suspended_or_done(runner, store, run)
 
     print(f"\nWorkflow finished: {run.status.value.upper()}")
 

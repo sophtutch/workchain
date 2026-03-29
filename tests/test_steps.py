@@ -31,6 +31,11 @@ class TestStepResult:
         assert r.outcome == StepOutcome.POLL
         assert r.next_poll_at == t
 
+    def test_poll_no_args(self):
+        r = StepResult.poll()
+        assert r.outcome == StepOutcome.POLL
+        assert r.next_poll_at is None
+
     def test_fail(self):
         r = StepResult.fail(error="something broke")
         assert r.outcome == StepOutcome.FAILED
@@ -81,8 +86,9 @@ class TestPollingStep:
         step = CountingPollStep()
         result = step.execute(Context())
         assert result.outcome == StepOutcome.POLL
-        assert result.next_poll_at is not None
-        assert result.next_poll_at > datetime.now(UTC) - timedelta(seconds=5)
+        # Default execute() returns poll without explicit next_poll_at;
+        # the runner derives timing from poll_interval_seconds
+        assert result.next_poll_at is None
 
     def test_check_completes_after_threshold(self):
         step = CountingPollStep(checks_until_done=2)
@@ -104,3 +110,27 @@ class TestPollingStep:
 
         step = BarePollingStep()
         assert step.on_complete(Context()) == {}
+
+    def test_poll_interval_zero_raises(self):
+        import pytest
+
+        class ZeroPollStep(PollingStep):
+            poll_interval_seconds = 0
+
+            def check(self, context):
+                return True
+
+        with pytest.raises(ValueError, match="poll_interval_seconds must be positive"):
+            ZeroPollStep()
+
+    def test_poll_interval_negative_raises(self):
+        import pytest
+
+        class NegativePollStep(PollingStep):
+            poll_interval_seconds = -5
+
+            def check(self, context):
+                return True
+
+        with pytest.raises(ValueError, match="poll_interval_seconds must be positive"):
+            NegativePollStep()

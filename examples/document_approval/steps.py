@@ -99,25 +99,25 @@ class ApprovalStep(EventStep):
         print(f"  [approve] Suspended, awaiting approval (correlation_id: {correlation_id})")
         return StepResult.suspend(correlation_id=correlation_id)
 
-    def on_resume(self, payload: dict[str, Any], context: Context) -> None:
+    def on_resume(self, payload: dict[str, Any], context: Context) -> dict[str, Any]:
         approved = payload.get("approved", False)
         approver = payload.get("approver", "Unknown")
         notes = payload.get("notes", "")
 
-        context.set(
-            "approval_decision",
-            {
-                "approved": approved,
-                "approver": approver,
-                "notes": notes,
-                "approved_at": datetime.now(UTC).isoformat(),
-            },
-        )
+        decision = {
+            "approved": approved,
+            "approver": approver,
+            "notes": notes,
+            "approved_at": datetime.now(UTC).isoformat(),
+        }
+        context.set("approval_decision", decision)
 
         status = "APPROVED" if approved else "REJECTED"
         print(f"  [approve] {status} by {approver}")
         if notes:
             print(f"            Notes: {notes}")
+
+        return decision
 
 
 # ============================================================================

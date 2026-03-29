@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from typing import Any, Generic, TypeVar
 
@@ -44,8 +44,12 @@ class StepResult(BaseModel):
         return cls(outcome=StepOutcome.SUSPEND, correlation_id=correlation_id)
 
     @classmethod
-    def poll(cls, next_poll_at: datetime) -> StepResult:
-        """Reschedule a poll check at next_poll_at."""
+    def poll(cls, next_poll_at: datetime | None = None) -> StepResult:
+        """Reschedule a poll check.
+
+        If *next_poll_at* is omitted the runner derives the next poll time
+        from the step's ``poll_interval_seconds``.
+        """
         return cls(outcome=StepOutcome.POLL, next_poll_at=next_poll_at)
 
     @classmethod
@@ -110,11 +114,13 @@ class EventStep(Step[ConfigT]):
         """
         ...
 
-    def on_resume(self, payload: dict[str, Any], context: Context) -> None:
+    def on_resume(self, payload: dict[str, Any], context: Context) -> dict[str, Any]:
         """
         Called when the workflow is resumed via runner.resume(correlation_id, payload).
         Write any results into context as needed.
+        Return a dict to be stored as the step's output.
         """
+        return {}
 
 
 class PollingStep(Step[ConfigT]):
@@ -131,11 +137,20 @@ class PollingStep(Step[ConfigT]):
     poll_interval_seconds: int = 30
     timeout_seconds: int | None = None
 
-    def execute(self, context: Context) -> StepResult:
-        """Default implementation schedules the first poll immediately."""
-        from datetime import timedelta
+    def __init__(self, config: ConfigT | None = None) -> None:
+        super().__init__(config)
+        if self.poll_interval_seconds <= 0:
+            raise ValueError(
+                f"poll_interval_seconds must be positive, got {self.poll_interval_seconds}"
+            )
 
-        return StepResult.poll(next_poll_at=datetime.now(UTC) + timedelta(seconds=self.poll_interval_seconds))
+    def execute(self, context: Context) -> StepResult:
+        """Default implementation schedules the first poll.
+
+        Returns ``StepResult.poll()`` without an explicit *next_poll_at*;
+        the runner derives timing from ``poll_interval_seconds``.
+        """
+        return StepResult.poll()
 
     @abstractmethod
     def check(self, context: Context) -> bool:

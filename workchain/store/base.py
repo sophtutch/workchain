@@ -39,23 +39,14 @@ class WorkflowStore(Protocol):
         """
         ...
 
-    async def find_claimable(self) -> WorkflowRun | None:
+    async def find_actionable(self) -> WorkflowRun | None:
         """
-        Atomically find and lease one WorkflowRun that is eligible for processing:
-        - status in LEASABLE_STATUSES
+        Atomically find and lease one WorkflowRun that has actionable work:
+        - needs_work_after <= now
         - lease_expires_at is None or in the past
 
         Returns the leased run, or None if nothing is available.
-        This must be implemented as a single atomic findOneAndUpdate.
-        """
-        ...
-
-    async def find_due_polls(self) -> list[WorkflowRun]:
-        """
-        Return WorkflowRuns with status SUSPENDED that have at least one step
-        in AWAITING_POLL status whose next_poll_at <= now, **or** a PENDING step
-        whose retry_after <= now.
-        These runs are candidates for the poll/retry scheduler to re-activate.
+        Sorted by needs_work_after ascending (earliest-due first).
         """
         ...
 
@@ -80,7 +71,7 @@ class WorkflowStore(Protocol):
     async def acquire_lease_for_resume(self, run_id, owner_id: str, lease_ttl_seconds: int) -> WorkflowRun | None:
         """
         Atomically acquire a lease on a specific WorkflowRun for the resume path.
-        Unlike find_claimable(), this targets a specific run by ID regardless of status,
+        Unlike find_actionable(), this targets a specific run by ID regardless of status,
         but still requires the lease to be available (expired or None).
         Returns the leased run, or None if the lease could not be acquired.
         """

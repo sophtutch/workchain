@@ -14,7 +14,7 @@ from workchain.exceptions import (
     StepNotFoundError,
     WorkflowRunNotFoundError,
 )
-from workchain.models import DependencyFailurePolicy, RetryPolicy, StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from workchain.models import DependencyFailurePolicy, RetryPolicy, StepRun, StepStatus, WorkflowRun
 from workchain.steps import EventStep, PollingStep, Step, StepOutcome, StepResult
 from workchain.store.base import WorkflowStore
 from workchain.workflow import Workflow
@@ -180,24 +180,14 @@ class WorkflowRunner:
         """
         Attempt to claim and process one WorkflowRun.
 
-        Checks two sources of work:
-        1. Claimable runs (PENDING/RUNNING with expired or no lease)
-        2. Due poll runs (SUSPENDED with AWAITING_POLL steps whose next_poll_at has passed)
+        Uses ``find_actionable()`` which unifies claimable runs and due
+        poll/retry runs into a single query on ``needs_work_after``.
 
         Returns True if a run was processed, False if nothing was available.
         """
-        # 1. Try to claim a run that needs step execution
-        run = await self.store.find_claimable()
+        run = await self.store.find_actionable()
         if run is not None:
             return await self._process_claimed_run(run)
-
-        # 2. Check for SUSPENDED runs with due poll checks
-        due_runs = await self.store.find_due_polls()
-        for run in due_runs:
-            leased_run = await self.store.acquire_lease_for_resume(run.id, self.instance_id, self.lease_ttl)
-            if leased_run is not None:
-                return await self._process_claimed_run(leased_run)
-
         return False
 
     async def _process_claimed_run(self, run: WorkflowRun) -> bool:
@@ -210,7 +200,7 @@ class WorkflowRunner:
         )
         heartbeat = self._start_heartbeat(str(run.id))
         try:
-            await self._process_run(run)
+            await self._process_run(run, heartbeat=heartbeat)
         except ConcurrentModificationError:
             logger.warning(
                 "WorkflowRunner[%s] concurrent modification on run %s — aborting.",
@@ -252,13 +242,30 @@ class WorkflowRunner:
             context = Context.from_dict(run.context)
             step_instance = self._get_step_instance(step_run, run)
 
-            assert isinstance(step_instance, EventStep)
-            step_instance.on_resume(payload, context)
+            if not isinstance(step_instance, EventStep):
+                raise TypeError(
+                    f"Step '{step_run.step_id}' ({step_run.step_type}) is not an EventStep"
+                )
 
-            step_run = run.get_step(step_run.step_id)
-            assert step_run is not None
-            self._complete_step(run, step_run, output={}, context=context)
-            await self._continue_run(run, context)
+            step_id = step_run.step_id
+            try:
+                output = step_instance.on_resume(payload, context) or {}
+            except Exception as exc:
+                logger.exception("Step '%s' on_resume() raised an exception.", step_id)
+                step_run.status = StepStatus.FAILED
+                step_run.error = str(exc)
+                step_run.completed_at = datetime.now(UTC)
+                self._propagate_failure(run, step_id)
+                run.recompute_status()
+                run.context = context.to_dict()
+                await self.store.save_with_version(run)
+                return
+
+            step_run = run.get_step(step_id)
+            if step_run is None:
+                raise WorkflowRunNotFoundError(step_id)
+            self._complete_step(run, step_run, output=output, context=context)
+            await self._continue_run(run, context, heartbeat=heartbeat)
         except ConcurrentModificationError:
             logger.warning("Concurrent modification during resume of run %s.", run.id)
         finally:
@@ -269,17 +276,29 @@ class WorkflowRunner:
     # Internal execution logic
     # ------------------------------------------------------------------
 
-    async def _process_run(self, run: WorkflowRun) -> None:
+    async def _process_run(
+        self,
+        run: WorkflowRun,
+        *,
+        heartbeat: _AsyncHeartbeat | None = None,
+    ) -> None:
         """Main processing loop for a single WorkflowRun."""
-        run.status = WorkflowStatus.RUNNING
+        self._validate_registry(run)
+        run.recompute_status()
         context = Context.from_dict(run.context)
 
         # Handle any steps waking from AWAITING_POLL
         await self._check_due_polls(run, context)
 
-        await self._continue_run(run, context)
+        await self._continue_run(run, context, heartbeat=heartbeat)
 
-    async def _continue_run(self, run: WorkflowRun, context: Context) -> None:
+    async def _continue_run(
+        self,
+        run: WorkflowRun,
+        context: Context,
+        *,
+        heartbeat: _AsyncHeartbeat | None = None,
+    ) -> None:
         """Execute all currently ready steps, then assess overall workflow state."""
         while True:
             ready = self._get_ready_steps(run)
@@ -291,6 +310,9 @@ class WorkflowRunner:
                 # Persist after every step
                 run.context = context.to_dict()
                 await self.store.save_with_version(run)
+
+                if heartbeat is not None and heartbeat.lease_lost.is_set():
+                    raise ConcurrentModificationError(str(run.id))
 
         self._assess_workflow_status(run, context)
         run.context = context.to_dict()
@@ -343,7 +365,6 @@ class WorkflowRunner:
         elif result.outcome == StepOutcome.SUSPEND:
             step_run.status = StepStatus.SUSPENDED
             step_run.resume_correlation_id = result.correlation_id
-            run.status = WorkflowStatus.SUSPENDED
             logger.info(
                 "Step '%s' suspended. correlation_id=%s",
                 step_run.step_id,
@@ -352,14 +373,18 @@ class WorkflowRunner:
 
         elif result.outcome == StepOutcome.POLL:
             step_run.status = StepStatus.AWAITING_POLL
-            step_run.next_poll_at = result.next_poll_at
+            if result.next_poll_at is not None:
+                step_run.next_poll_at = result.next_poll_at
+            else:
+                step_instance = self._get_step_instance(step_run, run)
+                interval = getattr(step_instance, "poll_interval_seconds", 30)
+                step_run.next_poll_at = now + timedelta(seconds=interval)
             if step_run.poll_started_at is None:
                 step_run.poll_started_at = now
-            run.status = WorkflowStatus.SUSPENDED
             logger.info(
                 "Step '%s' scheduled for poll at %s.",
                 step_run.step_id,
-                result.next_poll_at,
+                step_run.next_poll_at,
             )
 
         elif result.outcome == StepOutcome.FAILED:
@@ -423,14 +448,18 @@ class WorkflowRunner:
     async def _execute_poll_check(self, run: WorkflowRun, step_run: StepRun, context: Context) -> None:
         """Invoke check() on a PollingStep and handle the result."""
         step_instance = self._get_step_instance(step_run, run)
-        assert isinstance(
-            step_instance, PollingStep
-        ), f"Step '{step_run.step_id}' is AWAITING_POLL but is not a PollingStep."
+        if not isinstance(step_instance, PollingStep):
+            raise TypeError(
+                f"Step '{step_run.step_id}' is AWAITING_POLL but is not a PollingStep."
+            )
 
         # Timeout check
-        if step_instance.timeout_seconds is not None and step_run.poll_started_at:
+        if step_instance.timeout_seconds is not None:
+            if step_run.poll_started_at is None:
+                step_run.poll_started_at = datetime.now(UTC)
             elapsed = (_utcnow_naive() - step_run.poll_started_at.replace(tzinfo=None)).total_seconds()
-            if elapsed > step_instance.timeout_seconds:
+            if elapsed >= step_instance.timeout_seconds:
+                step_run.last_polled_at = datetime.now(UTC)
                 step_run.status = StepStatus.FAILED
                 step_run.error = "PollingStep timed out."
                 step_run.completed_at = datetime.now(UTC)
@@ -440,17 +469,28 @@ class WorkflowRunner:
         try:
             done = step_instance.check(context)
         except Exception as exc:
+            step_run.last_polled_at = datetime.now(UTC)
             step_run.status = StepStatus.FAILED
             step_run.error = str(exc)
             step_run.completed_at = datetime.now(UTC)
             self._propagate_failure(run, step_run.step_id)
             return
 
+        step_run.last_polled_at = datetime.now(UTC)
+
         if done:
-            output = step_instance.on_complete(context)
+            try:
+                output = step_instance.on_complete(context)
+            except Exception as exc:
+                logger.exception("Step '%s' on_complete() raised an exception.", step_run.step_id)
+                step_run.status = StepStatus.FAILED
+                step_run.error = str(exc)
+                step_run.completed_at = datetime.now(UTC)
+                self._propagate_failure(run, step_run.step_id)
+                return
             self._complete_step(run, step_run, output, context)
         else:
-            step_run.next_poll_at = datetime.now(UTC) + timedelta(seconds=step_instance.poll_interval_seconds)
+            step_run.next_poll_at = step_run.last_polled_at + timedelta(seconds=step_instance.poll_interval_seconds)
             logger.debug(
                 "Step '%s' poll check returned False. Next at %s.",
                 step_run.step_id,
@@ -502,32 +542,11 @@ class WorkflowRunner:
                 changed = True
 
     def _assess_workflow_status(self, run: WorkflowRun, context: Context) -> None:
-        """Determine and set the overall WorkflowRun status."""
-        statuses = {s.status for s in run.steps}
-
-        # If any step is actively RUNNING, keep RUNNING
-        if StepStatus.RUNNING in statuses:
-            run.status = WorkflowStatus.RUNNING
-            return
-
-        # If there are PENDING steps that can actually execute now, keep RUNNING
-        if StepStatus.PENDING in statuses and self._get_ready_steps(run):
-            run.status = WorkflowStatus.RUNNING
-            return
-
-        # If any step is suspended, polling, or pending-but-blocked, workflow is SUSPENDED
-        waiting = {StepStatus.SUSPENDED, StepStatus.AWAITING_POLL, StepStatus.PENDING}
-        if statuses & waiting:
-            run.status = WorkflowStatus.SUSPENDED
-            return
-
-        # All steps are in terminal states (COMPLETED, FAILED, SKIPPED)
-        if StepStatus.FAILED in statuses:
-            run.status = WorkflowStatus.FAILED
-        else:
-            run.status = WorkflowStatus.COMPLETED
-
-        logger.info("WorkflowRun %s finished with status: %s", run.id, run.status)
+        """Recompute and set the overall WorkflowRun status from step states."""
+        old_status = run.status
+        run.recompute_status()
+        if run.is_terminal() and old_status != run.status:
+            logger.info("WorkflowRun %s finished with status: %s", run.id, run.status)
 
     # ------------------------------------------------------------------
     # Step instantiation
@@ -567,6 +586,20 @@ class WorkflowRunner:
         # Fallback: instantiate without config (caller must ensure config is not needed)
         return step_class()
 
+    def _validate_registry(self, run: WorkflowRun) -> None:
+        """Check that all step types in the run exist in the registry.
+
+        Raises StepNotFoundError immediately rather than discovering a
+        missing step type mid-execution when some steps have already
+        completed.  Skipped when a workflow blueprint is provided since
+        ``_get_step_instance`` uses the blueprint directly.
+        """
+        if self.workflow is not None:
+            return
+        for step_run in run.steps:
+            if step_run.step_type not in self.registry:
+                raise StepNotFoundError(step_run.step_type)
+
     # ------------------------------------------------------------------
     # Heartbeat
     # ------------------------------------------------------------------
@@ -605,6 +638,7 @@ class _AsyncHeartbeat:
         self._owner_id = owner_id
         self._ttl = ttl
         self._task: asyncio.Task | None = None
+        self.lease_lost = asyncio.Event()
 
     def start(self):
         self._task = asyncio.create_task(self._run())
@@ -621,6 +655,7 @@ class _AsyncHeartbeat:
                 renewed = await self._store.renew_lease(self._run_id, self._owner_id, self._ttl)
                 if not renewed:
                     logger.warning("Heartbeat lost lease for run %s", self._run_id)
+                    self.lease_lost.set()
                     return
         except asyncio.CancelledError:
             return
