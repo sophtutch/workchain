@@ -12,9 +12,10 @@ from workchain.exceptions import (
     WorkflowValidationError,
 )
 from workchain.models import DependencyFailurePolicy, RetryPolicy, StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from workchain.mongo_store import MongoWorkflowStore
 from workchain.runner import WorkflowRunner
 from workchain.steps import EventStep, PollingStep, Step, StepOutcome, StepResult
-from workchain.store import MongoWorkflowStore, WorkflowStore
+from workchain.store import WorkflowStore
 from workchain.watcher import WorkflowEvent, WorkflowEventType, WorkflowWatcher
 from workchain.workflow import StepDefinition, Workflow
 

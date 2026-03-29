@@ -14,9 +14,8 @@ workchain/
 ├── steps.py          — Step, EventStep, PollingStep base classes + StepResult
 ├── workflow.py       — Workflow builder + DAG validation (Kahn's algorithm)
 ├── runner.py         — WorkflowRunner: DAG resolution, leasing, heartbeat thread
-└── store/
-    ├── base.py       — WorkflowStore protocol
-    └── mongo.py      — MongoWorkflowStore (pydantic-mongo, atomic ops)
+├── store.py          — WorkflowStore protocol
+└── mongo_store.py    — MongoWorkflowStore (pydantic-mongo, atomic ops)
 ```
 
 ## Key design decisions
@@ -127,5 +126,5 @@ Call `store.ensure_indexes()` once at application startup. Indexes are on:
 ## Files NOT to modify without reading SPEC.md first
 
 - `models.py` — changing field names affects all persisted documents
-- `store/mongo.py` — the lease acquisition query is carefully crafted; changes risk race conditions
+- `mongo_store.py` — the lease acquisition query is carefully crafted; changes risk race conditions
 - `runner.py` `_propagate_failure()` — iterative logic is intentional to handle cascading failures

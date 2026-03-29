@@ -16,7 +16,7 @@ from workchain.exceptions import (
 )
 from workchain.models import DependencyFailurePolicy, RetryPolicy, StepRun, StepStatus, WorkflowRun
 from workchain.steps import EventStep, PollingStep, Step, StepOutcome, StepResult
-from workchain.store.base import WorkflowStore
+from workchain.store import WorkflowStore
 from workchain.workflow import Workflow
 
 logger = logging.getLogger(__name__)
