@@ -166,9 +166,8 @@ workchain/
 ├── steps.py          — Step, EventStep, PollingStep base classes + StepResult
 ├── watcher.py        — MongoDB Change Stream watcher for workflow events
 ├── workflow.py       — Workflow builder + DAG validation (Kahn's algorithm)
-└── store/
-    ├── base.py       — WorkflowStore protocol
-    └── mongo.py      — MongoWorkflowStore (motor, atomic ops)
+├── store.py          — WorkflowStore protocol
+└── mongo_store.py    — MongoWorkflowStore (motor, atomic ops)
 ```
 
 ## Full Specification

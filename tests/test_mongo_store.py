@@ -1,4 +1,4 @@
-"""Tests for workchain.store.mongo — MongoWorkflowStore with mongomock-motor."""
+"""Tests for workchain.mongo_store — MongoWorkflowStore with mongomock-motor."""
 
 from __future__ import annotations
 
