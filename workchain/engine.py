@@ -12,9 +12,11 @@ import platform
 import signal
 import traceback
 import uuid
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from workchain.decorators import get_handler
 from workchain.models import (

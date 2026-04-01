@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from workchain.models import PollPolicy, RetryPolicy
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Global step registry: handler_name -> callable
 _STEP_REGISTRY: dict[str, Callable] = {}
