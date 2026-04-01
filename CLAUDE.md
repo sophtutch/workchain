@@ -2,42 +2,47 @@
 
 ## What this is
 
-`workchain` is a Python library for programmatic construction and execution of **persistent, multi-step workflows**. Steps are arranged in a DAG, state is persisted to MongoDB via `pydantic-mongo`, and distributed execution is safe via TTL leases + optimistic locking.
+`workchain` is a Python library for programmatic construction and execution of **persistent, multi-step workflows**. Steps execute sequentially, state is persisted to MongoDB via `motor`, and distributed execution is safe via TTL-based locks + fence tokens (optimistic locking).
 
 ## Architecture
 
 ```
 workchain/
-├── exceptions.py     — All custom exception types
-├── models.py         — Pydantic/Mongo documents: WorkflowRun, StepRun, enums
-├── context.py        — JSON-safe shared runtime state between steps
-├── steps.py          — Step, EventStep, PollingStep base classes + StepResult
-├── workflow.py       — Workflow builder + DAG validation (Kahn's algorithm)
-├── runner.py         — WorkflowRunner: DAG resolution, leasing, heartbeat thread
-├── store.py          — WorkflowStore protocol
-└── mongo_store.py    — MongoWorkflowStore (pydantic-mongo, atomic ops)
+├── models.py       — Pydantic models: Workflow, Step, enums, policies
+├── decorators.py   — @step / @async_step decorators + handler registry
+├── engine.py       — WorkflowEngine: claim loop, heartbeat, sweep, execution
+├── store.py        — MongoWorkflowStore: persistence + distributed locking
+├── retry.py        — Retry utilities wrapping tenacity with RetryPolicy
+└── example.py      — Complete working example (user onboarding)
 ```
 
 ## Key design decisions
 
-**Separation of static config and runtime state**
-- `Workflow` / `StepDefinition` — immutable blueprint, holds step instances with config
-- `WorkflowRun` / `StepRun` — mutable runtime state, persisted to MongoDB
-- `Context` — JSON-serializable shared dict, persisted on `WorkflowRun.context`
+**Sequential step execution**
+- Steps execute in order (`current_step_index` advances linearly)
+- `Workflow` holds the full step list and shared `context` dict
+- No DAG — steps are a flat list
 
-**Three step types**
-- `Step` — synchronous; returns `StepResult.complete(output={...})`
-- `EventStep` — suspends workflow; returns `StepResult.suspend(correlation_id=...)`; resumed externally via `runner.resume(correlation_id, payload)`
-- `PollingStep` — retries `check()` on an interval; returns `StepResult.poll(next_poll_at=...)`
+**Two step modes**
+- **Sync steps** (`@step`): execute handler, persist result, advance immediately
+- **Async steps** (`@async_step`): submit work, set BLOCKED, release lock, poll `completeness_check` on subsequent claims until complete
 
 **Distributed safety**
-- Lease acquisition is a single atomic `findOneAndUpdate` — only one runner wins
-- All saves use `replace_one({"_id": ..., "doc_version": N})` — raises `ConcurrentModificationError` if version mismatches
-- Heartbeat thread renews lease every `ttl/2` seconds; dies with the process so leases naturally expire on crash
+- Lock acquisition via atomic `findOneAndUpdate` — only one instance wins
+- `fence_token` increments on each claim; all writes are fenced (`{"fence_token": N}`)
+- Heartbeat loop renews lock TTL; stale locks expire and are reclaimed
+- Sweep loop detects anomalies (stuck steps, stale locks, unadvanaced completed steps)
 
-**Failure propagation**
-- Each step has `on_dependency_failure: "fail" | "skip"`
-- Propagation runs iteratively until no new dependents are affected
+**Crash-safe state machine**
+- Before execution: step is marked SUBMITTED (write-ahead)
+- On recovery: `verify_completion` / `completeness_check` / idempotent re-run / NEEDS_REVIEW
+- Each retry attempt is persisted to MongoDB before execution
+
+**Claim-poll-release cycle (async steps)**
+1. Claim workflow, execute handler (submission), set BLOCKED, schedule `next_poll_at`, release lock
+2. Fast sweep rediscovers workflow when `next_poll_at` passes
+3. Claim, run one `completeness_check`, if not done → schedule next poll, release lock
+4. Repeat until complete or timeout/max_polls exceeded
 
 ## Development setup
 
@@ -51,80 +56,69 @@ pip install -e ".[dev]"
 pytest tests/
 ```
 
-## Adding a new Step type
+## Defining steps
 
-1. Subclass `Step`, `EventStep`, or `PollingStep` from `workchain.steps`
-2. Define an inner `Config(BaseModel)` class with your step's fields
-3. Implement `execute(context)` (and `on_resume` / `check` / `on_complete` as needed)
-4. Register it in the runner's `registry` dict: `{"MyStep": MyStep}`
+Use the `@step` and `@async_step` decorators. Handlers receive `(config: dict, context: dict)` and return a result dict.
 
 ```python
-from pydantic import BaseModel
-from workchain import Step, StepResult, Context
+from workchain import step, async_step, RetryPolicy, PollPolicy
 
-class SendEmailConfig(BaseModel):
-    to: str
-    subject: str
+@step(name="validate_input")
+async def validate_input(config: dict, context: dict) -> dict:
+    email = config["email"]
+    if "@" not in email:
+        raise ValueError(f"Invalid email: {email}")
+    return {"validated": True, "email": email}
 
-class SendEmailStep(Step[SendEmailConfig]):
-    Config = SendEmailConfig
+async def check_provisioning(config, context, result) -> bool | dict:
+    # Return True, or a PollHint dict with {complete, progress, message, retry_after}
+    return {"complete": False, "progress": 0.5, "message": "In progress"}
 
-    def execute(self, context: Context) -> StepResult:
-        send_email(self.config.to, self.config.subject)
-        return StepResult.complete(output={"sent": True})
-```
-
-## Building and starting a workflow
-
-```python
-from pymongo import MongoClient
-from workchain import Workflow, WorkflowRunner, MongoWorkflowStore
-
-store = MongoWorkflowStore(
-    client=MongoClient("mongodb://localhost:27017"),
-    database="myapp",
-    owner_id="worker-1",
+@async_step(
+    name="provision",
+    completeness_check=check_provisioning,
+    poll=PollPolicy(interval=5.0, timeout=300.0),
 )
-store.ensure_indexes()
-
-registry = {"SendEmailStep": SendEmailStep, "FetchStep": FetchStep}
-
-workflow = (
-    Workflow(name="onboarding", version="1.0.0")
-    .add("fetch",  FetchStep(config=FetchConfig(url="...")))
-    .add("notify", SendEmailStep(config=SendEmailConfig(to="user@example.com", subject="Welcome")), depends_on=["fetch"])
-)
-
-run = workflow.create_run()
-store.save(run)
-
-runner = WorkflowRunner(store=store, registry=registry, workflow=workflow)
-runner.start()  # blocking loop; call runner.tick() for single-step processing
+async def provision(config: dict, context: dict) -> dict:
+    job_id = start_provisioning(context["user_id"])
+    return {"job_id": job_id}
 ```
 
-## Resuming a suspended EventStep
+## Building and running a workflow
 
 ```python
-runner.resume(correlation_id="abc-123", payload={"approved": True})
+from motor.motor_asyncio import AsyncIOMotorClient
+from workchain import Workflow, Step, StepConfig, WorkflowEngine, MongoWorkflowStore
+
+client = AsyncIOMotorClient("mongodb://localhost:27017")
+store = MongoWorkflowStore(client["myapp"], lock_ttl_seconds=30)
+
+workflow = Workflow(
+    name="onboarding",
+    steps=[
+        Step(name="validate", handler="validate_input", config=StepConfig(data={"email": "a@b.com"})),
+        Step(name="provision", handler="provision", is_async=True,
+             completeness_check="myapp.steps.check_provisioning"),
+    ],
+)
+
+await store.insert(workflow)
+engine = WorkflowEngine(store)
+await engine.start()   # runs claim loop, heartbeat, sweep
+# ...
+await engine.stop()    # graceful shutdown, releases all locks
 ```
-
-## MongoDB index setup
-
-Call `store.ensure_indexes()` once at application startup. Indexes are on:
-- `{status, lease_expires_at}` — for efficient lease acquisition
-- `{steps.resume_correlation_id}` — for fast event resume lookups
-- `{steps.next_poll_at, status}` — for poll scheduling
 
 ## Conventions
 
-- All context values must be JSON-serializable. `Context.set()` enforces this at write time.
-- Step `output` dicts (stored on `StepRun`) follow the same constraint.
-- `WorkflowRun.doc_version` must never be manually set — only `save_with_version()` should increment it.
-- Never hold a lease longer than `lease_ttl` without the heartbeat running.
-- `WorkflowRunner.instance_id` should be unique per process (defaults to `uuid4()` on startup).
+- All context values and step result dicts must be JSON-serializable.
+- `fence_token` is managed by the store — never set it manually.
+- `WorkflowEngine.instance_id` should be unique per process (auto-generated if omitted).
+- Step handlers must be async functions registered via decorators or importable by dotted path.
+- `PollHint.progress` must be between 0.0 and 1.0.
 
-## Files NOT to modify without reading SPEC.md first
+## Files to modify with care
 
-- `models.py` — changing field names affects all persisted documents
-- `mongo_store.py` — the lease acquisition query is carefully crafted; changes risk race conditions
-- `runner.py` `_propagate_failure()` — iterative logic is intentional to handle cascading failures
+- `store.py` — the lock acquisition query and fence-guarded writes are carefully crafted; changes risk race conditions
+- `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios; understand all paths before changing
+- `models.py` — changing field names affects all persisted MongoDB documents

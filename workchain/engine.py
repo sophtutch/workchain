@@ -328,6 +328,10 @@ class WorkflowEngine:
                         if wf is None:
                             return
 
+                    # Remove from active BEFORE releasing lock to prevent
+                    # the heartbeat loop from heartbeating a released workflow
+                    self._active.pop(wf_id, None)
+
                     # RELEASE LOCK — any instance can pick up the next poll
                     await self._store.release_lock(wf_id, self._instance_id, fence)
                     logger.info(
@@ -437,10 +441,11 @@ class WorkflowEngine:
                     })
                     return wf.steps[idx] if wf else None
             except Exception:
-                logger.debug(
+                logger.warning(
                     "completeness_check threw for step %s during recovery — "
                     "submission may not have gone through",
                     step.name,
+                    exc_info=True,
                 )
 
         if step.idempotent:
@@ -596,6 +601,9 @@ class WorkflowEngine:
         wf = await self._store.update_step(wf.id, idx, fence, poll_updates)
         if wf is None:
             return "lost_lock"
+
+        # Remove from active BEFORE releasing lock to prevent heartbeat race
+        self._active.pop(wf.id, None)
 
         # Release lock — fast sweep will reclaim when next_poll_at passes
         await self._store.release_lock(wf.id, self._instance_id, fence)

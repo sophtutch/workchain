@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def _utcnow() -> datetime:
@@ -78,6 +78,13 @@ class PollHint(BaseModel):
     progress: float | None = None      # 0.0–1.0, for logging/dashboards
     message: str | None = None         # human-readable status
 
+    @field_validator("progress")
+    @classmethod
+    def _clamp_progress(cls, v: float | None) -> float | None:
+        if v is not None and not (0.0 <= v <= 1.0):
+            raise ValueError("progress must be between 0.0 and 1.0")
+        return v
+
 
 class StepResult(BaseModel):
     """Output captured after a step completes."""
@@ -127,11 +134,6 @@ class Workflow(BaseModel):
 
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
-
-    def current_step(self) -> Step | None:
-        if 0 <= self.current_step_index < len(self.steps):
-            return self.steps[self.current_step_index]
-        return None
 
     def is_terminal(self) -> bool:
         return self.status in (

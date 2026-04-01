@@ -1,79 +1,56 @@
-"""ShipOrderStep -- PollingStep that polls for tracking number."""
+"""ShipOrderStep — async step that polls for tracking number."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel
 
-from examples.order_fulfilment.logging_config import step_log
-from workchain import Context, PollingStep, StepResult
+from workchain import PollPolicy, async_step
+
+# Simulated shipping state
+_ship_polls: dict[str, int] = {}
 
 
 class ShipOrderConfig(BaseModel):
-    """Configuration for ShipOrderStep."""
-
     carrier: str = "fedex"
-    max_checks: int = 4
+    max_checks: int = 3
 
 
-class ShipOrderStep(PollingStep[ShipOrderConfig]):
+class ShipmentResult(BaseModel):
+    shipment_id: str
+    carrier: str
+
+
+async def check_shipment(config: dict, context: dict, result: dict) -> dict:
     """
-    Submits a shipment request and polls until the carrier assigns
-    a tracking number.
+    Poll the carrier for tracking number assignment.
 
-    Simulates a shipping API where the carrier takes several poll
-    cycles to process and assign tracking. Each check() call
-    represents querying the carrier's API for status.
+    Simulates tracking number appearing after max_checks polls.
     """
+    cfg = ShipOrderConfig(**config)
+    res = ShipmentResult(**result)
+    _ship_polls[res.shipment_id] = _ship_polls.get(res.shipment_id, 0) + 1
+    count = _ship_polls[res.shipment_id]
 
-    Config = ShipOrderConfig
-    poll_interval_seconds = 2
-    timeout_seconds = 60
+    if count >= cfg.max_checks:
+        tracking = f"TRK-{uuid.uuid4().hex[:10].upper()}"
+        print(f"  [ship] Tracking assigned: {tracking} (poll {count})")
+        return {"complete": True, "progress": 1.0, "message": f"Tracking: {tracking}"}
 
-    def __init__(self, config: ShipOrderConfig | None = None) -> None:
-        super().__init__(config=config)
-        self._check_count = 0
+    print(f"  [ship] Shipment {res.shipment_id} processing (poll {count}/{cfg.max_checks})")
+    return {"complete": False, "progress": count / cfg.max_checks}
 
-    def execute(self, context: Context) -> StepResult:
-        carrier = self.config.carrier if self.config else "fedex"
 
-        shipment_id = f"SHIP-{uuid.uuid4().hex[:8].upper()}"
-        context.set("shipment_id", shipment_id)
-        context.set("carrier", carrier)
+@async_step(
+    name="ship_order",
+    completeness_check=check_shipment,
+    poll=PollPolicy(interval=2.0, backoff_multiplier=1.5, max_interval=10.0, timeout=120.0),
+)
+async def ship_order(config: dict, context: dict) -> dict:
+    """Submit a shipment request to the carrier."""
+    cfg = ShipOrderConfig(**config)
+    shipment_id = f"SHIP-{uuid.uuid4().hex[:8].upper()}"
 
-        step_log("ship", f"Shipment submitted to {carrier} -- shipment_id: {shipment_id}")
-        step_log("ship", f"Polling for tracking number (every {self.poll_interval_seconds}s)...")
-
-        return super().execute(context)
-
-    def check(self, context: Context) -> bool:
-        self._check_count += 1
-        max_checks = self.config.max_checks if self.config else 4
-        shipment_id = context.get("shipment_id", "?")
-        carrier = context.get("carrier", "?")
-
-        done = self._check_count >= max_checks
-
-        if done:
-            tracking = f"TRK-{uuid.uuid4().hex[:10].upper()}"
-            context.set("tracking_number", tracking)
-            step_log("ship", f"OK -- {carrier} assigned tracking: {tracking} (after {self._check_count} checks)")
-        else:
-            step_log(
-                "ship",
-                f"  >> Poll {self._check_count}/{max_checks} -- " f"{shipment_id} status: processing...",
-            )
-
-        return done
-
-    def on_complete(self, context: Context) -> dict[str, Any]:
-        return {
-            "shipment_id": context.get("shipment_id"),
-            "carrier": context.get("carrier"),
-            "tracking_number": context.get("tracking_number"),
-            "checks_required": self._check_count,
-            "shipped_at": datetime.now(UTC).isoformat(),
-        }
+    print(f"  [ship] Shipment submitted to {cfg.carrier}: {shipment_id}")
+    return {"shipment_id": shipment_id, "carrier": cfg.carrier}

@@ -1,4 +1,4 @@
-"""ValidateOrderStep -- synchronous order validation."""
+"""ValidateOrderStep — synchronous order validation."""
 
 from __future__ import annotations
 
@@ -6,56 +6,60 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
-from examples.order_fulfilment.logging_config import step_log
-from workchain import Context, Step, StepResult
+from workchain import RetryPolicy, step
 
 
 class ValidateOrderConfig(BaseModel):
-    """Configuration for ValidateOrderStep."""
-
     allowed_regions: list[str] = ["US", "EU", "UK", "AU"]
 
 
-class ValidateOrderStep(Step[ValidateOrderConfig]):
+class OrderItem(BaseModel):
+    sku: str
+    quantity: int
+    price: float
+
+
+class OrderData(BaseModel):
+    order_id: str = "?"
+    customer_email: str = "customer@example.com"
+    shipping_region: str = ""
+    items: list[OrderItem] = []
+    created_at: str | None = None
+
+
+class OrderContext(BaseModel):
+    """Shape of context at validation time — only the order is present."""
+    order: OrderData = OrderData()
+
+
+@step(name="validate_order", retry=RetryPolicy(max_attempts=2))
+async def validate_order(config: dict, context: dict) -> dict:
     """
-    Validates incoming order data.
+    Validate incoming order data.
 
     Checks that items exist, quantities are positive, and the shipping
-    region is in the allowed list. Writes the validated order into context
-    for downstream steps.
+    region is in the allowed list.
     """
+    cfg = ValidateOrderConfig(**config)
+    ctx = OrderContext(**context)
+    order = ctx.order
 
-    Config = ValidateOrderConfig
+    if not order.items:
+        raise ValueError("Order has no items")
 
-    def execute(self, context: Context) -> StepResult:
-        order = context.get("order")
-        if not order:
-            return StepResult.fail(error="No order data in context")
+    for item in order.items:
+        if item.quantity <= 0:
+            raise ValueError(f"Invalid quantity for SKU {item.sku}")
 
-        step_log("validate", f"Validating order {order.get('order_id', '?')}...")
+    if order.shipping_region not in cfg.allowed_regions:
+        raise ValueError(f"Shipping region '{order.shipping_region}' not supported")
 
-        items = order.get("items", [])
-        if not items:
-            return StepResult.fail(error="Order has no items")
+    total = sum(item.price * item.quantity for item in order.items)
 
-        for item in items:
-            if item.get("quantity", 0) <= 0:
-                return StepResult.fail(error=f"Invalid quantity for SKU {item.get('sku')}")
-
-        region = order.get("shipping_region", "")
-        allowed = self.config.allowed_regions if self.config else ["US", "EU", "UK", "AU"]
-        if region not in allowed:
-            return StepResult.fail(error=f"Shipping region '{region}' not supported")
-
-        total = sum(item["price"] * item["quantity"] for item in items)
-
-        step_log("validate", f"Order valid -- {len(items)} item(s), total ${total:.2f}, region {region}")
-
-        return StepResult.complete(
-            output={
-                "order_id": order["order_id"],
-                "item_count": len(items),
-                "total": total,
-                "validated_at": datetime.now(UTC).isoformat(),
-            }
-        )
+    print(f"  [validate] Order {order.order_id} valid -- {len(order.items)} item(s), ${total:.2f}, region {order.shipping_region}")
+    return {
+        "order_id": order.order_id,
+        "item_count": len(order.items),
+        "total": total,
+        "validated_at": datetime.now(UTC).isoformat(),
+    }

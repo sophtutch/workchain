@@ -1,84 +1,45 @@
 """
-Vault Access Provisioning Workflow — Complete end-to-end example
+Vault Access Provisioning Workflow — End-to-end example
 
-This script demonstrates a multi-step provisioning workflow:
+Demonstrates a multi-step provisioning workflow:
 
-  1. RequestApprovalStep (EventStep)     — Publish to Solace, suspend for approval
-  2. WriteServiceDetailsStep (Step)      — Write service record to MongoDB
-  3. CreateVaultPolicyStep (Step)         — Create HCL policy in Vault
-  4. ApplyVaultPolicyStep (Step)          — Bind policy to auth method
-  5. CreateADGroupStep (Step) x2         — Initiate readers + writers group creation
-  6. AwaitADGroupStep (PollingStep) x2   — Poll AD until groups are confirmed
-
-DAG structure::
-
-    request_approval
-          |
-    write_service_details
-          |
-    create_vault_policy
-          |
-    apply_vault_policy
-          |
-     ┌────┴──────────────┐
-     |                   |
-  create_readers     create_writers
-     |                   |
-  await_readers      await_writers
+  1. request_approval     (@async_step) — Submit approval, poll until granted
+  2. write_service_details (@step)      — Write service record to MongoDB
+  3. create_vault_policy   (@step)      — Create HCL policy in Vault
+  4. apply_vault_policy    (@step)      — Bind policy to AppRole auth
+  5. create_ad_group       (@step)      — Initiate AD group creation
+  6. await_ad_group        (@async_step) — Poll AD until group exists
 
 Usage:
 
   python -m examples.vault_provisioning.example
-  python -m examples.vault_provisioning.example --deny
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import json
-from datetime import UTC, datetime, timedelta
+import logging
 
 from mongomock_motor import AsyncMongoMockClient
 
-from examples.vault_provisioning.steps import (
-    ADGroupConfig,
-    ApplyVaultPolicyStep,
-    ApprovalRequestConfig,
-    AwaitADGroupStep,
-    CreateADGroupStep,
-    CreateVaultPolicyStep,
-    RequestApprovalStep,
-    ServiceDetailsConfig,
-    VaultPolicyConfig,
-    WriteServiceDetailsStep,
-)
+# Import step handlers to trigger decorator registration
+import examples.vault_provisioning.steps as _steps  # noqa: F401
 from workchain import (
     MongoWorkflowStore,
+    PollPolicy,
+    Step,
+    StepConfig,
     Workflow,
-    WorkflowRunner,
-    WorkflowStatus,
+    WorkflowEngine,
 )
 
-# ============================================================================
-# Constants
-# ============================================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
 
 SERVICE_NAME = "payment-api"
 VAULT_PATH = f"secret/data/{SERVICE_NAME}"
-
-# ============================================================================
-# Step registry — maps class names to classes for runner deserialization
-# ============================================================================
-
-STEP_REGISTRY = {
-    "RequestApprovalStep": RequestApprovalStep,
-    "WriteServiceDetailsStep": WriteServiceDetailsStep,
-    "CreateVaultPolicyStep": CreateVaultPolicyStep,
-    "ApplyVaultPolicyStep": ApplyVaultPolicyStep,
-    "CreateADGroupStep": CreateADGroupStep,
-    "AwaitADGroupStep": AwaitADGroupStep,
-}
 
 
 # ============================================================================
@@ -87,330 +48,114 @@ STEP_REGISTRY = {
 
 
 def build_workflow() -> Workflow:
-    """
-    Construct the Vault access provisioning workflow DAG.
-
-    The readers and writers group branches run in parallel — both depend
-    only on apply_vault_policy, not on each other.
-    """
-    return (
-        Workflow(name="vault_access_provisioning", version="1.0.0")
-        .add(
-            step_id="request_approval",
-            step=RequestApprovalStep(config=ApprovalRequestConfig(
-                solace_queue="approvals.request",
-                response_queue="approvals.response",
-            )),
-        )
-        .add(
-            step_id="write_service_details",
-            step=WriteServiceDetailsStep(config=ServiceDetailsConfig(
-                mongo_uri="mongodb://localhost:27017",
-                database="provisioning",
-                collection="services",
-            )),
-            depends_on=["request_approval"],
-        )
-        .add(
-            step_id="create_vault_policy",
-            step=CreateVaultPolicyStep(config=VaultPolicyConfig(
-                vault_addr="https://vault.internal:8200",
-                secrets_path=VAULT_PATH,
-            )),
-            depends_on=["write_service_details"],
-        )
-        .add(
-            step_id="apply_vault_policy",
-            step=ApplyVaultPolicyStep(config=VaultPolicyConfig(
-                vault_addr="https://vault.internal:8200",
-                secrets_path=VAULT_PATH,
-            )),
-            depends_on=["create_vault_policy"],
-        )
-        # --- Readers branch (parallel with writers) ---
-        .add(
-            step_id="create_readers_group",
-            step=CreateADGroupStep(config=ADGroupConfig(
-                group_name=f"{SERVICE_NAME}-vault-readers",
-                group_type="readers",
-                ad_server="ldap://ad.internal",
-            )),
-            depends_on=["apply_vault_policy"],
-        )
-        .add(
-            step_id="await_readers_group",
-            step=AwaitADGroupStep(config=ADGroupConfig(
-                group_name=f"{SERVICE_NAME}-vault-readers",
-                group_type="readers",
-                ad_server="ldap://ad.internal",
-            )),
-            depends_on=["create_readers_group"],
-        )
-        # --- Writers branch (parallel with readers) ---
-        .add(
-            step_id="create_writers_group",
-            step=CreateADGroupStep(config=ADGroupConfig(
-                group_name=f"{SERVICE_NAME}-vault-writers",
-                group_type="writers",
-                ad_server="ldap://ad.internal",
-            )),
-            depends_on=["apply_vault_policy"],
-        )
-        .add(
-            step_id="await_writers_group",
-            step=AwaitADGroupStep(config=ADGroupConfig(
-                group_name=f"{SERVICE_NAME}-vault-writers",
-                group_type="writers",
-                ad_server="ldap://ad.internal",
-            )),
-            depends_on=["create_writers_group"],
-        )
-    )
-
-
-# ============================================================================
-# Pretty print helpers
-# ============================================================================
-
-STATUS_ICONS = {
-    "pending": "[ ]",
-    "running": "[~]",
-    "completed": "[+]",
-    "failed": "[!]",
-    "suspended": "[.]",
-    "awaiting_poll": "[?]",
-    "skipped": "[-]",
-}
-
-
-def print_workflow_state(run) -> None:
-    """Pretty-print the current state of a WorkflowRun."""
-    print(f"\n{'=' * 70}")
-    print(f"  {run.workflow_name} v{run.workflow_version}  |  status: {run.status.value}  |  v{run.doc_version}")
-    print(f"{'=' * 70}")
-    for step in run.steps:
-        icon = STATUS_ICONS.get(step.status.value, "[?]")
-        line = f"  {icon} {step.step_id:<24} ({step.step_type})"
-        print(line)
-        if step.output:
-            print(f"       output: {json.dumps(step.output)[:70]}...")
-        if step.error:
-            print(f"       error: {step.error}")
-        if step.resume_correlation_id:
-            print(f"       correlation_id: {step.resume_correlation_id}")
-        if step.next_poll_at:
-            print(f"       next_poll_at: {step.next_poll_at.isoformat()}")
-    print()
-
-
-# ============================================================================
-# Runner helpers
-# ============================================================================
-
-
-def create_store() -> MongoWorkflowStore:
-    """Create an async in-memory MongoDB store (no real DB needed)."""
-    client = AsyncMongoMockClient()
-    return MongoWorkflowStore(
-        client=client,
-        database="workchain_demo",
-        owner_id="demo-runner",
-        lease_ttl_seconds=30,
-    )
-
-
-async def tick_until_suspended_or_done(runner, store, run):
-    """Tick the runner until the workflow suspends, completes, or fails."""
-    max_ticks = 50
-    for _ in range(max_ticks):
-        processed = await runner.tick()
-        if not processed:
-            break
-        run = await store.load(str(run.id))
-        print_workflow_state(run)
-        if run.status in {WorkflowStatus.COMPLETED, WorkflowStatus.FAILED, WorkflowStatus.SUSPENDED}:
-            break
-    return run
-
-
-async def advance_polls(runner, store, run):
-    """
-    Advance polling steps past their wait intervals (for demo purposes).
-
-    In production the runner.start() loop handles this automatically — it
-    sleeps until needs_work_after and then ticks. Here we fast-forward
-    next_poll_at so we don't have to wait 10 seconds per check.
-    """
-    while run.status == WorkflowStatus.SUSPENDED:
-        # Fast-forward all poll timers to now
-        for step in run.steps:
-            if step.next_poll_at:
-                step.next_poll_at = datetime.now(UTC) - timedelta(seconds=1)
-
-        run.lease_owner = None
-        run.lease_expires_at = None
-        run.recompute_status()
-        await store.save_with_version(run)
-
-        await runner.tick()
-        run = await store.load(str(run.id))
-        print_workflow_state(run)
-
-    return run
-
-
-# ============================================================================
-# Example: auto-approve mode
-# ============================================================================
-
-
-async def run_auto_approve() -> None:
-    """
-    Run the full provisioning workflow with automatic approval.
-
-    1. Ticks until RequestApprovalStep suspends
-    2. Immediately resumes with approval payload
-    3. Continues through Vault + AD steps to completion
-    """
-    print("\n" + "=" * 70)
-    print("  VAULT ACCESS PROVISIONING — AUTO-APPROVE MODE")
-    print("=" * 70)
-
-    store = create_store()
-    workflow = build_workflow()
-    run = workflow.create_run()
-    run.context = {
-        "service_name": SERVICE_NAME,
-        "requested_by": "james@company.com",
-    }
-    await store.save(run)
-    print(f"\nCreated WorkflowRun: {run.id}")
-
-    runner = WorkflowRunner(
-        store=store,
-        registry=STEP_REGISTRY,
-        workflow=workflow,
-        instance_id="demo-runner",
-        poll_interval_seconds=0.1,
-    )
-
-    # Phase 1: Execute until approval suspends
-    print("\n--- Phase 1: Request approval (will suspend) ---")
-    run = await tick_until_suspended_or_done(runner, store, run)
-
-    if run.status != WorkflowStatus.SUSPENDED:
-        print(f"Expected SUSPENDED, got {run.status.value}")
-        return
-
-    approval_step = run.get_step("request_approval")
-    correlation_id = approval_step.resume_correlation_id
-    print(f"Workflow suspended. Correlation ID: {correlation_id}")
-
-    # Phase 2: Resume with approval
-    print("\n--- Phase 2: Resume with approval ---")
-    await runner.resume(
-        correlation_id=correlation_id,
-        payload={
-            "approved": True,
-            "approver": "manager@company.com",
-            "approved_at": datetime.now(UTC).isoformat(),
+    """Construct the Vault access provisioning workflow."""
+    return Workflow(
+        name="vault_access_provisioning",
+        context={
+            "service_name": SERVICE_NAME,
+            "requested_by": "james@company.com",
         },
+        steps=[
+            Step(
+                name="request_approval",
+                handler="request_approval",
+                is_async=True,
+                completeness_check="examples.vault_provisioning.steps.check_approval",
+                poll_policy=PollPolicy(interval=2.0, backoff_multiplier=1.0, timeout=60.0),
+            ),
+            Step(
+                name="write_service_details",
+                handler="write_service_details",
+                config=StepConfig(data={
+                    "mongo_uri": "mongodb://localhost:27017",
+                    "collection": "services",
+                }),
+            ),
+            Step(
+                name="create_vault_policy",
+                handler="create_vault_policy",
+                config=StepConfig(data={"secrets_path": VAULT_PATH}),
+            ),
+            Step(
+                name="apply_vault_policy",
+                handler="apply_vault_policy",
+                config=StepConfig(data={"secrets_path": VAULT_PATH}),
+            ),
+            Step(
+                name="create_ad_group",
+                handler="create_ad_group",
+                config=StepConfig(data={
+                    "group_name": f"{SERVICE_NAME}-vault-readers",
+                    "group_type": "readers",
+                }),
+            ),
+            Step(
+                name="await_ad_group",
+                handler="await_ad_group",
+                is_async=True,
+                completeness_check="examples.vault_provisioning.steps.check_ad_group",
+                config=StepConfig(data={
+                    "group_name": f"{SERVICE_NAME}-vault-readers",
+                }),
+                poll_policy=PollPolicy(
+                    interval=2.0,
+                    backoff_multiplier=1.5,
+                    max_interval=10.0,
+                    timeout=120.0,
+                ),
+            ),
+        ],
     )
-    run = await store.load(str(run.id))
-    print_workflow_state(run)
-
-    # Phase 3: Continue through Vault and AD steps
-    print("--- Phase 3: Vault policy + AD groups ---")
-    run.lease_owner = None
-    run.lease_expires_at = None
-    run = await tick_until_suspended_or_done(runner, store, run)
-
-    # Phase 4: Advance polling steps (fast-forward timers for demo)
-    if run.status == WorkflowStatus.SUSPENDED:
-        print("--- Phase 4: Awaiting AD group confirmation (polling) ---")
-        run = await advance_polls(runner, store, run)
-
-    print(f"\nWorkflow finished: {run.status.value.upper()}")
 
 
 # ============================================================================
-# Example: denial mode
-# ============================================================================
-
-
-async def run_denial() -> None:
-    """
-    Run the workflow where the approval is denied.
-
-    Demonstrates failure cascading — the approval step fails and all
-    downstream steps end up FAILED.
-    """
-    print("\n" + "=" * 70)
-    print("  VAULT ACCESS PROVISIONING — DENIAL MODE")
-    print("=" * 70)
-
-    store = create_store()
-    workflow = build_workflow()
-    run = workflow.create_run()
-    run.context = {
-        "service_name": SERVICE_NAME,
-        "requested_by": "james@company.com",
-    }
-    await store.save(run)
-    print(f"\nCreated WorkflowRun: {run.id}")
-
-    runner = WorkflowRunner(
-        store=store,
-        registry=STEP_REGISTRY,
-        workflow=workflow,
-        instance_id="demo-runner",
-        poll_interval_seconds=0.1,
-    )
-
-    # Phase 1: Execute until suspended
-    print("\n--- Phase 1: Request approval (will suspend) ---")
-    run = await tick_until_suspended_or_done(runner, store, run)
-
-    approval_step = run.get_step("request_approval")
-    correlation_id = approval_step.resume_correlation_id
-
-    # Phase 2: Resume with denial
-    print("\n--- Phase 2: Resume with DENIAL ---")
-    await runner.resume(
-        correlation_id=correlation_id,
-        payload={
-            "approved": False,
-            "reason": "Service not authorized for vault access",
-        },
-    )
-    run = await store.load(str(run.id))
-    print_workflow_state(run)
-
-    print(f"\nWorkflow finished: {run.status.value.upper()}")
-
-
-# ============================================================================
-# CLI entry point
+# Main
 # ============================================================================
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Vault Access Provisioning Workflow Example",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--deny",
-        action="store_true",
-        help="Deny the approval to demonstrate failure cascading (default: auto-approve)",
-    )
+    print("\n" + "=" * 60)
+    print("  VAULT ACCESS PROVISIONING WORKFLOW")
+    print("=" * 60)
 
-    args = parser.parse_args()
+    # In-memory MongoDB
+    client = AsyncMongoMockClient()
+    db = client["workchain_demo"]
+    store = MongoWorkflowStore(db, lock_ttl_seconds=30)
 
-    if args.deny:
-        await run_denial()
-    else:
-        await run_auto_approve()
+    # Build and insert workflow
+    wf = build_workflow()
+    await store.insert(wf)
+    print(f"\nSubmitted workflow: {wf.id}")
+    print(f"Service: {SERVICE_NAME}, Requested by: james@company.com")
+
+    # Start the engine
+    engine = WorkflowEngine(
+        store,
+        claim_interval=1.0,
+        heartbeat_interval=5.0,
+        max_concurrent=3,
+    )
+    await engine.start()
+
+    # Let it run — approval (2 polls) + AD group (3 polls) need time
+    await asyncio.sleep(30)
+    await engine.stop()
+
+    # Check final state
+    final = await store.get(wf.id)
+    print(f"\n{'=' * 60}")
+    print(f"  Final status: {final.status.value}")
+    print(f"  Context keys: {list(final.context.keys())}")
+    print(f"{'=' * 60}")
+    for s in final.steps:
+        extra = f"attempts={s.attempt}"
+        if s.is_async:
+            extra += f", polls={s.poll_count}"
+            if s.last_poll_progress is not None:
+                extra += f", progress={s.last_poll_progress:.0%}"
+        print(f"  {s.name}: {s.status.value} ({extra})")
+    print()
 
 
 if __name__ == "__main__":

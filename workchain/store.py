@@ -258,14 +258,21 @@ class MongoWorkflowStore:
                     },
                 ],
             },
-            {"_id": 1},
+            {"_id": 1, "locked_by": 1, "current_step_index": 1, "steps.next_poll_at": 1},
         ).limit(limit)
 
-        # Second-pass filter for BLOCKED steps: check next_poll_at in Python
-        # to avoid complex nested array queries. The MongoDB query above is
-        # deliberately broad (all unlocked RUNNING) to keep the index simple.
+        # Second-pass filter for unlocked RUNNING workflows: only include
+        # them if the current step's next_poll_at has passed (or isn't set).
+        # This avoids claiming BLOCKED workflows before their poll is due.
         results = []
         async for doc in cursor:
+            if doc.get("locked_by") is None:
+                idx = doc.get("current_step_index", 0)
+                steps = doc.get("steps", [])
+                if idx < len(steps):
+                    next_poll = steps[idx].get("next_poll_at")
+                    if next_poll is not None and next_poll > now:
+                        continue  # not due yet
             results.append(doc["_id"])
 
         return results

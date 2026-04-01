@@ -2,7 +2,7 @@
 Example: User onboarding workflow with a mix of sync and async steps.
 
 Run with:
-    python -m workflow_engine.example
+    python -m workchain.example
 
 Requires a running MongoDB instance at localhost:27017.
 """
@@ -13,18 +13,40 @@ import asyncio
 import logging
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from workflow_engine.decorators import async_step, step
-from workflow_engine.engine import WorkflowEngine
-from workflow_engine.models import (
+from pydantic import BaseModel
+
+from workchain.decorators import async_step, step
+from workchain.engine import WorkflowEngine
+from workchain.models import (
     PollPolicy,
     RetryPolicy,
     Step,
     StepConfig,
     Workflow,
 )
-from workflow_engine.store import MongoWorkflowStore
+from workchain.store import MongoWorkflowStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+
+# ---------------------------------------------------------------------------
+# Config / context models
+# ---------------------------------------------------------------------------
+
+class ValidateInputConfig(BaseModel):
+    email: str
+
+
+class OnboardingContext(BaseModel):
+    """Shape of the shared workflow context across onboarding steps."""
+    validated: bool = False
+    email: str = ""
+    user_id: str = ""
+
+
+class ProvisioningResult(BaseModel):
+    """Shape of the result dict returned by provision_resources."""
+    job_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -34,18 +56,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 @step(name="validate_input")
 async def validate_input(config: dict, context: dict) -> dict:
     """Validate the user payload."""
-    email = config.get("email", "")
-    if "@" not in email:
-        raise ValueError(f"Invalid email: {email}")
-    return {"validated": True, "email": email}
+    cfg = ValidateInputConfig(**config)
+    if "@" not in cfg.email:
+        raise ValueError(f"Invalid email: {cfg.email}")
+    return {"validated": True, "email": cfg.email}
 
 
 @step(name="create_account", retry=RetryPolicy(max_attempts=5))
 async def create_account(config: dict, context: dict) -> dict:
     """Create the user account (simulated)."""
-    email = context.get("email", config.get("email"))
+    ctx = OnboardingContext(**context)
     # In reality: call your user service / write to DB
-    user_id = f"user_{hash(email) % 10000}"
+    user_id = f"user_{hash(ctx.email) % 10000}"
     return {"user_id": user_id}
 
 
@@ -62,13 +84,13 @@ async def check_provisioning(config: dict, context: dict, result: dict) -> bool 
       - bool: simple True/False
       - dict: {"complete": bool, "retry_after": float, "progress": float, "message": str}
     """
-    job_id = result.get("job_id", "")
-    _poll_counts[job_id] = _poll_counts.get(job_id, 0) + 1
-    count = _poll_counts[job_id]
+    res = ProvisioningResult(**result)
+    _poll_counts[res.job_id] = _poll_counts.get(res.job_id, 0) + 1
+    count = _poll_counts[res.job_id]
     done = count >= 3
 
     if done:
-        logging.getLogger(__name__).info("Provisioning complete for %s", job_id)
+        logging.getLogger(__name__).info("Provisioning complete for %s", res.job_id)
         return {"complete": True, "progress": 1.0, "message": "All resources ready"}
 
     # Return a hint with progress and optional retry_after override
@@ -92,8 +114,8 @@ async def provision_resources(config: dict, context: dict) -> dict:
     Kick off async resource provisioning (e.g. cloud infra, mailbox).
     Returns a job ID; the engine will poll check_provisioning until done.
     """
-    user_id = context.get("user_id", "unknown")
-    job_id = f"job_{user_id}_provision"
+    ctx = OnboardingContext(**context)
+    job_id = f"job_{ctx.user_id}_provision"
     # In reality: POST to a provisioning API
     return {"job_id": job_id}
 
@@ -101,8 +123,8 @@ async def provision_resources(config: dict, context: dict) -> dict:
 @step(name="send_welcome_email")
 async def send_welcome_email(config: dict, context: dict) -> dict:
     """Send a welcome email (simulated)."""
-    email = context.get("email", "unknown")
-    logging.getLogger(__name__).info("Sending welcome email to %s", email)
+    ctx = OnboardingContext(**context)
+    logging.getLogger(__name__).info("Sending welcome email to %s", ctx.email)
     return {"email_sent": True}
 
 
@@ -129,7 +151,7 @@ def build_onboarding_workflow(email: str) -> Workflow:
                 handler="provision_resources",
                 is_async=True,
                 # Matches the auto-registered name from @async_step decorator
-                completeness_check="workflow_engine.example.check_provisioning",
+                completeness_check="workchain.example.check_provisioning",
                 poll_policy=PollPolicy(
                     interval=2.0,
                     backoff_multiplier=1.5,

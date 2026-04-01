@@ -1,82 +1,59 @@
-"""ChargePaymentStep -- EventStep that suspends for payment webhook."""
+"""ChargePaymentStep — async step that polls for payment confirmation."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel
 
-from examples.order_fulfilment.logging_config import step_log
-from workchain import Context, EventStep, StepResult
+from workchain import PollPolicy, async_step
+
+# Simulated payment state
+_charge_polls: dict[str, int] = {}
 
 
 class ChargePaymentConfig(BaseModel):
-    """Configuration for ChargePaymentStep."""
-
     payment_provider: str = "stripe"
-    currency: str = "USD"
 
 
-class ChargePaymentStep(EventStep[ChargePaymentConfig]):
+class ChargeResult(BaseModel):
+    charge_id: str
+    provider: str
+
+
+async def check_payment(config: dict, context: dict, result: dict) -> dict:
     """
-    Initiates a payment charge and suspends until the payment gateway
-    calls back via webhook.
+    Poll the payment provider for charge status.
 
-    On execute():
-        - Creates a payment intent with a unique correlation_id
-        - Returns StepResult.suspend() so the workflow pauses
-
-    On resume (webhook arrives):
-        - Validates the payment result from the webhook payload
-        - Writes charge details into context
-
-    The correlation_id format is ``payment-<order_id>-<timestamp>``
-    which the webhook endpoint uses to route the callback.
+    Simulates payment confirmation after 2 polls. In production this would
+    query Stripe/Adyen/etc. for the charge status.
     """
+    res = ChargeResult(**result)
+    _charge_polls[res.charge_id] = _charge_polls.get(res.charge_id, 0) + 1
+    count = _charge_polls[res.charge_id]
 
-    Config = ChargePaymentConfig
+    if count >= 2:
+        print(f"  [charge] Payment {res.charge_id} CONFIRMED (poll {count})")
+        return {"complete": True, "progress": 1.0, "message": "Payment confirmed"}
 
-    def execute(self, context: Context) -> StepResult:
-        order = context.get("order", {})
-        order_id = order.get("order_id", "unknown")
-        validated = context.step_output("validate")
-        total = validated.get("total", 0)
-        provider = self.config.payment_provider if self.config else "stripe"
+    print(f"  [charge] Payment {res.charge_id} pending (poll {count}/2)")
+    return {"complete": False, "progress": count / 2.0, "message": "Processing"}
 
-        correlation_id = f"payment-{order_id}-{datetime.now(UTC).timestamp():.0f}"
 
-        step_log("charge", f"Initiating {provider} charge of ${total:.2f} for order {order_id}")
-        step_log("charge", "Payment intent created -- awaiting webhook callback")
-        step_log("charge", f"Correlation ID: {correlation_id}")
-        step_log("charge", "PAUSED -- Workflow SUSPENDED, waiting for payment gateway webhook")
+@async_step(
+    name="charge_payment",
+    completeness_check=check_payment,
+    poll=PollPolicy(interval=2.0, backoff_multiplier=1.0, timeout=60.0),
+)
+async def charge_payment(config: dict, context: dict) -> dict:
+    """Initiate a payment charge. The engine polls check_payment until confirmed."""
+    cfg = ChargePaymentConfig(**config)
+    order = context.get("order", {})
+    order_id = order.get("order_id", "unknown")
+    total = context.get("total", 0)
 
-        context.set("payment_correlation_id", correlation_id)
+    charge_id = f"ch_{order_id}_{datetime.now(UTC).timestamp():.0f}"
+    print(f"  [charge] Initiated {cfg.payment_provider} charge of ${total:.2f} for {order_id}")
+    print(f"  [charge] Charge ID: {charge_id}")
 
-        return StepResult.suspend(correlation_id=correlation_id)
-
-    def on_resume(self, payload: dict[str, Any], context: Context) -> dict[str, Any]:
-        """Process the payment webhook callback."""
-        success = payload.get("success", False)
-        charge_id = payload.get("charge_id", "unknown")
-        provider_ref = payload.get("provider_ref", "")
-
-        if not success:
-            error = payload.get("error", "Payment declined")
-            step_log("charge", f"FAILED -- Payment FAILED: {error}")
-            result = {"success": False, "error": error}
-            context.set("payment_result", result)
-            return result
-
-        step_log("charge", f"OK -- Payment SUCCEEDED, charge_id: {charge_id}")
-        if provider_ref:
-            step_log("charge", f"  Provider ref: {provider_ref}")
-
-        result = {
-            "success": True,
-            "charge_id": charge_id,
-            "provider_ref": provider_ref,
-            "charged_at": datetime.now(UTC).isoformat(),
-        }
-        context.set("payment_result", result)
-        return result
+    return {"charge_id": charge_id, "provider": cfg.payment_provider}
