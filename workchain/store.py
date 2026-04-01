@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -15,13 +16,19 @@ logger = logging.getLogger(__name__)
 COLLECTION = "workflows"
 
 
+def _import_class(dotted_path: str) -> type:
+    """Import a class by dotted path (e.g. 'myapp.steps.ValidateConfig')."""
+    module_path, _, class_name = dotted_path.rpartition(".")
+    if not module_path:
+        raise ValueError(f"Invalid dotted path: {dotted_path}")
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)
+
+
 class MongoWorkflowStore:
     """
     Persists workflow state to MongoDB and provides distributed locking
     using atomic findOneAndUpdate with TTL-based locks.
-
-    All timestamps use MongoDB server time ($currentDate) to avoid
-    clock-skew issues across service instances.
     """
 
     def __init__(
@@ -44,12 +51,32 @@ class MongoWorkflowStore:
         await self._col.create_index([("status", 1), ("lock_expires_at", 1)])
 
     # ------------------------------------------------------------------
+    # Document conversion
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _doc_to_workflow(doc: dict) -> Workflow:
+        """
+        Convert a MongoDB document to a Workflow, resolving typed
+        StepConfig and StepResult subclasses from their stored dotted paths.
+        """
+        doc["id"] = doc.pop("_id")
+        for step_doc in doc.get("steps", []):
+            ct = step_doc.get("config_type")
+            if ct and step_doc.get("config") and isinstance(step_doc["config"], dict):
+                step_doc["config"] = _import_class(ct)(**step_doc["config"])
+            rt = step_doc.get("result_type")
+            if rt and step_doc.get("result") and isinstance(step_doc["result"], dict):
+                step_doc["result"] = _import_class(rt)(**step_doc["result"])
+        return Workflow.model_validate(doc)
+
+    # ------------------------------------------------------------------
     # CRUD
     # ------------------------------------------------------------------
 
     async def insert(self, workflow: Workflow) -> str:
         doc = workflow.model_dump(mode="json")
-        doc["_id"] = workflow.id
+        doc["_id"] = doc.pop("id")
         await self._col.insert_one(doc)
         return workflow.id
 
@@ -57,8 +84,7 @@ class MongoWorkflowStore:
         doc = await self._col.find_one({"_id": workflow_id})
         if doc is None:
             return None
-        doc["id"] = doc.pop("_id")
-        return Workflow.model_validate(doc)
+        return self._doc_to_workflow(doc)
 
     async def update_step(
         self,
@@ -85,8 +111,7 @@ class MongoWorkflowStore:
                 workflow_id, fence_token,
             )
             return None
-        doc["id"] = doc.pop("_id")
-        return Workflow.model_validate(doc)
+        return self._doc_to_workflow(doc)
 
     async def advance_step(
         self,
@@ -110,28 +135,7 @@ class MongoWorkflowStore:
         )
         if doc is None:
             return None
-        doc["id"] = doc.pop("_id")
-        return Workflow.model_validate(doc)
-
-    async def update_context(
-        self,
-        workflow_id: str,
-        fence_token: int,
-        context_updates: dict,
-    ) -> Workflow | None:
-        """Merge keys into the shared workflow context."""
-        set_fields = {f"context.{k}": v for k, v in context_updates.items()}
-        set_fields["updated_at"] = datetime.now(UTC)
-
-        doc = await self._col.find_one_and_update(
-            {"_id": workflow_id, "fence_token": fence_token},
-            {"$set": set_fields},
-            return_document=ReturnDocument.AFTER,
-        )
-        if doc is None:
-            return None
-        doc["id"] = doc.pop("_id")
-        return Workflow.model_validate(doc)
+        return self._doc_to_workflow(doc)
 
     # ------------------------------------------------------------------
     # Distributed locking
@@ -170,9 +174,8 @@ class MongoWorkflowStore:
         )
         if doc is None:
             return None
-        doc["id"] = doc.pop("_id")
         logger.info("Claimed workflow=%s instance=%s fence=%s", workflow_id, instance_id, doc["fence_token"])
-        return Workflow.model_validate(doc)
+        return self._doc_to_workflow(doc)
 
     async def heartbeat(
         self,
@@ -192,7 +195,7 @@ class MongoWorkflowStore:
             },
             {"$set": {"lock_expires_at": expires, "updated_at": now}},
         )
-        if result.modified_count == 0:
+        if result.matched_count == 0:
             logger.warning("Heartbeat failed for workflow=%s (lock stolen?)", workflow_id)
             return False
         return True
@@ -258,7 +261,7 @@ class MongoWorkflowStore:
                     },
                 ],
             },
-            {"_id": 1, "locked_by": 1, "current_step_index": 1, "steps.next_poll_at": 1},
+            {"_id": 1, "locked_by": 1, "current_step_index": 1, "steps.next_poll_at": 1, "status": 1},
         ).limit(limit)
 
         # Second-pass filter for unlocked RUNNING workflows: only include
@@ -266,7 +269,8 @@ class MongoWorkflowStore:
         # This avoids claiming BLOCKED workflows before their poll is due.
         results = []
         async for doc in cursor:
-            if doc.get("locked_by") is None:
+            wf_status = doc.get("status")
+            if doc.get("locked_by") is None and wf_status != WorkflowStatus.PENDING.value:
                 idx = doc.get("current_step_index", 0)
                 steps = doc.get("steps", [])
                 if idx < len(steps):

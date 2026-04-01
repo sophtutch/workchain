@@ -6,6 +6,9 @@ from collections.abc import Callable
 
 from .models import PollPolicy, RetryPolicy
 
+# Global step registry: handler_name -> callable
+_STEP_REGISTRY: dict[str, Callable] = {}
+
 
 def _resolve_check_name(check: str | Callable | None) -> str | None:
     """
@@ -23,21 +26,19 @@ def _resolve_check_name(check: str | Callable | None) -> str | None:
     return check_name
 
 
-# Global step registry: handler_name -> callable
-_STEP_REGISTRY: dict[str, Callable] = {}
-
-
 def get_handler(name: str) -> Callable:
     """Look up a registered step handler by dotted name."""
     if name in _STEP_REGISTRY:
         return _STEP_REGISTRY[name]
-    # Fallback: dynamic import
+    # Fallback: dynamic import and cache
     module_path, _, func_name = name.rpartition(".")
     if not module_path:
         raise ValueError(f"Unknown handler: {name}")
     import importlib
     mod = importlib.import_module(module_path)
-    return getattr(mod, func_name)
+    fn = getattr(mod, func_name)
+    _STEP_REGISTRY[name] = fn
+    return fn
 
 
 def step(
@@ -46,13 +47,15 @@ def step(
     idempotent: bool = True,
 ):
     """
-    Decorator to register a synchronous-style step handler.
+    Decorator to register a step handler.
 
     The handler signature should be:
-        async def my_step(config: dict, context: dict) -> dict
+        async def my_step(config: MyConfig, results: dict[str, StepResult]) -> MyResult
 
-    It receives the step config and shared workflow context,
-    and returns a result dict.
+    Config is a StepConfig subclass (deserialized at the store level), or None
+    if the step has no configuration.
+    Results is a dict of preceding step results keyed by step name.
+    Return a StepResult subclass with typed fields.
     """
     def decorator(fn: Callable) -> Callable:
         handler_name = name or f"{fn.__module__}.{fn.__qualname__}"
@@ -77,9 +80,9 @@ def async_step(
     """
     Decorator for async steps that submit work and poll until complete.
 
-    The handler should SUBMIT the work and return immediately with a result
-    dict (e.g. containing a job_id). The engine will then poll the
-    completeness_check callable until it returns True or a PollHint.
+    The handler should SUBMIT the work and return immediately with a
+    StepResult subclass (e.g. containing a job_id). The engine will then
+    poll the completeness_check callable until it returns True or a PollHint.
 
     completeness_check can be:
       - A dotted string path: "myapp.steps.check_provisioning"
@@ -87,10 +90,7 @@ def async_step(
       - None: no polling (step completes immediately)
 
     completeness_check signature:
-        async def check(config, context, result) -> bool | dict | PollHint
-
-    Returning a dict or PollHint allows the checker to provide scheduling
-    hints (retry_after, progress, message) back to the engine.
+        async def check(config: StepConfig, results: dict, result: MyResult) -> bool | dict | PollHint
     """
     def decorator(fn: Callable) -> Callable:
         handler_name = name or f"{fn.__module__}.{fn.__qualname__}"

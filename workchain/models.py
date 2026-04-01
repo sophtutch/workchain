@@ -5,9 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _utcnow() -> datetime:
@@ -59,12 +58,11 @@ class PollPolicy(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Step models
+# Step config and result base classes
 # ---------------------------------------------------------------------------
 
 class StepConfig(BaseModel):
-    """Arbitrary config blob persisted alongside the step."""
-    data: dict[str, Any] = Field(default_factory=dict)
+    """Base class for step configuration. Subclass with typed fields."""
 
 
 class PollHint(BaseModel):
@@ -75,7 +73,7 @@ class PollHint(BaseModel):
     """
     complete: bool = False
     retry_after: float | None = None   # override next poll interval (seconds)
-    progress: float | None = None      # 0.0–1.0, for logging/dashboards
+    progress: float | None = None      # 0.0-1.0, for logging/dashboards
     message: str | None = None         # human-readable status
 
     @field_validator("progress")
@@ -87,18 +85,23 @@ class PollHint(BaseModel):
 
 
 class StepResult(BaseModel):
-    """Output captured after a step completes."""
-    data: dict[str, Any] = Field(default_factory=dict)
+    """Base class for step results. Subclass with typed fields."""
     error: str | None = None
     completed_at: datetime | None = None
 
 
+# ---------------------------------------------------------------------------
+# Step model
+# ---------------------------------------------------------------------------
+
 class Step(BaseModel):
     name: str
     handler: str                          # dotted path to callable, e.g. "myapp.steps.validate"
-    config: StepConfig = Field(default_factory=StepConfig)
+    config: StepConfig | None = None
+    config_type: str | None = None        # dotted path to StepConfig subclass
     status: StepStatus = StepStatus.PENDING
     result: StepResult | None = None
+    result_type: str | None = None        # dotted path to StepResult subclass
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     attempt: int = 0
     is_async: bool = False                # if True, engine polls completeness_check
@@ -111,8 +114,18 @@ class Step(BaseModel):
     next_poll_at: datetime | None = None      # when this step is next eligible for a poll claim
     last_poll_at: datetime | None = None
     current_poll_interval: float | None = None  # tracks backoff progression across claims
-    last_poll_progress: float | None = None   # last reported progress 0.0–1.0
+    last_poll_progress: float | None = None   # last reported progress 0.0-1.0
     last_poll_message: str | None = None      # last reported status message
+
+    @model_validator(mode="after")
+    def _set_type_paths(self) -> Step:
+        if self.config_type is None and self.config is not None and type(self.config) is not StepConfig:
+            cls = type(self.config)
+            self.config_type = f"{cls.__module__}.{cls.__qualname__}"
+        if self.result_type is None and self.result is not None and type(self.result) is not StepResult:
+            cls = type(self.result)
+            self.result_type = f"{cls.__module__}.{cls.__qualname__}"
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +138,6 @@ class Workflow(BaseModel):
     status: WorkflowStatus = WorkflowStatus.PENDING
     steps: list[Step] = Field(default_factory=list)
     current_step_index: int = 0
-    context: dict[str, Any] = Field(default_factory=dict)  # shared across steps
 
     # Distributed locking (MongoDB-managed)
     locked_by: str | None = None

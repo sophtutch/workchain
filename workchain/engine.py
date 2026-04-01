@@ -12,7 +12,7 @@ import platform
 import signal
 import traceback
 import uuid
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -29,6 +29,38 @@ from .retry import retrying_from_policy
 from .store import MongoWorkflowStore
 
 logger = logging.getLogger(__name__)
+
+
+def _build_results(wf: Workflow, up_to_index: int) -> dict[str, StepResult]:
+    """Build a dict of preceding step results keyed by step name."""
+    return {
+        s.name: s.result
+        for s in wf.steps[:up_to_index]
+        if s.result is not None
+    }
+
+
+def _wrap_handler_return(result_data: Any) -> tuple[StepResult, str | None]:
+    """
+    Normalise a handler's return value into a (StepResult, result_type) pair.
+
+    If the handler returned a StepResult subclass, use it directly.
+    Otherwise wrap a plain dict in a base StepResult (for backwards compat).
+    """
+    if not isinstance(result_data, StepResult):
+        raise TypeError(
+            f"Step handler must return a StepResult subclass, got {type(result_data).__name__}"
+        )
+
+    result = result_data
+    result.completed_at = result.completed_at or datetime.now(UTC)
+    cls = type(result)
+    result_type = (
+        f"{cls.__module__}.{cls.__qualname__}"
+        if cls is not StepResult
+        else None
+    )
+    return result, result_type
 
 
 class WorkflowEngine:
@@ -232,15 +264,15 @@ class WorkflowEngine:
 
                 # --- BLOCKED: execute a single poll cycle, then release ---
                 if step.status == StepStatus.BLOCKED:
-                    result = await self._poll_once(wf, idx, step, fence)
-                    if result == "complete":
+                    poll_result = await self._poll_once(wf, idx, step, fence)
+                    if poll_result == "complete":
                         # Refresh and continue to advance
                         wf = await self._store.get(wf_id)
                         if wf is None:
                             return
                         step = wf.steps[idx]
                         # Fall through to advance below
-                    elif result == "released":
+                    elif poll_result == "released":
                         # Lock released, next poll scheduled. Exit cleanly.
                         return
                     else:
@@ -248,11 +280,6 @@ class WorkflowEngine:
                         return
 
                 if step.status == StepStatus.COMPLETED:
-                    # Merge result into context
-                    if step.result and step.result.data:
-                        wf = await self._store.update_context(wf_id, fence, step.result.data)
-                        if wf is None:
-                            return
                     # Advance to next step
                     wf = await self._advance(wf, fence)
                     if wf is None:
@@ -276,10 +303,7 @@ class WorkflowEngine:
                     result_data = await self._run_step_with_retry(
                         handler, step, wf_id, idx, fence,
                     )
-                    result = StepResult(
-                        data=result_data or {},
-                        completed_at=datetime.now(UTC),
-                    )
+                    result, result_type = _wrap_handler_return(result_data)
                     # Refresh wf after retries may have updated attempt count
                     wf = await self._store.get(wf_id)
                     if wf is None:
@@ -312,21 +336,19 @@ class WorkflowEngine:
                     policy = step.poll_policy
                     next_poll = now + timedelta(seconds=policy.interval)
 
-                    wf = await self._store.update_step(wf_id, idx, fence, {
+                    step_updates: dict[str, Any] = {
                         "status": StepStatus.BLOCKED.value,
                         "result": result.model_dump(mode="json"),
                         "poll_started_at": now.isoformat(),
                         "next_poll_at": next_poll.isoformat(),
                         "current_poll_interval": policy.interval,
-                    })
+                    }
+                    if result_type:
+                        step_updates["result_type"] = result_type
+
+                    wf = await self._store.update_step(wf_id, idx, fence, step_updates)
                     if wf is None:
                         return
-
-                    # Merge submission result into context before releasing
-                    if result.data:
-                        wf = await self._store.update_context(wf_id, fence, result.data)
-                        if wf is None:
-                            return
 
                     # Remove from active BEFORE releasing lock to prevent
                     # the heartbeat loop from heartbeating a released workflow
@@ -340,18 +362,17 @@ class WorkflowEngine:
                     )
                     return  # exit cleanly, fast sweep will reclaim when due
 
-                # --- Sync step: mark completed, merge context, advance ---
-                wf = await self._store.update_step(wf_id, idx, fence, {
+                # --- Sync step: mark completed, advance ---
+                step_updates = {
                     "status": StepStatus.COMPLETED.value,
                     "result": result.model_dump(mode="json"),
-                })
+                }
+                if result_type:
+                    step_updates["result_type"] = result_type
+
+                wf = await self._store.update_step(wf_id, idx, fence, step_updates)
                 if wf is None:
                     return
-
-                if result.data:
-                    wf = await self._store.update_context(wf_id, fence, result.data)
-                    if wf is None:
-                        return
 
                 wf = await self._advance(wf, fence)
                 if wf is None:
@@ -404,7 +425,7 @@ class WorkflowEngine:
         if step.verify_completion:
             try:
                 checker = get_handler(step.verify_completion)
-                is_done = await checker(step.config.data, wf.context, (step.result or StepResult()).data)
+                is_done = await checker(step.config, _build_results(wf, idx), step.result or StepResult())
                 if is_done:
                     logger.info("Step %s verified as completed after recovery.", step.name)
                     wf = await self._store.update_step(wf.id, idx, fence, {
@@ -419,7 +440,7 @@ class WorkflowEngine:
         if step.is_async and step.completeness_check and step.result:
             try:
                 checker = get_handler(step.completeness_check)
-                raw = await checker(step.config.data, wf.context, step.result.data)
+                raw = await checker(step.config, _build_results(wf, idx), step.result)
                 # If the check doesn't throw, the submission went through.
                 # Transition to BLOCKED so we poll instead of re-submitting.
                 is_complete = raw is True or (isinstance(raw, dict) and raw.get("complete"))
@@ -489,7 +510,7 @@ class WorkflowEngine:
             return "complete"
 
         checker = get_handler(step.completeness_check)
-        result_data = (step.result or StepResult()).data
+        step_result = step.result or StepResult()
         policy = step.poll_policy
         now = datetime.now(UTC)
 
@@ -502,13 +523,13 @@ class WorkflowEngine:
                     "Step %s poll timeout after %.1fs (limit=%.1fs)",
                     step.name, elapsed, policy.timeout,
                 )
+                fail_result = StepResult(
+                    error=f"Poll timeout after {elapsed:.1f}s",
+                    completed_at=now,
+                )
                 wf = await self._store.update_step(wf.id, idx, fence, {
                     "status": StepStatus.FAILED.value,
-                    "result": StepResult(
-                        data=result_data,
-                        error=f"Poll timeout after {elapsed:.1f}s",
-                        completed_at=now,
-                    ).model_dump(mode="json"),
+                    "result": fail_result.model_dump(mode="json"),
                 })
                 if wf:
                     await self._store.advance_step(
@@ -520,13 +541,13 @@ class WorkflowEngine:
         # --- Check max polls ---
         if policy.max_polls > 0 and step.poll_count >= policy.max_polls:
             logger.error("Step %s exceeded max polls (%d)", step.name, policy.max_polls)
+            fail_result = StepResult(
+                error=f"Exceeded max poll count ({policy.max_polls})",
+                completed_at=now,
+            )
             wf = await self._store.update_step(wf.id, idx, fence, {
                 "status": StepStatus.FAILED.value,
-                "result": StepResult(
-                    data=result_data,
-                    error=f"Exceeded max poll count ({policy.max_polls})",
-                    completed_at=now,
-                ).model_dump(mode="json"),
+                "result": fail_result.model_dump(mode="json"),
             })
             if wf:
                 await self._store.advance_step(
@@ -539,7 +560,7 @@ class WorkflowEngine:
         hint: PollHint | None = None
         is_complete = False
         try:
-            raw = await checker(step.config.data, wf.context, result_data)
+            raw = await checker(step.config, _build_results(wf, idx), step_result)
 
             if isinstance(raw, bool):
                 is_complete = raw
@@ -568,10 +589,9 @@ class WorkflowEngine:
         # --- Complete: mark step done, keep lock for advance ---
         if is_complete:
             poll_updates["status"] = StepStatus.COMPLETED.value
-            poll_updates["result"] = StepResult(
-                data=result_data,
-                completed_at=now,
-            ).model_dump(mode="json")
+            # Keep the existing result (with result_type) and just set completed_at
+            completed_result = step_result.model_copy(update={"completed_at": now})
+            poll_updates["result"] = completed_result.model_dump(mode="json")
 
             wf = await self._store.update_step(wf.id, idx, fence, poll_updates)
             if wf is None:
@@ -623,7 +643,7 @@ class WorkflowEngine:
 
     async def _run_step_with_retry(
         self,
-        handler: Callable[..., Coroutine[Any, Any, Any]],
+        handler: Callable[..., Any],
         step: Step,
         wf_id: str,
         idx: int,
@@ -654,18 +674,19 @@ class WorkflowEngine:
                     "Executing step %s attempt %d/%d",
                     step.name, attempt_num, step.retry_policy.max_attempts,
                 )
-                return await handler(step.config.data, wf.context)
+                return await handler(step.config, _build_results(wf, idx))
+
+        # Unreachable with reraise=True, but satisfies type checker / RET503
+        raise RuntimeError(f"Step {step.name} exhausted all retry attempts")
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     async def _advance(self, wf: Workflow, fence: int) -> Workflow | None:
+        """Advance to the next step index. Terminal status is set by the outer loop."""
         new_idx = wf.current_step_index + 1
-        status = None
-        if new_idx >= len(wf.steps):
-            status = WorkflowStatus.COMPLETED
-        return await self._store.advance_step(wf.id, fence, new_idx, status)
+        return await self._store.advance_step(wf.id, fence, new_idx)
 
     async def _wait(self, seconds: float) -> None:
         """Sleep that can be interrupted by shutdown."""
