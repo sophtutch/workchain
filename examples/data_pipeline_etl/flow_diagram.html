@@ -261,15 +261,54 @@
   .crash-tree .yes { color: #34d399; }
   .crash-tree .no { color: #f87171; }
 
-  /* Outer layout */
-  .page-layout {
+  /* Info bar — horizontal row above main content */
+  .info-bar {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 24px;
-    align-items: start;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
   }
   @media (max-width: 900px) {
-    .page-layout { grid-template-columns: 1fr; }
+    .info-bar { grid-template-columns: repeat(2, 1fr); }
+  }
+  .info-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-left-width: 3px;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .info-card.loop-fast  { border-left-color: #34d399; }
+  .info-card.loop-heart { border-left-color: #fbbf24; }
+  .info-card.loop-slow  { border-left-color: #f87171; }
+  .info-card.fence-token { border-left-color: #6366f1; }
+  .info-label {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .info-card.loop-fast   .info-label { color: #34d399; }
+  .info-card.loop-heart  .info-label { color: #fbbf24; }
+  .info-card.loop-slow   .info-label { color: #f87171; }
+  .info-card.fence-token .info-label { color: #a5b4fc; }
+  .info-desc {
+    font-size: 10.5px;
+    color: #6b7280;
+    line-height: 1.5;
+  }
+  .info-interval {
+    font-size: 10px;
+    color: #4b5563;
+    margin-top: 6px;
+    font-family: monospace;
+  }
+
+  /* Step flow panel — matches doc card styling */
+  .step-flow-panel {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 16px;
   }
 
   /* Main area: stacked sections */
@@ -283,11 +322,13 @@
     display: grid;
     grid-template-columns: 1fr 360px;
     gap: 20px;
-    align-items: start;
+    align-items: stretch;
     padding: 20px 0;
     border-top: 1px solid #1f2937;
   }
   .step-section:first-child { border-top: none; }
+  .step-doc { display: flex; flex-direction: column; }
+  .step-doc .panel { flex: 1; }
 
   /* Full-width section (no doc) */
   .full-section {
@@ -327,471 +368,462 @@
     </div>
   </div>
 
-  <div class="page-layout">
+  <div class="info-bar">
+    <div class="info-card loop-fast">
+      <div class="info-label">Fast Sweep</div>
+      <div class="info-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
+      <div class="info-interval">every 5s &rarr; find_claimable()</div>
+    </div>
+    <div class="info-card loop-heart">
+      <div class="info-label">Heartbeat</div>
+      <div class="info-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
+      <div class="info-interval">every 10s &rarr; heartbeat()</div>
+    </div>
+    <div class="info-card loop-slow">
+      <div class="info-label">Slow Sweep</div>
+      <div class="info-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
+      <div class="info-interval">every 60s &rarr; find_anomalies()</div>
+    </div>
+    <div class="info-card fence-token">
+      <div class="info-label">Fence Token</div>
+      <div class="info-desc">Incremented on every <code style="color:#a5b4fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected — the instance lost its lock.</div>
+      <div class="info-interval" style="line-height:1.8; margin-top:8px;">
+        Instance A claims &rarr; fence=<span style="color:#fbbf24">N</span><br>
+        Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">N+1</span><br>
+        A tries to write &rarr; <span style="color:#f87171">rejected</span>
+      </div>
+    </div>
+  </div>
 
-    <!-- SIDEBAR -->
-    <div>
-      <div class="panel" style="margin-bottom: 16px;">
-        <div class="panel-title">Background Loops</div>
-        <div class="loop-item loop-fast">
-          <div class="loop-name">Fast Sweep</div>
-          <div class="loop-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
-          <div class="loop-interval">every 5s &rarr; find_claimable()</div>
-        </div>
-        <div class="loop-item loop-heartbeat">
-          <div class="loop-name">Heartbeat</div>
-          <div class="loop-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
-          <div class="loop-interval">every 10s &rarr; heartbeat()</div>
-        </div>
-        <div class="loop-item loop-slow">
-          <div class="loop-name">Slow Sweep</div>
-          <div class="loop-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
-          <div class="loop-interval">every 60s &rarr; find_anomalies()</div>
+  <div class="main-area">
+
+    <!-- Discovery section -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Discovery</div>
+        <div class="step-track">
+          <div class="step-node">
+            <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
+            <div class="engine-action">
+              <div class="engine-label">Engine — Fast Sweep + try_claim</div>
+              <div class="engine-desc">
+                <code>find_claimable()</code> returns workflow ID.<br>
+                <code>try_claim()</code> &rarr; atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
+                Status: <strong style="color:#34d399">pending &rarr; running</strong>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-
-      <div class="panel">
-        <div class="panel-title">Fence Token</div>
-        <div style="font-size: 11px; color: #6b7280; line-height: 1.6;">
-          Incremented on every <code style="color:#7dd3fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected — the instance lost its lock.
-        </div>
-        <div style="margin-top: 12px; font-family: monospace; font-size: 10px; color: #4b5563; line-height: 1.8;">
-          Instance A claims &rarr; fence=<span style="color:#fbbf24">3</span><br>
-          Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">4</span><br>
-          A tries to write (fence=3) &rarr; <span style="color:#f87171">rejected</span>
+      <div>
+        <div class="panel">
+          <div class="panel-title">Start Workflow</div>
+          <div class="mongo-doc">
+            {<br>
+            &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">1</span>,<br>
+            &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T09:59:50Z"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"steps"</span>: []<br>
+            }
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- MAIN AREA -->
-    <div class="main-area">
+    <!-- Step 1 — extract_from_source -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 1 — extract_from_source (sync)</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
+              </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+            </div>
+          </div>
 
-      <!-- Discovery section -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Discovery</div>
-          <div class="step-track">
-            <div class="step-node">
-              <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
-              <div class="engine-action">
-                <div class="engine-label">Engine — Fast Sweep + try_claim</div>
-                <div class="engine-desc">
-                  <code>find_claimable()</code> returns workflow ID.<br>
-                  <code>try_claim()</code> &rarr; atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
-                  Status: <strong style="color:#34d399">pending &rarr; running</strong>
-                </div>
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">1</div>
+                <div class="step-name">extract_from_source</div>
+                <div class="step-badge">sync</div>
+              </div>
+              <div class="step-body">
+                Connects to configured data source and extracts records. Returns row count and source metadata for downstream steps.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">retry: 3 attempts</span>
+                <span class="meta-tag">idempotent: true</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">Start Workflow</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">1</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T09:59:50Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: []<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
+              </div>
+              <div class="step-body">
+                <code>{"records_extracted": 3000, "source_uri": "s3://lake/raw/events"}</code> &rarr; step result<br>
+                <code>current_step_index</code>: 0 &rarr; 1
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">After Step 1 — extract_from_source</div>
+          <div class="mongo-doc">
+            {<br>
+            &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">1</span>,<br>
+            &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">2</span>,<br>
+            &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T09:59:55Z"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"extract_from_source"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"records_extracted"</span>: <span class="num hl">3000</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"source_uri"</span>: <span class="str hl">"s3://lake/raw/events"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;]<br>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
 
-      <!-- Step 1 — extract_from_source -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 1 — extract_from_source (sync)</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+    <!-- Step 2 — validate_schema -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 2 — validate_schema (sync)</div>
+        <div class="step-track">
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">2</div>
+                <div class="step-name">validate_schema</div>
+                <div class="step-badge">sync</div>
               </div>
-            </div>
-
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">1</div>
-                  <div class="step-name">extract_from_source</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Connects to configured data source and extracts records. Returns row count and source metadata for downstream steps.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">retry: 3 attempts</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
+              <div class="step-body">
+                Reads <code>results["extract_from_source"]</code>. Validates column names, types, and nullable constraints against the expected schema. Rejects if any column is missing or mistyped.
               </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
-                </div>
-                <div class="step-body">
-                  <code>{"records_extracted": 3000, "source_uri": "s3://lake/raw/events"}</code> &rarr; step result<br>
-                  <code>current_step_index</code>: 0 &rarr; 1
-                </div>
+              <div class="step-meta">
+                <span class="meta-tag">retry: 3 attempts</span>
+                <span class="meta-tag">idempotent: true</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 1 — extract_from_source</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">1</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">2</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T09:59:55Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"extract_from_source"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"records_extracted"</span>: <span class="num hl">3000</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"source_uri"</span>: <span class="str hl">"s3://lake/raw/events"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;]<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
+              </div>
+              <div class="step-body">
+                <code>{"column_count": 14, "valid": true}</code> &rarr; step result<br>
+                <code>current_step_index</code>: 1 &rarr; 2
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">After Step 2 — validate_schema</div>
+          <div class="mongo-doc">
+            {<br>
+            &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
+            &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span>,<br>
+            &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T10:00:02Z"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span>, <span class="key">"source_uri"</span>: <span class="str">"s3://lake/raw/events"</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"validate_schema"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"validate_schema"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"column_count"</span>: <span class="num hl">14</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"valid"</span>: <span class="kw hl">true</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;]<br>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
 
-      <!-- Step 2 — validate_schema -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 2 — validate_schema (sync)</div>
-          <div class="step-track">
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">2</div>
-                  <div class="step-name">validate_schema</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Reads <code>results["extract_from_source"]</code>. Validates column names, types, and nullable constraints against the expected schema. Rejects if any column is missing or mistyped.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">retry: 3 attempts</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
+    <!-- Step 3 — transform_records -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 3 — transform_records (sync)</div>
+        <div class="step-track">
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">3</div>
+                <div class="step-name">transform_records</div>
+                <div class="step-badge">sync</div>
               </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
-                </div>
-                <div class="step-body">
-                  <code>{"column_count": 14, "valid": true}</code> &rarr; step result<br>
-                  <code>current_step_index</code>: 1 &rarr; 2
-                </div>
+              <div class="step-body">
+                Applies transformations: type casting, null coalescing, column renaming, and filter predicates. Writes transformed batch to staging area for warehouse load.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">retry: 3 attempts</span>
+                <span class="meta-tag">idempotent: true</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 2 — validate_schema</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T10:00:02Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span>, <span class="key">"source_uri"</span>: <span class="str">"s3://lake/raw/events"</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"validate_schema"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"validate_schema"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"column_count"</span>: <span class="num hl">14</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"valid"</span>: <span class="kw hl">true</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;]<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
+              </div>
+              <div class="step-body">
+                <code>{"dropped": 60, "records_transformed": 2940}</code> &rarr; step result<br>
+                <code>current_step_index</code>: 2 &rarr; 3
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- Step 3 — transform_records -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 3 — transform_records (sync)</div>
-          <div class="step-track">
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">3</div>
-                  <div class="step-name">transform_records</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Applies transformations: type casting, null coalescing, column renaming, and filter predicates. Writes transformed batch to staging area for warehouse load.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">retry: 3 attempts</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
-                </div>
-                <div class="step-body">
-                  <code>{"dropped": 60, "records_transformed": 2940}</code> &rarr; step result<br>
-                  <code>current_step_index</code>: 2 &rarr; 3
-                </div>
-              </div>
-            </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">After Step 3 — transform_records</div>
+          <div class="mongo-doc">
+            {<br>
+            &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">3</span>,<br>
+            &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">4</span>,<br>
+            &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T10:00:08Z"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"validate_schema"</span>, <span class="key">"name"</span>: <span class="str">"validate_schema"</span>, <span class="key">"result"</span>: { <span class="key">"column_count"</span>: <span class="num">14</span>, <span class="key">"valid"</span>: <span class="kw">true</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"transform_records"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"transform_records"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"dropped"</span>: <span class="num hl">60</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"records_transformed"</span>: <span class="num hl">2940</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;]<br>
+            }
           </div>
         </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 3 — transform_records</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">3</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">4</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T10:00:08Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"validate_schema"</span>, <span class="key">"name"</span>: <span class="str">"validate_schema"</span>, <span class="key">"result"</span>: { <span class="key">"column_count"</span>: <span class="num">14</span>, <span class="key">"valid"</span>: <span class="kw">true</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"transform_records"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"transform_records"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"dropped"</span>: <span class="num hl">60</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"records_transformed"</span>: <span class="num hl">2940</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;]<br>
-              }
+      </div>
+    </div>
+
+    <!-- Step 4 — load_to_warehouse (async) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 4 — load_to_warehouse (async, poll&times;3)</div>
+        <div class="step-track">
+          <div class="step-node theme-async">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">4</div>
+                <div class="step-name">load_to_warehouse</div>
+                <div class="step-badge">async</div>
+              </div>
+              <div class="step-body">
+                <strong>Submission phase:</strong> Handler submits batch load job to the warehouse, returns <code>{"load_id": "load_8f3a"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">poll: 5.0s initial</span>
+                <span class="meta-tag">backoff: &times;1.5</span>
+                <span class="meta-tag">timeout: 600s</span>
+              </div>
+
+              <div class="poll-track">
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;after submission &mdash; <code>next_poll_at</code> in 5.0s
+                </div>
+                <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                  &hellip; no instance holds the lock &hellip;
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance B claims</span>
+                  &nbsp;fast sweep finds unlocked RUNNING workflow
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_warehouse_load()</code>
+                  <span class="poll-progress">33% &bull; 5.0s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 7.5s (backoff &times;1.5)
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance A claims</span>
+                  &nbsp;any instance can pick up next poll
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 2 &mdash; <code>_poll_once()</code> &rarr; <code>check_warehouse_load()</code>
+                  <span class="poll-progress">66% &bull; 7.5s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 11.25s
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance C claims</span>
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 3 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
+                  <span class="poll-progress" style="color:#34d399;">done</span>
+                </div>
+                <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                  Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 5
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">After Step 4 — load_to_warehouse</div>
+          <div class="mongo-doc">
+            {<br>
+            &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
+            &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">7</span>,<br>
+            &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T10:00:32Z"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"validate_schema"</span>, <span class="key">"name"</span>: <span class="str">"validate_schema"</span>, <span class="key">"result"</span>: { <span class="key">"column_count"</span>: <span class="num">14</span>, <span class="key">"valid"</span>: <span class="kw">true</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"transform_records"</span>, <span class="key">"name"</span>: <span class="str">"transform_records"</span>, <span class="key">"result"</span>: { <span class="key">"dropped"</span>: <span class="num">60</span>, <span class="key">"records_transformed"</span>: <span class="num">2940</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"load_to_warehouse"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"is_async"</span>: <span class="kw hl">true</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"load_to_warehouse"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num hl">3</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"load_id"</span>: <span class="str hl">"load_8f3a"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"records_loaded"</span>: <span class="num hl">2940</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;]<br>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
 
-      <!-- Step 4 — load_to_warehouse (async) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 4 — load_to_warehouse (async, poll&times;3)</div>
-          <div class="step-track">
-            <div class="step-node theme-async">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">4</div>
-                  <div class="step-name">load_to_warehouse</div>
-                  <div class="step-badge">async</div>
-                </div>
-                <div class="step-body">
-                  <strong>Submission phase:</strong> Handler submits batch load job to the warehouse, returns <code>{"load_id": "load_8f3a"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">poll: 5.0s initial</span>
-                  <span class="meta-tag">backoff: &times;1.5</span>
-                  <span class="meta-tag">timeout: 600s</span>
-                </div>
-
-                <div class="poll-track">
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;after submission &mdash; <code>next_poll_at</code> in 5.0s
-                  </div>
-                  <div class="poll-step" style="color: #4b5563; font-style: italic;">
-                    &hellip; no instance holds the lock &hellip;
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance B claims</span>
-                    &nbsp;fast sweep finds unlocked RUNNING workflow
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_warehouse_load()</code>
-                    <span class="poll-progress">33% &bull; 5.0s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 7.5s (backoff &times;1.5)
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance A claims</span>
-                    &nbsp;any instance can pick up next poll
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 2 &mdash; <code>_poll_once()</code> &rarr; <code>check_warehouse_load()</code>
-                    <span class="poll-progress">66% &bull; 7.5s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 11.25s
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance C claims</span>
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 3 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
-                    <span class="poll-progress" style="color:#34d399;">done</span>
-                  </div>
-                  <div class="poll-step" style="color: #34d399; font-size: 10px;">
-                    Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 5
-                  </div>
-                </div>
+    <!-- Step 5 — update_catalog -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 5 — update_catalog (sync)</div>
+        <div class="step-track">
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">5</div>
+                <div class="step-name">update_catalog</div>
+                <div class="step-badge">sync</div>
+              </div>
+              <div class="step-body">
+                Registers the loaded dataset in the data catalog: table name, row count, schema version, load timestamp, and lineage metadata. Final step.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">retry: 3 attempts</span>
+                <span class="meta-tag">idempotent: true</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 4 — load_to_warehouse</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">7</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"2026-04-01T10:00:32Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"validate_schema"</span>, <span class="key">"name"</span>: <span class="str">"validate_schema"</span>, <span class="key">"result"</span>: { <span class="key">"column_count"</span>: <span class="num">14</span>, <span class="key">"valid"</span>: <span class="kw">true</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"transform_records"</span>, <span class="key">"name"</span>: <span class="str">"transform_records"</span>, <span class="key">"result"</span>: { <span class="key">"dropped"</span>: <span class="num">60</span>, <span class="key">"records_transformed"</span>: <span class="num">2940</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"load_to_warehouse"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"is_async"</span>: <span class="kw hl">true</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"load_to_warehouse"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num hl">3</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"load_id"</span>: <span class="str hl">"load_8f3a"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"records_loaded"</span>: <span class="num hl">2940</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;]<br>
-              }
+
+          <div class="step-node">
+            <div class="step-dot" style="border-color: #34d399; background: #34d399;"></div>
+            <div class="engine-action" style="background: rgba(52,211,153,0.08); border-color: rgba(52,211,153,0.2);">
+              <div class="engine-label" style="color: #34d399;">Workflow Complete</div>
+              <div class="engine-desc">
+                <code>status</code> &rarr; <strong style="color:#34d399">completed</strong><br>
+                Lock released via <code>release_lock()</code>. Removed from <code>_active</code>.<br>
+                All 5 steps completed: extract &rarr; validate &rarr; transform &rarr; load &rarr; catalog.
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- Step 5 — update_catalog -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 5 — update_catalog (sync)</div>
-          <div class="step-track">
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">5</div>
-                  <div class="step-name">update_catalog</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Registers the loaded dataset in the data catalog: table name, row count, schema version, load timestamp, and lineage metadata. Final step.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">retry: 3 attempts</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="step-node">
-              <div class="step-dot" style="border-color: #34d399; background: #34d399;"></div>
-              <div class="engine-action" style="background: rgba(52,211,153,0.08); border-color: rgba(52,211,153,0.2);">
-                <div class="engine-label" style="color: #34d399;">Workflow Complete</div>
-                <div class="engine-desc">
-                  <code>status</code> &rarr; <strong style="color:#34d399">completed</strong><br>
-                  Lock released via <code>release_lock()</code>. Removed from <code>_active</code>.<br>
-                  All 5 steps completed: extract &rarr; validate &rarr; transform &rarr; load &rarr; catalog.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 5 — update_catalog</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">5</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">8</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="kw">null</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="kw">null</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl" style="color:#34d399;">"completed"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"validate_schema"</span>, <span class="key">"name"</span>: <span class="str">"validate_schema"</span>, <span class="key">"result"</span>: { <span class="key">"column_count"</span>: <span class="num">14</span>, <span class="key">"valid"</span>: <span class="kw">true</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"transform_records"</span>, <span class="key">"name"</span>: <span class="str">"transform_records"</span>, <span class="key">"result"</span>: { <span class="key">"dropped"</span>: <span class="num">60</span>, <span class="key">"records_transformed"</span>: <span class="num">2940</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"load_to_warehouse"</span>, <span class="key">"is_async"</span>: <span class="kw">true</span>, <span class="key">"name"</span>: <span class="str">"load_to_warehouse"</span>, <span class="key">"poll_count"</span>: <span class="num">3</span>, <span class="key">"result"</span>: { <span class="key">"load_id"</span>: <span class="str">"load_8f3a"</span>, <span class="key">"records_loaded"</span>: <span class="num">2940</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;{<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"update_catalog"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"update_catalog"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"catalog_entry_id"</span>: <span class="str hl">"catalog-load_8f3a"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"updated"</span>: <span class="kw hl">true</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;]<br>
-              }
-            </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">After Step 5 — update_catalog</div>
+          <div class="mongo-doc">
+            {<br>
+            &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7f4...c2"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">5</span>,<br>
+            &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">8</span>,<br>
+            &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="kw">null</span>,<br>
+            &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="kw">null</span>,<br>
+            &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"data_pipeline_etl"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl" style="color:#34d399;">"completed"</span>,<br>
+            &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"name"</span>: <span class="str">"extract_from_source"</span>, <span class="key">"result"</span>: { <span class="key">"records_extracted"</span>: <span class="num">3000</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"validate_schema"</span>, <span class="key">"name"</span>: <span class="str">"validate_schema"</span>, <span class="key">"result"</span>: { <span class="key">"column_count"</span>: <span class="num">14</span>, <span class="key">"valid"</span>: <span class="kw">true</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"transform_records"</span>, <span class="key">"name"</span>: <span class="str">"transform_records"</span>, <span class="key">"result"</span>: { <span class="key">"dropped"</span>: <span class="num">60</span>, <span class="key">"records_transformed"</span>: <span class="num">2940</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"handler"</span>: <span class="str">"load_to_warehouse"</span>, <span class="key">"is_async"</span>: <span class="kw">true</span>, <span class="key">"name"</span>: <span class="str">"load_to_warehouse"</span>, <span class="key">"poll_count"</span>: <span class="num">3</span>, <span class="key">"result"</span>: { <span class="key">"load_id"</span>: <span class="str">"load_8f3a"</span>, <span class="key">"records_loaded"</span>: <span class="num">2940</span> }, <span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;{<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"handler"</span>: <span class="str">"update_catalog"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"update_catalog"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"catalog_entry_id"</span>: <span class="str hl">"catalog-load_8f3a"</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"updated"</span>: <span class="kw hl">true</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str" style="color:#34d399;">"completed"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;]<br>
+            }
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Crash Recovery — full-width, no doc -->
-      <div class="full-section">
+    <!-- Crash Recovery — full-width, no doc -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">Crash Recovery</div>
         <div class="step-track">
           <div class="step-node">
@@ -814,9 +846,9 @@
           </div>
         </div>
       </div>
+    </div>
 
-    </div><!-- /.main-area -->
-  </div><!-- /.page-layout -->
+  </div><!-- /.main-area -->
 </div>
 
 </body></html>

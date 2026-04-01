@@ -34,15 +34,39 @@
     background: rgba(251,191,36,0.1); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2);
   }
 
-  /* --- Page layout --- */
-  .page-layout {
+  /* --- Info bar --- */
+  .info-bar {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 24px;
-    align-items: start;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
   }
   @media (max-width: 900px) {
-    .page-layout { grid-template-columns: 1fr; }
+    .info-bar { grid-template-columns: repeat(2, 1fr); }
+  }
+  .info-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-left-width: 3px;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .info-card.loop-fast   { border-left-color: #34d399; }
+  .info-card.loop-heart  { border-left-color: #fbbf24; }
+  .info-card.loop-slow   { border-left-color: #f87171; }
+  .info-card.fence-token { border-left-color: #6366f1; }
+  .info-label { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+  .info-card.loop-fast   .info-label { color: #34d399; }
+  .info-card.loop-heart  .info-label { color: #fbbf24; }
+  .info-card.loop-slow   .info-label { color: #f87171; }
+  .info-card.fence-token .info-label { color: #a5b4fc; }
+  .info-desc { font-size: 10.5px; color: #6b7280; line-height: 1.5; }
+  .info-interval { font-size: 10px; color: #4b5563; margin-top: 6px; font-family: monospace; }
+  .step-flow-panel {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 16px;
   }
 
   .main-area {
@@ -54,11 +78,13 @@
     display: grid;
     grid-template-columns: 1fr 360px;
     gap: 20px;
-    align-items: start;
+    align-items: stretch;
     padding: 20px 0;
     border-top: 1px solid #1f2937;
   }
   .step-section:first-child { border-top: none; }
+  .step-doc { display: flex; flex-direction: column; }
+  .step-doc .panel { flex: 1; }
 
   .full-section {
     padding: 20px 0;
@@ -335,696 +361,659 @@
     </div>
   </div>
 
-  <div class="page-layout">
-
-    <!-- Sidebar: background loops + fence token -->
-    <div>
-      <div class="panel" style="margin-bottom: 16px;">
-        <div class="panel-title">Background Loops</div>
-        <div class="loop-item loop-fast">
-          <div class="loop-name">Fast Sweep</div>
-          <div class="loop-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
-          <div class="loop-interval">every 5s &rarr; find_claimable()</div>
-        </div>
-        <div class="loop-item loop-heartbeat">
-          <div class="loop-name">Heartbeat</div>
-          <div class="loop-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
-          <div class="loop-interval">every 10s &rarr; heartbeat()</div>
-        </div>
-        <div class="loop-item loop-slow">
-          <div class="loop-name">Slow Sweep</div>
-          <div class="loop-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
-          <div class="loop-interval">every 60s &rarr; find_anomalies()</div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">Fence Token</div>
-        <div style="font-size: 11px; color: #6b7280; line-height: 1.6;">
-          Incremented on every <code style="color:#7dd3fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected &mdash; the instance lost its lock.
-        </div>
-        <div style="margin-top: 12px; font-family: monospace; font-size: 10px; color: #4b5563; line-height: 1.8;">
-          Instance A claims &rarr; fence=<span style="color:#fbbf24">5</span><br>
-          Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">6</span><br>
-          A tries to write (fence=5) &rarr; <span style="color:#f87171">rejected</span>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-top: 16px;">
-        <div class="panel-title">Async Step Highlight</div>
-        <div style="font-size: 11px; color: #6b7280; line-height: 1.6;">
-          This workflow has <strong style="color:#fbbf24;">3 async steps</strong> (the most of any example), each with distinct poll policies:
-        </div>
-        <div style="margin-top: 10px; font-family: monospace; font-size: 10px; color: #4b5563; line-height: 2;">
-          <span style="color:#fbbf24;">provision_database</span><br>
-          &nbsp;&nbsp;interval=<span style="color:#fbbf24">5.0s</span> backoff=<span style="color:#fbbf24">1.5</span> timeout=<span style="color:#fbbf24">600s</span><br>
-          <span style="color:#fbbf24;">deploy_application</span><br>
-          &nbsp;&nbsp;interval=<span style="color:#fbbf24">3.0s</span> timeout=<span style="color:#fbbf24">300s</span><br>
-          <span style="color:#fbbf24;">issue_tls_cert</span><br>
-          &nbsp;&nbsp;interval=<span style="color:#fbbf24">10.0s</span> timeout=<span style="color:#fbbf24">900s</span>
-        </div>
+  <div class="info-bar">
+    <div class="info-card loop-fast">
+      <div class="info-label">Fast Sweep</div>
+      <div class="info-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
+      <div class="info-interval">every 5s &rarr; find_claimable()</div>
+    </div>
+    <div class="info-card loop-heart">
+      <div class="info-label">Heartbeat</div>
+      <div class="info-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
+      <div class="info-interval">every 10s &rarr; heartbeat()</div>
+    </div>
+    <div class="info-card loop-slow">
+      <div class="info-label">Slow Sweep</div>
+      <div class="info-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
+      <div class="info-interval">every 60s &rarr; find_anomalies()</div>
+    </div>
+    <div class="info-card fence-token">
+      <div class="info-label">Fence Token</div>
+      <div class="info-desc">Incremented on every <code style="color:#a5b4fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected — the instance lost its lock.</div>
+      <div class="info-interval" style="line-height:1.8; margin-top:8px;">
+        Instance A claims &rarr; fence=<span style="color:#fbbf24">N</span><br>
+        Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">N+1</span><br>
+        A tries to write &rarr; <span style="color:#f87171">rejected</span>
       </div>
     </div>
+  </div>
 
-    <div class="main-area">
+  <div class="main-area">
 
-      <!-- Discovery -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Discovery</div>
-          <div class="step-track">
-            <div class="step-node">
-              <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
-              <div class="engine-action">
-                <div class="engine-label">Engine &mdash; Fast Sweep</div>
-                <div class="engine-desc">
-                  <code>find_claimable()</code> returns workflow ID.<br>
-                  <code>try_claim()</code> &rarr; atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
-                  Status: <strong style="color:#34d399">pending &rarr; running</strong>
-                </div>
+    <!-- Discovery -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Discovery</div>
+        <div class="step-track">
+          <div class="step-node">
+            <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
+            <div class="engine-action">
+              <div class="engine-label">Engine &mdash; Fast Sweep</div>
+              <div class="engine-desc">
+                <code>find_claimable()</code> returns workflow ID.<br>
+                <code>try_claim()</code> &rarr; atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
+                Status: <strong style="color:#34d399">pending &rarr; running</strong>
               </div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">Start Workflow</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">1</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:20:00Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">0</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {},<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: []<br>
-              }
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">Start Workflow</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">1</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:20:00Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">0</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {},<br>
+          &nbsp;&nbsp;<span class="key">"steps"</span>: []<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- Step 1: create_vpc (sync) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 1 &mdash; create_vpc (sync)</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+    <!-- Step 1: create_vpc (sync) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 1 &mdash; create_vpc (sync)</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
               </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
             </div>
+          </div>
 
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">1</div>
-                  <div class="step-name">create_vpc</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Creates a VPC with public and private subnets, internet gateway, and route tables. Reads CIDR block from <code>config.data</code>. Returns VPC ID and subnet IDs.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">no retry</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">1</div>
+                <div class="step-name">create_vpc</div>
+                <div class="step-badge">sync</div>
               </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
-                </div>
-                <div class="step-body">
-                  <code>{"vpc_id": "vpc-3a8f", "subnet_ids": ["sn-1a", "sn-2b"]}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 0 &rarr; 1
-                </div>
+              <div class="step-body">
+                Creates a VPC with public and private subnets, internet gateway, and route tables. Reads CIDR block from <code>config.data</code>. Returns VPC ID and subnet IDs.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">no retry</span>
+                <span class="meta-tag">idempotent: true</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 1 &mdash; create_vpc</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"engine-a1b2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:20:30Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">1</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [<span class="str">"sn-1a"</span>, <span class="str">"sn-2b"</span>]<br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"create_vpc"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [<span class="str">"sn-1a"</span>, <span class="str">"sn-2b"</span>]<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;}<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
+              </div>
+              <div class="step-body">
+                <code>{"vpc_id": "vpc-3a8f", "subnet_ids": ["sn-1a", "sn-2b"]}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 0 &rarr; 1
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 1 &mdash; create_vpc</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"engine-a1b2"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:20:30Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">1</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [<span class="str">"sn-1a"</span>, <span class="str">"sn-2b"</span>]<br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"create_vpc"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [<span class="str">"sn-1a"</span>, <span class="str">"sn-2b"</span>]<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- Step 2: provision_database (async, 3 polls) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 2 &mdash; provision_database (async, 3 polls)</div>
-          <div class="step-track">
-            <div class="step-node theme-async">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">2</div>
-                  <div class="step-name">provision_database</div>
-                  <div class="step-badge">async</div>
-                </div>
-                <div class="step-body">
-                  <strong>Submission phase:</strong> Handler triggers RDS instance creation in <code>context.vpc_id</code> subnet group. Returns <code>{"db_instance_id": "rds-7e42"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">poll: 5.0s initial</span>
-                  <span class="meta-tag">backoff: &times;1.5</span>
-                  <span class="meta-tag">timeout: 600s</span>
-                </div>
-
-                <div class="poll-track">
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;after submission &mdash; <code>next_poll_at</code> in 5.0s
-                  </div>
-                  <div class="poll-step" style="color: #4b5563; font-style: italic;">
-                    &hellip; no instance holds the lock &hellip;
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance B claims</span>
-                    &nbsp;fast sweep finds unlocked RUNNING workflow
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_db_status()</code>
-                    <span class="poll-progress">25% &bull; 5.0s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 7.5s (backoff &times;1.5)
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance A claims</span>
-                    &nbsp;any instance can pick up next poll
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 2 &mdash; <code>_poll_once()</code> &rarr; <code>check_db_status()</code>
-                    <span class="poll-progress">60% &bull; 7.5s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 11.25s (backoff &times;1.5)
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance C claims</span>
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 3 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
-                    <span class="poll-progress" style="color:#34d399;">done</span>
-                  </div>
-                  <div class="poll-step" style="color: #34d399; font-size: 10px;">
-                    Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 3
-                  </div>
-                </div>
+    <!-- Step 2: provision_database (async, 3 polls) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 2 &mdash; provision_database (async, 3 polls)</div>
+        <div class="step-track">
+          <div class="step-node theme-async">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">2</div>
+                <div class="step-name">provision_database</div>
+                <div class="step-badge">async</div>
               </div>
-            </div>
+              <div class="step-body">
+                <strong>Submission phase:</strong> Handler triggers RDS instance creation in <code>context.vpc_id</code> subnet group. Returns <code>{"db_instance_id": "rds-7e42"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">poll: 5.0s initial</span>
+                <span class="meta-tag">backoff: &times;1.5</span>
+                <span class="meta-tag">timeout: 600s</span>
+              </div>
 
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 3 polls</div>
+              <div class="poll-track">
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;after submission &mdash; <code>next_poll_at</code> in 5.0s
                 </div>
-                <div class="step-body">
-                  <code>{"db_endpoint": "rds-7e42.us-east-1.rds.amazonaws.com", "db_port": 5432}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 1 &rarr; 2
+                <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                  &hellip; no instance holds the lock &hellip;
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance B claims</span>
+                  &nbsp;fast sweep finds unlocked RUNNING workflow
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_db_status()</code>
+                  <span class="poll-progress">25% &bull; 5.0s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 7.5s (backoff &times;1.5)
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance A claims</span>
+                  &nbsp;any instance can pick up next poll
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 2 &mdash; <code>_poll_once()</code> &rarr; <code>check_db_status()</code>
+                  <span class="poll-progress">60% &bull; 7.5s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 11.25s (backoff &times;1.5)
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance C claims</span>
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 3 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
+                  <span class="poll-progress" style="color:#34d399;">done</span>
+                </div>
+                <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                  Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 3
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 2 &mdash; provision_database</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">7</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:22:40Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [<span class="str">"sn-1a"</span>, <span class="str">"sn-2b"</span>],<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_instance_id"</span>: <span class="str">"rds-7e42"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_port"</span>: <span class="num">5432</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"create_vpc"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"provision_database"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">3</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_instance_id"</span>: <span class="str">"rds-7e42"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"port"</span>: <span class="num">5432</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;}<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 3 polls</div>
+              </div>
+              <div class="step-body">
+                <code>{"db_endpoint": "rds-7e42.us-east-1.rds.amazonaws.com", "db_port": 5432}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 1 &rarr; 2
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 2 &mdash; provision_database</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">7</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:22:40Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [<span class="str">"sn-1a"</span>, <span class="str">"sn-2b"</span>],<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_instance_id"</span>: <span class="str">"rds-7e42"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_port"</span>: <span class="num">5432</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"create_vpc"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"provision_database"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">3</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_instance_id"</span>: <span class="str">"rds-7e42"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"port"</span>: <span class="num">5432</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- Step 3: deploy_application (async, 2 polls) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 3 &mdash; deploy_application (async, 2 polls)</div>
-          <div class="step-track">
-            <div class="step-node theme-async">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">3</div>
-                  <div class="step-name">deploy_application</div>
-                  <div class="step-badge">async</div>
-                </div>
-                <div class="step-body">
-                  <strong>Submission phase:</strong> Handler triggers container deployment into <code>context.vpc_id</code> with DB connection to <code>context.db_endpoint</code>. Returns <code>{"deploy_id": "dpl-a91c"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">poll: 3.0s initial</span>
-                  <span class="meta-tag">timeout: 300s</span>
-                </div>
-
-                <div class="poll-track">
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;after submission &mdash; <code>next_poll_at</code> in 3.0s
-                  </div>
-                  <div class="poll-step" style="color: #4b5563; font-style: italic;">
-                    &hellip; no instance holds the lock &hellip;
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance A claims</span>
-                    &nbsp;fast sweep finds unlocked RUNNING workflow
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_deploy_health()</code>
-                    <span class="poll-progress">50% &bull; 3.0s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 3.0s
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance B claims</span>
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 2 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
-                    <span class="poll-progress" style="color:#34d399;">done</span>
-                  </div>
-                  <div class="poll-step" style="color: #34d399; font-size: 10px;">
-                    Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 4
-                  </div>
-                </div>
+    <!-- Step 3: deploy_application (async, 2 polls) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 3 &mdash; deploy_application (async, 2 polls)</div>
+        <div class="step-track">
+          <div class="step-node theme-async">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">3</div>
+                <div class="step-name">deploy_application</div>
+                <div class="step-badge">async</div>
               </div>
-            </div>
+              <div class="step-body">
+                <strong>Submission phase:</strong> Handler triggers container deployment into <code>context.vpc_id</code> with DB connection to <code>context.db_endpoint</code>. Returns <code>{"deploy_id": "dpl-a91c"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">poll: 3.0s initial</span>
+                <span class="meta-tag">timeout: 300s</span>
+              </div>
 
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 2 polls</div>
+              <div class="poll-track">
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;after submission &mdash; <code>next_poll_at</code> in 3.0s
                 </div>
-                <div class="step-body">
-                  <code>{"app_url": "http://10.0.1.50:8080", "task_arn": "arn:aws:ecs:..."}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 2 &rarr; 3
+                <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                  &hellip; no instance holds the lock &hellip;
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance A claims</span>
+                  &nbsp;fast sweep finds unlocked RUNNING workflow
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_deploy_health()</code>
+                  <span class="poll-progress">50% &bull; 3.0s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 3.0s
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance B claims</span>
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 2 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
+                  <span class="poll-progress" style="color:#34d399;">done</span>
+                </div>
+                <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                  Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 4
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 3 &mdash; deploy_application</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">10</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_b2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:25:55Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">3</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"deploy_id"</span>: <span class="str">"dpl-a91c"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"app_url"</span>: <span class="str">"http://10.0.1.50:8080"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"task_arn"</span>: <span class="str">"arn:aws:ecs:us-east-1:123456789:task/dpl-a91c"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"provision_database"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_application"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">2</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"deployment_id"</span>: <span class="str">"dpl-a91c"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"replicas_ready"</span>: <span class="num">3</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"task_arn"</span>: <span class="str">"arn:aws:ecs:us-east-1:123456789:task/dpl-a91c"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;}<br>
-              }
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <!-- Step 4: configure_dns (sync) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 4 &mdash; configure_dns (sync)</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 2 polls</div>
               </div>
-            </div>
-
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">4</div>
-                  <div class="step-name">configure_dns</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Creates Route53 A and CNAME records pointing <code>config.data.domain</code> to the application load balancer. Reads <code>context.app_url</code> to determine the target. Returns hosted zone ID and record set.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">no retry</span>
-                  <span class="meta-tag">reads: app_url</span>
-                </div>
+              <div class="step-body">
+                <code>{"app_url": "http://10.0.1.50:8080", "task_arn": "arn:aws:ecs:..."}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 2 &rarr; 3
               </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
-                </div>
-                <div class="step-body">
-                  <code>{"domain": "app.example.com", "hosted_zone_id": "Z3M3LMPEXAMPLE"}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 3 &rarr; 4
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 4 &mdash; configure_dns</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">12</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"engine-a1b2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:28:10Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"app_url"</span>: <span class="str">"http://10.0.1.50:8080"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str hl">"app.example.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"hosted_zone_id"</span>: <span class="str">"Z3M3LMPEXAMPLE"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [...]<br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_application"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"configure_dns"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"hosted_zone_id"</span>: <span class="str">"Z3M3LMP..."</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;}<br>
-              }
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 3 &mdash; deploy_application</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">10</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_b2"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:25:55Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">3</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"deploy_id"</span>: <span class="str">"dpl-a91c"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"app_url"</span>: <span class="str">"http://10.0.1.50:8080"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"task_arn"</span>: <span class="str">"arn:aws:ecs:us-east-1:123456789:task/dpl-a91c"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"provision_database"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_application"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">2</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"deployment_id"</span>: <span class="str">"dpl-a91c"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"replicas_ready"</span>: <span class="num">3</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"task_arn"</span>: <span class="str">"arn:aws:ecs:us-east-1:123456789:task/dpl-a91c"</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- Step 5: issue_tls_cert (async, 2 polls) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 5 &mdash; issue_tls_cert (async, 2 polls)</div>
-          <div class="step-track">
-            <div class="step-node theme-async">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">5</div>
-                  <div class="step-name">issue_tls_cert</div>
-                  <div class="step-badge">async</div>
-                </div>
-                <div class="step-body">
-                  <strong>Submission phase:</strong> Handler requests ACM certificate for <code>context.domain</code> with DNS validation. Returns <code>{"cert_arn": "arn:aws:acm:...abc123"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">poll: 10.0s initial</span>
-                  <span class="meta-tag">timeout: 900s</span>
-                </div>
-
-                <div class="poll-track">
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;after submission &mdash; <code>next_poll_at</code> in 10.0s
-                  </div>
-                  <div class="poll-step" style="color: #4b5563; font-style: italic;">
-                    &hellip; no instance holds the lock &mdash; cert validation propagating &hellip;
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance C claims</span>
-                    &nbsp;fast sweep finds unlocked RUNNING workflow
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_cert_status()</code>
-                    <span class="poll-progress">50% &bull; 10.0s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 10.0s
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance A claims</span>
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 2 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
-                    <span class="poll-progress" style="color:#34d399;">done</span>
-                  </div>
-                  <div class="poll-step" style="color: #34d399; font-size: 10px;">
-                    Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 6
-                  </div>
-                </div>
+    <!-- Step 4: configure_dns (sync) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 4 &mdash; configure_dns (sync)</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
               </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
             </div>
+          </div>
 
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 2 polls</div>
-                </div>
-                <div class="step-body">
-                  <code>{"cert_arn": "arn:aws:acm:...abc123", "cert_status": "ISSUED"}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 4 &rarr; 5
-                </div>
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">4</div>
+                <div class="step-name">configure_dns</div>
+                <div class="step-badge">sync</div>
+              </div>
+              <div class="step-body">
+                Creates Route53 A and CNAME records pointing <code>config.data.domain</code> to the application load balancer. Reads <code>context.app_url</code> to determine the target. Returns hosted zone ID and record set.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">no retry</span>
+                <span class="meta-tag">reads: app_url</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 5 &mdash; issue_tls_cert</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">15</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:31:20Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">5</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"cert_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:123456789:certificate/abc123"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"cert_status"</span>: <span class="str hl">"ISSUED"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"configure_dns"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"issue_tls_cert"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">2</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"certificate_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:123456789:certificate/abc123"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"ISSUED"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;}<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
+              </div>
+              <div class="step-body">
+                <code>{"domain": "app.example.com", "hosted_zone_id": "Z3M3LMPEXAMPLE"}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 3 &rarr; 4
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 4 &mdash; configure_dns</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">12</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"engine-a1b2"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:28:10Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"app_url"</span>: <span class="str">"http://10.0.1.50:8080"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str hl">"app.example.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"hosted_zone_id"</span>: <span class="str">"Z3M3LMPEXAMPLE"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"subnet_ids"</span>: [...]<br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_application"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"configure_dns"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"hosted_zone_id"</span>: <span class="str">"Z3M3LMP..."</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- Step 6: health_check (sync, final step) -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 6 &mdash; health_check (sync, final step)</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+    <!-- Step 5: issue_tls_cert (async, 2 polls) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 5 &mdash; issue_tls_cert (async, 2 polls)</div>
+        <div class="step-track">
+          <div class="step-node theme-async">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">5</div>
+                <div class="step-name">issue_tls_cert</div>
+                <div class="step-badge">async</div>
               </div>
-            </div>
-
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">6</div>
-                  <div class="step-name">health_check</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Verifies the full stack: VPC connectivity, database reachability, application health endpoint over HTTPS, DNS resolution, and TLS certificate validity. Returns comprehensive health report.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">no retry</span>
-                  <span class="meta-tag">final step</span>
-                  <span class="meta-tag">reads: all context</span>
-                </div>
+              <div class="step-body">
+                <strong>Submission phase:</strong> Handler requests ACM certificate for <code>context.domain</code> with DNS validation. Returns <code>{"cert_arn": "arn:aws:acm:...abc123"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
               </div>
-            </div>
+              <div class="step-meta">
+                <span class="meta-tag">poll: 10.0s initial</span>
+                <span class="meta-tag">timeout: 900s</span>
+              </div>
 
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
+              <div class="poll-track">
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;after submission &mdash; <code>next_poll_at</code> in 10.0s
                 </div>
-                <div class="step-body">
-                  <code>{"healthy": true, "checks_passed": 5, "latency_ms": 42}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 5 &rarr; 6 (no more steps)
+                <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                  &hellip; no instance holds the lock &mdash; cert validation propagating &hellip;
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance C claims</span>
+                  &nbsp;fast sweep finds unlocked RUNNING workflow
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_cert_status()</code>
+                  <span class="poll-progress">50% &bull; 10.0s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 10.0s
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance A claims</span>
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 2 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
+                  <span class="poll-progress" style="color:#34d399;">done</span>
+                </div>
+                <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                  Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 6
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 6 &mdash; health_check</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">17</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:33:05Z"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">6</span>,<br>
-              &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"app_url"</span>: <span class="str">"http://10.0.1.50:8080"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"cert_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:123456789:certificate/abc123"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"healthy"</span>: <span style="color:#34d399">true</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"issue_tls_cert"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[5]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"health_check"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"healthy"</span>: <span style="color:#34d399">true</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"checks_passed"</span>: <span class="num">5</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"latency_ms"</span>: <span class="num">42</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;}<br>
-              &nbsp;&nbsp;}<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 2 polls</div>
+              </div>
+              <div class="step-body">
+                <code>{"cert_arn": "arn:aws:acm:...abc123", "cert_status": "ISSUED"}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 4 &rarr; 5
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 5 &mdash; issue_tls_cert</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">15</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:31:20Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">5</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"cert_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:123456789:certificate/abc123"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"cert_status"</span>: <span class="str hl">"ISSUED"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"configure_dns"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"issue_tls_cert"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">2</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"certificate_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:123456789:certificate/abc123"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"ISSUED"</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- Complete -->
-      <div class="full-section">
+    <!-- Step 6: health_check (sync, final step) -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 6 &mdash; health_check (sync, final step)</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
+              </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+            </div>
+          </div>
+
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">6</div>
+                <div class="step-name">health_check</div>
+                <div class="step-badge">sync</div>
+              </div>
+              <div class="step-body">
+                Verifies the full stack: VPC connectivity, database reachability, application health endpoint over HTTPS, DNS resolution, and TLS certificate validity. Returns comprehensive health report.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">no retry</span>
+                <span class="meta-tag">final step</span>
+                <span class="meta-tag">reads: all context</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
+              </div>
+              <div class="step-body">
+                <code>{"healthy": true, "checks_passed": 5, "latency_ms": 42}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 5 &rarr; 6 (no more steps)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 6 &mdash; health_check</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"e7a2...d4"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">17</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="str">"14:33:05Z"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">6</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vpc_id"</span>: <span class="str">"vpc-3a8f"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"db_endpoint"</span>: <span class="str">"rds-7e42.us-east-1.rds.amazonaws.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"app_url"</span>: <span class="str">"http://10.0.1.50:8080"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"cert_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:123456789:certificate/abc123"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"healthy"</span>: <span style="color:#34d399">true</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"issue_tls_cert"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[5]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"health_check"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"healthy"</span>: <span style="color:#34d399">true</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"checks_passed"</span>: <span class="num">5</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"latency_ms"</span>: <span class="num">42</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
+
+    <!-- Complete -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">Complete</div>
         <div class="step-track">
           <div class="step-node">
@@ -1040,9 +1029,11 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Crash Recovery -->
-      <div class="full-section">
+    <!-- Crash Recovery -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">Crash Recovery</div>
         <div class="step-track">
           <div class="step-node">
@@ -1082,9 +1073,11 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- State Transitions -->
-      <div class="full-section">
+    <!-- State Transitions -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">State Transitions</div>
         <div class="panel">
           <div class="panel-title">State Transitions</div>
@@ -1116,8 +1109,8 @@
           </div>
         </div>
       </div>
-
     </div>
+
   </div>
 </div>
 

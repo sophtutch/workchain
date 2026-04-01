@@ -73,15 +73,54 @@
   .step-chip.sync  { background: #312e81; color: #a5b4fc; }
   .step-chip.async { background: #451a03; color: #fbbf24; }
 
-  /* ---------- outer layout ---------- */
-  .page-layout {
+  /* ---------- Info bar — horizontal row above main content ---------- */
+  .info-bar {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 24px;
-    align-items: start;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
   }
   @media (max-width: 900px) {
-    .page-layout { grid-template-columns: 1fr; }
+    .info-bar { grid-template-columns: repeat(2, 1fr); }
+  }
+  .info-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-left-width: 3px;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .info-card.loop-fast  { border-left-color: #34d399; }
+  .info-card.loop-heart { border-left-color: #fbbf24; }
+  .info-card.loop-slow  { border-left-color: #f87171; }
+  .info-card.fence-token { border-left-color: #6366f1; }
+  .info-label {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .info-card.loop-fast   .info-label { color: #34d399; }
+  .info-card.loop-heart  .info-label { color: #fbbf24; }
+  .info-card.loop-slow   .info-label { color: #f87171; }
+  .info-card.fence-token .info-label { color: #a5b4fc; }
+  .info-desc {
+    font-size: 10.5px;
+    color: #6b7280;
+    line-height: 1.5;
+  }
+  .info-interval {
+    font-size: 10px;
+    color: #4b5563;
+    margin-top: 6px;
+    font-family: monospace;
+  }
+
+  /* ---------- Step flow panel — matches doc card styling ---------- */
+  .step-flow-panel {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 16px;
   }
 
   /* ---------- main area: stacked sections ---------- */
@@ -95,11 +134,13 @@
     display: grid;
     grid-template-columns: 1fr 360px;
     gap: 20px;
-    align-items: start;
+    align-items: stretch;
     padding: 20px 0;
     border-top: 1px solid #1f2937;
   }
   .step-section:first-child { border-top: none; }
+  .step-doc { display: flex; flex-direction: column; }
+  .step-doc .panel { flex: 1; }
 
   /* ---------- full-width section (no doc) ---------- */
   .full-section {
@@ -488,69 +529,38 @@
   </div>
 </div>
 
-<div class="page-layout">
-
-  <div class="sidebar">
-
-    <div class="panel">
-      <div class="panel-title">Background Loops</div>
-
-      <div class="loop-item">
-        <div class="loop-dot fast"></div>
-        <div>
-          <div class="loop-label">Fast Sweep <span style="color:#6b7280; font-weight:400;">(1 s)</span></div>
-          <div class="loop-desc">Discovers workflows with <code>next_poll_at &le; now</code> or status&nbsp;=&nbsp;<code>pending</code>. Drives the claim-poll-release cycle for async steps.</div>
-        </div>
-      </div>
-
-      <div class="loop-item">
-        <div class="loop-dot heart"></div>
-        <div>
-          <div class="loop-label">Heartbeat <span style="color:#6b7280; font-weight:400;">(TTL/3)</span></div>
-          <div class="loop-desc">Extends lock TTL on all workflows claimed by this instance. If the process dies, the lock expires after TTL&nbsp;seconds.</div>
-        </div>
-      </div>
-
-      <div class="loop-item">
-        <div class="loop-dot slow"></div>
-        <div>
-          <div class="loop-label">Slow Sweep <span style="color:#6b7280; font-weight:400;">(30 s)</span></div>
-          <div class="loop-desc">Detects anomalies: steps stuck in <code>SUBMITTED</code> or <code>RUNNING</code> without a lock; completed steps with un-advanced index; stale locks past TTL.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">Fence Token (Optimistic Lock)</div>
-
-      <div class="fence-box">
-        <div class="val">fence_token: <strong>N</strong></div>
-        <div class="explain">Incremented atomically on every <code>try_claim</code>. All subsequent writes carry <code>{"fence_token": N}</code> as a filter &mdash; stale writers silently fail.</div>
-      </div>
-      <div class="fence-box" style="margin-top:0.5rem;">
-        <div class="val">findOneAndUpdate</div>
-        <div class="explain"><code>{status: "pending"|"running", locked_by: null, fence_token: N-1}</code> &rarr; <code>{$set: {locked_by: id}, $inc: {fence_token: 1}}</code></div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">Legend</div>
-      <div style="font-size:0.74rem; display:flex; flex-direction:column; gap:0.4rem;">
-        <div><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#34d399;vertical-align:middle;margin-right:0.4rem;"></span> Write-ahead / Complete</div>
-        <div><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#a5b4fc;vertical-align:middle;margin-right:0.4rem;"></span> Sync execution</div>
-        <div><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#fbbf24;vertical-align:middle;margin-right:0.4rem;"></span> Async / polling</div>
-        <div><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#6366f1;vertical-align:middle;margin-right:0.4rem;"></span> Engine action</div>
-        <div><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f87171;vertical-align:middle;margin-right:0.4rem;"></span> Failure / crash</div>
-      </div>
-    </div>
-
+<div class="info-bar">
+  <div class="info-card loop-fast">
+    <div class="info-label">Fast Sweep</div>
+    <div class="info-desc">Discovers workflows with <code style="color:#34d399;">next_poll_at &le; now</code> or status&nbsp;=&nbsp;<code style="color:#34d399;">pending</code>. Drives the claim-poll-release cycle for async steps.</div>
+    <div class="info-interval">every 1s &rarr; find_claimable()</div>
   </div>
+  <div class="info-card loop-heart">
+    <div class="info-label">Heartbeat</div>
+    <div class="info-desc">Extends lock TTL on all workflows claimed by this instance. If the process dies, the lock expires after TTL&nbsp;seconds.</div>
+    <div class="info-interval">every TTL/3 &rarr; heartbeat()</div>
+  </div>
+  <div class="info-card loop-slow">
+    <div class="info-label">Slow Sweep</div>
+    <div class="info-desc">Detects anomalies: steps stuck in <code style="color:#f87171;">SUBMITTED</code> or <code style="color:#f87171;">RUNNING</code> without a lock; completed steps with un-advanced index; stale locks past TTL.</div>
+    <div class="info-interval">every 30s &rarr; find_anomalies()</div>
+  </div>
+  <div class="info-card fence-token">
+    <div class="info-label">Fence Token</div>
+    <div class="info-desc">Incremented on every <code style="color:#a5b4fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected — the instance lost its lock.</div>
+    <div class="info-interval" style="line-height:1.8; margin-top:8px;">
+      Instance A claims &rarr; fence=<span style="color:#fbbf24">N</span><br>
+      Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">N+1</span><br>
+      A tries to write &rarr; <span style="color:#f87171">rejected</span>
+    </div>
+  </div>
+</div>
 
-  <div class="main-area">
+<div class="main-area">
 
     <!-- Discovery section -->
     <div class="step-section">
-      <div class="step-flow">
+      <div class="step-flow-panel">
         <div class="section-label">Discovery</div>
         <div class="flow-timeline">
 
@@ -596,7 +606,7 @@
 
     <!-- Step 1 section -->
     <div class="step-section">
-      <div class="step-flow">
+      <div class="step-flow-panel">
         <div class="section-label">Step 1 &mdash; validate_email (sync, retry:3)</div>
         <div class="flow-timeline">
 
@@ -664,7 +674,7 @@
 
     <!-- Step 2 section -->
     <div class="step-section">
-      <div class="step-flow">
+      <div class="step-flow-panel">
         <div class="section-label">Step 2 &mdash; create_account (sync, retry:5, exponential backoff)</div>
         <div class="flow-timeline">
 
@@ -761,7 +771,7 @@
 
     <!-- Step 3 section -->
     <div class="step-section">
-      <div class="step-flow">
+      <div class="step-flow-panel">
         <div class="section-label">Step 3 &mdash; provision_resources (async, poll&times;3, interval=2.0s, backoff=1.5&times;, timeout=60s)</div>
         <div class="flow-timeline">
 
@@ -899,7 +909,7 @@
 
     <!-- Step 4 section -->
     <div class="step-section">
-      <div class="step-flow">
+      <div class="step-flow-panel">
         <div class="section-label">Step 4 &mdash; send_welcome_email (sync)</div>
         <div class="flow-timeline">
 
@@ -956,20 +966,22 @@
 
     <!-- Complete section -->
     <div class="full-section">
-      <div class="section-label">Complete</div>
-      <div class="flow-timeline">
+      <div class="step-flow-panel">
+        <div class="section-label">Complete</div>
+        <div class="flow-timeline">
 
-        <div class="step-node theme-complete">
-          <div class="node-header">
-            <span class="node-title">Workflow Complete</span>
-            <span class="badge lock-release">lock released</span>
-            <span class="badge fence-badge">fence_token: 5</span>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Workflow Complete</span>
+              <span class="badge lock-release">lock released</span>
+              <span class="badge fence-badge">fence_token: 5</span>
+            </div>
+            <div class="node-desc">
+              <code>workflow.status &rarr; "completed"</code>. All 4 steps finished. Lock released. No further sweeps will pick this workflow up.
+            </div>
           </div>
-          <div class="node-desc">
-            <code>workflow.status &rarr; "completed"</code>. All 4 steps finished. Lock released. No further sweeps will pick this workflow up.
-          </div>
+
         </div>
-
       </div>
 
       <div class="panel" style="margin-top: 1.25rem;">
@@ -1067,93 +1079,95 @@
 
     <!-- Retry Failure Path section -->
     <div class="full-section">
-      <div class="section-label">Retry Failure Path</div>
-      <div class="flow-timeline">
+      <div class="step-flow-panel">
+        <div class="section-label">Retry Failure Path</div>
+        <div class="flow-timeline">
 
-        <div class="step-node theme-fail">
-          <div class="node-header">
-            <span class="node-title">All Retries Exhausted</span>
-            <span class="badge lock-release">lock released</span>
+          <div class="step-node theme-fail">
+            <div class="node-header">
+              <span class="node-title">All Retries Exhausted</span>
+              <span class="badge lock-release">lock released</span>
+            </div>
+            <div class="node-desc">
+              When all <code>max_attempts</code> fail, the step is marked <code>FAILED</code>.
+            </div>
+            <div class="retry-track">
+              <div class="retry-item">
+                <span class="retry-dot fail"></span>
+                <span style="color:#f87171;">Attempt N / N</span>
+                <span style="color:#6b7280;">&mdash; final attempt fails</span>
+              </div>
+              <div class="retry-item" style="margin-top:0.25rem; font-size:0.74rem;">
+                <span style="color:#6b7280;">&darr;</span>
+              </div>
+              <div class="retry-item">
+                <span style="color:#f87171;"><code>steps[i].status &rarr; "failed"</code></span>
+              </div>
+              <div class="retry-item">
+                <span style="color:#f87171;"><code>workflow.status &rarr; "failed"</code></span>
+              </div>
+              <div class="retry-item">
+                <span style="color:#6b7280;">Lock released. Error + traceback persisted to <code>steps[i].error</code>.</span>
+              </div>
+            </div>
           </div>
-          <div class="node-desc">
-            When all <code>max_attempts</code> fail, the step is marked <code>FAILED</code>.
-          </div>
-          <div class="retry-track">
-            <div class="retry-item">
-              <span class="retry-dot fail"></span>
-              <span style="color:#f87171;">Attempt N / N</span>
-              <span style="color:#6b7280;">&mdash; final attempt fails</span>
-            </div>
-            <div class="retry-item" style="margin-top:0.25rem; font-size:0.74rem;">
-              <span style="color:#6b7280;">&darr;</span>
-            </div>
-            <div class="retry-item">
-              <span style="color:#f87171;"><code>steps[i].status &rarr; "failed"</code></span>
-            </div>
-            <div class="retry-item">
-              <span style="color:#f87171;"><code>workflow.status &rarr; "failed"</code></span>
-            </div>
-            <div class="retry-item">
-              <span style="color:#6b7280;">Lock released. Error + traceback persisted to <code>steps[i].error</code>.</span>
-            </div>
-          </div>
+
         </div>
-
       </div>
     </div>
 
     <!-- Crash Recovery Path section -->
     <div class="full-section">
-      <div class="section-label">Crash Recovery Path</div>
-      <div class="flow-timeline">
+      <div class="step-flow-panel">
+        <div class="section-label">Crash Recovery Path</div>
+        <div class="flow-timeline">
 
-        <div class="step-node theme-fail">
-          <div class="node-header">
-            <span class="node-title">Crash During Step Execution</span>
-          </div>
-          <div class="node-desc" style="margin-bottom:0.5rem;">
-            Process dies mid-step. Lock TTL expires. Slow sweep detects orphaned step in <code>SUBMITTED</code> or <code>RUNNING</code> state without a live lock.
-          </div>
+          <div class="step-node theme-fail">
+            <div class="node-header">
+              <span class="node-title">Crash During Step Execution</span>
+            </div>
+            <div class="node-desc" style="margin-bottom:0.5rem;">
+              Process dies mid-step. Lock TTL expires. Slow sweep detects orphaned step in <code>SUBMITTED</code> or <code>RUNNING</code> state without a live lock.
+            </div>
 
-          <div class="crash-callout">
-            <div class="crash-title">Recovery Decision Tree</div>
-            <div class="crash-tree">
-              <div><strong>1. Has <code>verify_completion</code> hook?</strong></div>
-              <div class="branch">
-                <span class="yes">YES</span> <span class="arrow">&rarr;</span> Call it. If returns True &rarr; mark <code>COMPLETED</code>, advance.
-              </div>
-              <div class="branch">
-                <span class="no">NO</span> <span class="arrow">&darr;</span>
-              </div>
+            <div class="crash-callout">
+              <div class="crash-title">Recovery Decision Tree</div>
+              <div class="crash-tree">
+                <div><strong>1. Has <code>verify_completion</code> hook?</strong></div>
+                <div class="branch">
+                  <span class="yes">YES</span> <span class="arrow">&rarr;</span> Call it. If returns True &rarr; mark <code>COMPLETED</code>, advance.
+                </div>
+                <div class="branch">
+                  <span class="no">NO</span> <span class="arrow">&darr;</span>
+                </div>
 
-              <div style="margin-top:0.35rem;"><strong>2. Is async step with <code>completeness_check</code>?</strong></div>
-              <div class="branch">
-                <span class="yes">YES</span> <span class="arrow">&rarr;</span> Run <code>completeness_check</code>. If complete &rarr; <code>COMPLETED</code>. Else &rarr; set <code>BLOCKED</code>, resume polling.
-              </div>
-              <div class="branch">
-                <span class="no">NO</span> <span class="arrow">&darr;</span>
-              </div>
+                <div style="margin-top:0.35rem;"><strong>2. Is async step with <code>completeness_check</code>?</strong></div>
+                <div class="branch">
+                  <span class="yes">YES</span> <span class="arrow">&rarr;</span> Run <code>completeness_check</code>. If complete &rarr; <code>COMPLETED</code>. Else &rarr; set <code>BLOCKED</code>, resume polling.
+                </div>
+                <div class="branch">
+                  <span class="no">NO</span> <span class="arrow">&darr;</span>
+                </div>
 
-              <div style="margin-top:0.35rem;"><strong>3. Is step handler idempotent?</strong></div>
-              <div class="branch">
-                <span class="yes">YES</span> <span class="arrow">&rarr;</span> Re-execute handler from scratch. Safe because idempotent.
-              </div>
-              <div class="branch">
-                <span class="no">NO</span> <span class="arrow">&darr;</span>
-              </div>
+                <div style="margin-top:0.35rem;"><strong>3. Is step handler idempotent?</strong></div>
+                <div class="branch">
+                  <span class="yes">YES</span> <span class="arrow">&rarr;</span> Re-execute handler from scratch. Safe because idempotent.
+                </div>
+                <div class="branch">
+                  <span class="no">NO</span> <span class="arrow">&darr;</span>
+                </div>
 
-              <div style="margin-top:0.35rem;"><strong>4. Fallback</strong></div>
-              <div class="branch">
-                <span class="no">NEEDS_REVIEW</span> <span class="arrow">&rarr;</span> <code>workflow.status &rarr; "needs_review"</code>. Requires human intervention.
+                <div style="margin-top:0.35rem;"><strong>4. Fallback</strong></div>
+                <div class="branch">
+                  <span class="no">NEEDS_REVIEW</span> <span class="arrow">&rarr;</span> <code>workflow.status &rarr; "needs_review"</code>. Requires human intervention.
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
+        </div>
       </div>
     </div>
-
-  </div>
 
 </div>
 

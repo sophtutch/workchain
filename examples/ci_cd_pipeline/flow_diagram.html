@@ -30,16 +30,42 @@
     background: rgba(165,180,252,0.1); color: #a5b4fc; border: 1px solid rgba(165,180,252,0.2);
   }
 
-  /* --- New layout --- */
-  .page-layout {
+  /* --- Info bar --- */
+  .info-bar {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 24px;
-    align-items: start;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
   }
   @media (max-width: 900px) {
-    .page-layout { grid-template-columns: 1fr; }
+    .info-bar { grid-template-columns: repeat(2, 1fr); }
   }
+  .info-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-left-width: 3px;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .info-card.loop-fast   { border-left-color: #34d399; }
+  .info-card.loop-heart  { border-left-color: #fbbf24; }
+  .info-card.loop-slow   { border-left-color: #f87171; }
+  .info-card.fence-token { border-left-color: #6366f1; }
+  .info-label { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+  .info-card.loop-fast   .info-label { color: #34d399; }
+  .info-card.loop-heart  .info-label { color: #fbbf24; }
+  .info-card.loop-slow   .info-label { color: #f87171; }
+  .info-card.fence-token .info-label { color: #a5b4fc; }
+  .info-desc { font-size: 10.5px; color: #6b7280; line-height: 1.5; }
+  .info-interval { font-size: 10px; color: #4b5563; margin-top: 6px; font-family: monospace; }
+  .step-flow-panel {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 16px;
+  }
+
+  /* --- Main area --- */
   .main-area {
     display: flex;
     flex-direction: column;
@@ -48,11 +74,13 @@
     display: grid;
     grid-template-columns: 1fr 360px;
     gap: 20px;
-    align-items: start;
+    align-items: stretch;
     padding: 20px 0;
     border-top: 1px solid #1f2937;
   }
   .step-section:first-child { border-top: none; }
+  .step-doc { display: flex; flex-direction: column; }
+  .step-doc .panel { flex: 1; }
   .full-section {
     padding: 20px 0;
     border-top: 1px solid #1f2937;
@@ -93,7 +121,7 @@
   .mongo-doc .kw { color: #f87171; }
   .mongo-doc .hl { background: rgba(251,191,36,0.1); padding: 1px 3px; border-radius: 3px; }
 
-  /* --- Loops panel --- */
+  /* --- Loops panel (legacy, kept for .loop-item classes used in sidebar) --- */
   .loop-item {
     padding: 10px 12px;
     border-radius: 8px;
@@ -383,621 +411,598 @@
     </div>
   </div>
 
-  <div class="page-layout">
-
-    <!-- SIDEBAR: Background loops + Fence Token -->
-    <div>
-      <div class="panel" style="margin-bottom: 16px;">
-        <div class="panel-title">Background Loops</div>
-        <div class="loop-item loop-fast">
-          <div class="loop-name">Fast Sweep</div>
-          <div class="loop-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
-          <div class="loop-interval">every 5s &rarr; find_claimable()</div>
-        </div>
-        <div class="loop-item loop-heartbeat">
-          <div class="loop-name">Heartbeat</div>
-          <div class="loop-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
-          <div class="loop-interval">every 10s &rarr; heartbeat()</div>
-        </div>
-        <div class="loop-item loop-slow">
-          <div class="loop-name">Slow Sweep</div>
-          <div class="loop-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
-          <div class="loop-interval">every 60s &rarr; find_anomalies()</div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">Fence Token</div>
-        <div style="font-size: 11px; color: #6b7280; line-height: 1.6;">
-          Incremented on every <code style="color:#7dd3fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected &mdash; the instance lost its lock.
-        </div>
-        <div style="margin-top: 12px; font-family: monospace; font-size: 10px; color: #4b5563; line-height: 1.8;">
-          Instance A claims &rarr; fence=<span style="color:#fbbf24">5</span><br>
-          Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">6</span><br>
-          A tries to write (fence=5) &rarr; <span style="color:#f87171">rejected</span>
-        </div>
+  <div class="info-bar">
+    <div class="info-card loop-fast">
+      <div class="info-label">Fast Sweep</div>
+      <div class="info-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
+      <div class="info-interval">every 5s &rarr; find_claimable()</div>
+    </div>
+    <div class="info-card loop-heart">
+      <div class="info-label">Heartbeat</div>
+      <div class="info-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
+      <div class="info-interval">every 10s &rarr; heartbeat()</div>
+    </div>
+    <div class="info-card loop-slow">
+      <div class="info-label">Slow Sweep</div>
+      <div class="info-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
+      <div class="info-interval">every 60s &rarr; find_anomalies()</div>
+    </div>
+    <div class="info-card fence-token">
+      <div class="info-label">Fence Token</div>
+      <div class="info-desc">Incremented on every <code style="color:#a5b4fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected — the instance lost its lock.</div>
+      <div class="info-interval" style="line-height:1.8; margin-top:8px;">
+        Instance A claims &rarr; fence=<span style="color:#fbbf24">N</span><br>
+        Lock expires, B claims &rarr; fence=<span style="color:#fbbf24">N+1</span><br>
+        A tries to write &rarr; <span style="color:#f87171">rejected</span>
       </div>
     </div>
+  </div>
 
-    <!-- MAIN AREA: Section-per-step -->
-    <div class="main-area">
+  <div class="main-area">
 
-      <!-- DISCOVERY SECTION -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Discovery</div>
-          <div class="step-track">
-            <div class="step-node">
-              <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
-              <div class="engine-action">
-                <div class="engine-label">Engine &mdash; Fast Sweep</div>
-                <div class="engine-desc">
-                  <code>find_claimable()</code> returns workflow ID.<br>
-                  <code>try_claim()</code> &rarr; atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
-                  Status: <strong style="color:#34d399">pending &rarr; running</strong>
-                </div>
+    <!-- DISCOVERY SECTION -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Discovery</div>
+        <div class="step-track">
+          <div class="step-node">
+            <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
+            <div class="engine-action">
+              <div class="engine-label">Engine &mdash; Fast Sweep</div>
+              <div class="engine-desc">
+                <code>find_claimable()</code> returns workflow ID.<br>
+                <code>try_claim()</code> &rarr; atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
+                Status: <strong style="color:#34d399">pending &rarr; running</strong>
               </div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">Start Workflow</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">0</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">1</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str hl">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps"</span>: []<br>
-              }
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">Start Workflow</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">0</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">1</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str hl">"inst_a1"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps"</span>: []<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- STEP 1: lint_code -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 1 &mdash; lint_code</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+    <!-- STEP 1: lint_code -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 1 &mdash; lint_code</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
               </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
             </div>
+          </div>
 
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">1</div>
-                  <div class="step-name">lint_code</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Runs linters against the source tree. Reads repo path from <code>config.data</code>. Returns lint report summary.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">no retry</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">1</div>
+                <div class="step-name">lint_code</div>
+                <div class="step-badge">sync</div>
               </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
-                </div>
-                <div class="step-body">
-                  <code>{"lint_passed": true, "warnings": 2}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 0 &rarr; 1
-                </div>
+              <div class="step-body">
+                Runs linters against the source tree. Reads repo path from <code>config.data</code>. Returns lint report summary.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">no retry</span>
+                <span class="meta-tag">idempotent: true</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 1 &mdash; lint_code</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">1</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"lint_code"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"lint_passed"</span>: <span class="num">true</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"warnings"</span>: <span class="num">2</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
-              &nbsp;&nbsp;}<br>
-              }
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
+              </div>
+              <div class="step-body">
+                <code>{"lint_passed": true, "warnings": 2}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 0 &rarr; 1
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 1 &mdash; lint_code</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">1</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"lint_code"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"lint_passed"</span>: <span class="num">true</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"warnings"</span>: <span class="num">2</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- STEP 2: run_tests -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 2 &mdash; run_tests (3 retries)</div>
-          <div class="step-track">
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">2</div>
-                  <div class="step-name">run_tests</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Executes the test suite. Simulates a transient failure on first attempt &mdash; tenacity retries with exponential backoff, each attempt persisted to MongoDB <em>before</em> execution.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">retry: 3 attempts</span>
-                  <span class="meta-tag">backoff: 1s &times; 2.0</span>
-                  <span class="meta-tag">idempotent: true</span>
-                </div>
-
-                <div class="retry-track">
-                  <div class="retry-step">
-                    <div class="retry-db-write">DB &rarr; status=RUNNING, attempt=1</div>
-                  </div>
-                  <div class="retry-step">
-                    <div class="poll-dot fail"></div>
-                    Attempt 1 &mdash; <code>run_tests(config, context)</code>
-                    <span class="retry-badge-fail">TestFailure</span>
-                  </div>
-                  <div class="retry-wait">&hellip; tenacity waits 1.0s (exponential backoff) &hellip;</div>
-
-                  <div class="retry-step">
-                    <div class="retry-db-write">DB &rarr; status=RUNNING, attempt=2</div>
-                  </div>
-                  <div class="retry-step">
-                    <div class="poll-dot done"></div>
-                    Attempt 2 &mdash; <code>run_tests(config, context)</code>
-                    <span class="retry-badge-ok">success</span>
-                  </div>
-                </div>
+    <!-- STEP 2: run_tests -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 2 &mdash; run_tests (3 retries)</div>
+        <div class="step-track">
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">2</div>
+                <div class="step-name">run_tests</div>
+                <div class="step-badge">sync</div>
               </div>
-            </div>
-
-            <div class="step-node">
-              <div class="step-dot" style="border-color: #6366f1;"></div>
-              <div class="engine-action" style="background: rgba(125,211,252,0.05); border-color: rgba(125,211,252,0.2);">
-                <div class="engine-label" style="color: #7dd3fc;">Retry Observability</div>
-                <div class="engine-desc">
-                  Each attempt is persisted <em>before</em> execution via <code>_run_step_with_retry()</code>. Query MongoDB at any time to see:<br>
-                  <code style="color:#7dd3fc;">steps.1.attempt</code> = <span style="color:#fbbf24;">2</span>,
-                  <code style="color:#7dd3fc;">steps.1.status</code> = <span style="color:#7dd3fc;">"running"</span><br>
-                  If the process crashes mid-attempt, the DB shows exactly which retry it was on.
-                </div>
+              <div class="step-body">
+                Executes the test suite. Simulates a transient failure on first attempt &mdash; tenacity retries with exponential backoff, each attempt persisted to MongoDB <em>before</em> execution.
               </div>
-            </div>
+              <div class="step-meta">
+                <span class="meta-tag">retry: 3 attempts</span>
+                <span class="meta-tag">backoff: 1s &times; 2.0</span>
+                <span class="meta-tag">idempotent: true</span>
+              </div>
 
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 2 attempts</div>
+              <div class="retry-track">
+                <div class="retry-step">
+                  <div class="retry-db-write">DB &rarr; status=RUNNING, attempt=1</div>
                 </div>
-                <div class="step-body">
-                  <code>{"tests_passed": 142, "tests_failed": 0, "coverage": 87.3}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 1 &rarr; 2
+                <div class="retry-step">
+                  <div class="poll-dot fail"></div>
+                  Attempt 1 &mdash; <code>run_tests(config, context)</code>
+                  <span class="retry-badge-fail">TestFailure</span>
+                </div>
+                <div class="retry-wait">&hellip; tenacity waits 1.0s (exponential backoff) &hellip;</div>
+
+                <div class="retry-step">
+                  <div class="retry-db-write">DB &rarr; status=RUNNING, attempt=2</div>
+                </div>
+                <div class="retry-step">
+                  <div class="poll-dot done"></div>
+                  Attempt 2 &mdash; <code>run_tests(config, context)</code>
+                  <span class="retry-badge-ok">success</span>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 2 &mdash; run_tests</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">4</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"lint_code"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"attempt"</span>: <span class="num hl">2</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_error"</span>: <span class="str">"TestFailure"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"max_attempts"</span>: <span class="num">3</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"run_tests"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"coverage"</span>: <span class="num">87.3</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tests_failed"</span>: <span class="num">0</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tests_passed"</span>: <span class="num">142</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
-              &nbsp;&nbsp;}<br>
-              }
+
+          <div class="step-node">
+            <div class="step-dot" style="border-color: #6366f1;"></div>
+            <div class="engine-action" style="background: rgba(125,211,252,0.05); border-color: rgba(125,211,252,0.2);">
+              <div class="engine-label" style="color: #7dd3fc;">Retry Observability</div>
+              <div class="engine-desc">
+                Each attempt is persisted <em>before</em> execution via <code>_run_step_with_retry()</code>. Query MongoDB at any time to see:<br>
+                <code style="color:#7dd3fc;">steps.1.attempt</code> = <span style="color:#fbbf24;">2</span>,
+                <code style="color:#7dd3fc;">steps.1.status</code> = <span style="color:#7dd3fc;">"running"</span><br>
+                If the process crashes mid-attempt, the DB shows exactly which retry it was on.
+              </div>
+            </div>
+          </div>
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated &mdash; after 2 attempts</div>
+              </div>
+              <div class="step-body">
+                <code>{"tests_passed": 142, "tests_failed": 0, "coverage": 87.3}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 1 &rarr; 2
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 2 &mdash; run_tests</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">4</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"lint_code"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"attempt"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_error"</span>: <span class="str">"TestFailure"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"max_attempts"</span>: <span class="num">3</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"run_tests"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"coverage"</span>: <span class="num">87.3</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tests_failed"</span>: <span class="num">0</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tests_passed"</span>: <span class="num">142</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- STEP 3: build_artifact -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 3 &mdash; build_artifact (async)</div>
-          <div class="step-track">
-            <div class="step-node theme-async">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">3</div>
-                  <div class="step-name">build_artifact</div>
-                  <div class="step-badge">async</div>
-                </div>
-                <div class="step-body">
-                  <strong>Submission phase:</strong> Handler triggers a container build, returns <code>{"build_id": "bld_7a9e"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">poll: 5.0s initial</span>
-                  <span class="meta-tag">backoff: &times;1.5</span>
-                  <span class="meta-tag">timeout: 600s</span>
-                </div>
+    <!-- STEP 3: build_artifact -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 3 &mdash; build_artifact (async)</div>
+        <div class="step-track">
+          <div class="step-node theme-async">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">3</div>
+                <div class="step-name">build_artifact</div>
+                <div class="step-badge">async</div>
+              </div>
+              <div class="step-body">
+                <strong>Submission phase:</strong> Handler triggers a container build, returns <code>{"build_id": "bld_7a9e"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">poll: 5.0s initial</span>
+                <span class="meta-tag">backoff: &times;1.5</span>
+                <span class="meta-tag">timeout: 600s</span>
+              </div>
 
-                <div class="poll-track">
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;after submission &mdash; <code>next_poll_at</code> in 5.0s
-                  </div>
-                  <div class="poll-step" style="color: #4b5563; font-style: italic;">
-                    &hellip; no instance holds the lock &hellip;
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance B claims</span>
-                    &nbsp;fast sweep finds unlocked RUNNING workflow
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_build()</code>
-                    <span class="poll-progress">33% &bull; 5.0s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 7.5s (backoff &times;1.5)
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance A claims</span>
-                    &nbsp;any instance can pick up next poll
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 2 &mdash; <code>_poll_once()</code> &rarr; <code>check_build()</code>
-                    <span class="poll-progress">66% &bull; 7.5s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 11.25s
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance C claims</span>
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 3 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
-                    <span class="poll-progress" style="color:#34d399;">done</span>
-                  </div>
-                  <div class="poll-step" style="color: #34d399; font-size: 10px;">
-                    Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 4
-                  </div>
+              <div class="poll-track">
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;after submission &mdash; <code>next_poll_at</code> in 5.0s
+                </div>
+                <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                  &hellip; no instance holds the lock &hellip;
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance B claims</span>
+                  &nbsp;fast sweep finds unlocked RUNNING workflow
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_build()</code>
+                  <span class="poll-progress">33% &bull; 5.0s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 7.5s (backoff &times;1.5)
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance A claims</span>
+                  &nbsp;any instance can pick up next poll
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 2 &mdash; <code>_poll_once()</code> &rarr; <code>check_build()</code>
+                  <span class="poll-progress">66% &bull; 7.5s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 11.25s
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance C claims</span>
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 3 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
+                  <span class="poll-progress" style="color:#34d399;">done</span>
+                </div>
+                <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                  Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 4
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 3 &mdash; build_artifact (polling)</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">7</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="kw">null</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="kw hl">null</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"run_tests"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"current_poll_interval"</span>: <span class="num">11.25</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_message"</span>: <span class="str">"2/3 layers"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_progress"</span>: <span class="num">0.66</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"build_artifact"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"next_poll_at"</span>: <span class="str hl">"14:22:18Z"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num hl">2</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: { <span class="key">"build_id"</span>: <span class="str">"bld_7a9e"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#fbbf24" class="hl">"blocked"</span><br>
-              &nbsp;&nbsp;}<br>
-              }
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 3 &mdash; build_artifact (polling)</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">7</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="kw">null</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="kw hl">null</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"run_tests"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"current_poll_interval"</span>: <span class="num">11.25</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_message"</span>: <span class="str">"2/3 layers"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_progress"</span>: <span class="num">0.66</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"build_artifact"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"next_poll_at"</span>: <span class="str hl">"14:22:18Z"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: { <span class="key">"build_id"</span>: <span class="str">"bld_7a9e"</span> },<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#fbbf24" class="hl">"blocked"</span><br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- STEP 4: push_to_registry -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 4 &mdash; push_to_registry</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+    <!-- STEP 4: push_to_registry -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 4 &mdash; push_to_registry</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
               </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
             </div>
+          </div>
 
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">4</div>
-                  <div class="step-name">push_to_registry</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Reads <code>context.build_id</code> (set by step 3). Pushes the built artifact to the container registry. Returns registry URI and image digest.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">no retry</span>
-                  <span class="meta-tag">reads: build_id</span>
-                </div>
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">4</div>
+                <div class="step-name">push_to_registry</div>
+                <div class="step-badge">sync</div>
               </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
-                </div>
-                <div class="step-body">
-                  <code>{"registry_uri": "registry.io/app:v1.2.3", "image_digest": "sha256:a1b2..."}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 3 &rarr; 4
-                </div>
+              <div class="step-body">
+                Reads <code>context.build_id</code> (set by step 3). Pushes the built artifact to the container registry. Returns registry URI and image digest.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">no retry</span>
+                <span class="meta-tag">reads: build_id</span>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 4 &mdash; push_to_registry</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">9</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: { <span class="key">"name"</span>: <span class="str">"lint_code"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: { <span class="key">"name"</span>: <span class="str">"run_tests"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"build_artifact"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"push_to_registry"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"image_digest"</span>: <span class="str">"sha256:a1b2..."</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"registry_uri"</span>: <span class="str">"registry.io/app:v1.2.3"</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
-              &nbsp;&nbsp;}<br>
-              }
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <!-- STEP 5: deploy_staging -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 5 &mdash; deploy_staging (async)</div>
-          <div class="step-track">
-            <div class="step-node theme-async">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">5</div>
-                  <div class="step-name">deploy_staging</div>
-                  <div class="step-badge">async</div>
-                </div>
-                <div class="step-body">
-                  <strong>Submission phase:</strong> Handler triggers a rolling deployment to staging using <code>context.registry_uri</code>. Returns <code>{"deploy_id": "dpl_3f82"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">poll: 3.0s initial</span>
-                  <span class="meta-tag">timeout: 300s</span>
-                </div>
-
-                <div class="poll-track">
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;after submission &mdash; <code>next_poll_at</code> in 3.0s
-                  </div>
-                  <div class="poll-step" style="color: #4b5563; font-style: italic;">
-                    &hellip; no instance holds the lock &hellip;
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance A claims</span>
-                    &nbsp;fast sweep finds unlocked RUNNING workflow
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_deploy_health()</code>
-                    <span class="poll-progress">50% &bull; 3.0s</span>
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-release">lock released</span>
-                    &nbsp;<code>next_poll_at</code> in 3.0s
-                  </div>
-                  <div class="poll-step">
-                    <span class="lock-claim">instance B claims</span>
-                  </div>
-                  <div class="poll-step">
-                    <div class="poll-dot done"></div>
-                    Poll 2 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
-                    <span class="poll-progress" style="color:#34d399;">done</span>
-                  </div>
-                  <div class="poll-step" style="color: #34d399; font-size: 10px;">
-                    Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 6
-                  </div>
-                </div>
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
               </div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 5 &mdash; deploy_staging (polling)</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">10</span>,<br>
-              &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="kw">null</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="kw hl">null</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: { <span class="key">"name"</span>: <span class="str">"lint_code"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: { <span class="key">"name"</span>: <span class="str">"run_tests"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[2]"</span>: { <span class="key">"name"</span>: <span class="str">"build_artifact"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"push_to_registry"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"current_poll_interval"</span>: <span class="num">3.0</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_message"</span>: <span class="str">"rolling..."</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_progress"</span>: <span class="num">0.50</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_staging"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"next_poll_at"</span>: <span class="str hl">"14:25:44Z"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num hl">1</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: { <span class="key">"deploy_id"</span>: <span class="str">"dpl_3f82"</span> },<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#fbbf24" class="hl">"blocked"</span><br>
-              &nbsp;&nbsp;}<br>
-              }
+              <div class="step-body">
+                <code>{"registry_uri": "registry.io/app:v1.2.3", "image_digest": "sha256:a1b2..."}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 3 &rarr; 4
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- STEP 6: run_smoke_tests -->
-      <div class="step-section">
-        <div>
-          <div class="section-label">Step 6 &mdash; run_smoke_tests (final step)</div>
-          <div class="step-track">
-            <div class="step-node theme-submit">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">W</div>
-                  <div class="step-name">Write-Ahead</div>
-                  <div class="step-badge">submitted</div>
-                </div>
-                <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
-              </div>
-            </div>
-
-            <div class="step-node theme-sync">
-              <div class="step-dot"></div>
-              <div class="step-card">
-                <div class="step-header">
-                  <div class="step-num">6</div>
-                  <div class="step-name">run_smoke_tests</div>
-                  <div class="step-badge">sync</div>
-                </div>
-                <div class="step-body">
-                  Runs smoke tests against the staging deployment. Verifies health endpoints and critical user flows. Final step in the pipeline.
-                </div>
-                <div class="step-meta">
-                  <span class="meta-tag">no retry</span>
-                  <span class="meta-tag">final step</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="step-node theme-complete">
-              <div class="step-dot"></div>
-              <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
-                <div class="step-header">
-                  <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
-                </div>
-                <div class="step-body">
-                  <code>{"smoke_passed": true, "endpoints_checked": 8}</code> &rarr; <code>workflow.context</code><br>
-                  <code>current_step_index</code>: 5 &rarr; 6 (no more steps)
-                </div>
-              </div>
-            </div>
-          </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 4 &mdash; push_to_registry</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">9</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: { <span class="key">"name"</span>: <span class="str">"lint_code"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: { <span class="key">"name"</span>: <span class="str">"run_tests"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[2]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"build_artifact"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"push_to_registry"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"image_digest"</span>: <span class="str">"sha256:a1b2..."</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"registry_uri"</span>: <span class="str">"registry.io/app:v1.2.3"</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
+          &nbsp;&nbsp;}<br>
+          }
         </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">After Step 6 &mdash; run_smoke_tests</div>
-            <div class="mongo-doc">
-              {<br>
-              &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">6</span>,<br>
-              &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">12</span>,<br>
-              &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_b2"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
-              &nbsp;&nbsp;<span class="key">"steps[0]"</span>: { <span class="key">"name"</span>: <span class="str">"lint_code"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[1]"</span>: { <span class="key">"name"</span>: <span class="str">"run_tests"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[2]"</span>: { <span class="key">"name"</span>: <span class="str">"build_artifact"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[3]"</span>: { <span class="key">"name"</span>: <span class="str">"push_to_registry"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
-              &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_staging"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
-              &nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;<span class="key">"steps[5]"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"run_smoke_tests"</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"endpoints_checked"</span>: <span class="num">8</span>,<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"smoke_passed"</span>: <span class="num">true</span><br>
-              &nbsp;&nbsp;&nbsp;&nbsp;},<br>
-              &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
-              &nbsp;&nbsp;}<br>
-              }
+      </div></div>
+    </div>
+
+    <!-- STEP 5: deploy_staging -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 5 &mdash; deploy_staging (async)</div>
+        <div class="step-track">
+          <div class="step-node theme-async">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">5</div>
+                <div class="step-name">deploy_staging</div>
+                <div class="step-badge">async</div>
+              </div>
+              <div class="step-body">
+                <strong>Submission phase:</strong> Handler triggers a rolling deployment to staging using <code>context.registry_uri</code>. Returns <code>{"deploy_id": "dpl_3f82"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">poll: 3.0s initial</span>
+                <span class="meta-tag">timeout: 300s</span>
+              </div>
+
+              <div class="poll-track">
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;after submission &mdash; <code>next_poll_at</code> in 3.0s
+                </div>
+                <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                  &hellip; no instance holds the lock &hellip;
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance A claims</span>
+                  &nbsp;fast sweep finds unlocked RUNNING workflow
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 1 &mdash; <code>_poll_once()</code> &rarr; <code>check_deploy_health()</code>
+                  <span class="poll-progress">50% &bull; 3.0s</span>
+                </div>
+                <div class="poll-step">
+                  <span class="lock-release">lock released</span>
+                  &nbsp;<code>next_poll_at</code> in 3.0s
+                </div>
+                <div class="poll-step">
+                  <span class="lock-claim">instance B claims</span>
+                </div>
+                <div class="poll-step">
+                  <div class="poll-dot done"></div>
+                  Poll 2 &mdash; returns <code>{"complete": true, "progress": 1.0}</code>
+                  <span class="poll-progress" style="color:#34d399;">done</span>
+                </div>
+                <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                  Lock <strong>kept</strong> for advance &rarr; step COMPLETED &rarr; advance to step 6
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 5 &mdash; deploy_staging (polling)</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">4</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">10</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span class="kw">null</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="kw hl">null</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: { <span class="key">"name"</span>: <span class="str">"lint_code"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: { <span class="key">"name"</span>: <span class="str">"run_tests"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[2]"</span>: { <span class="key">"name"</span>: <span class="str">"build_artifact"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[3]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"push_to_registry"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"current_poll_interval"</span>: <span class="num">3.0</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_message"</span>: <span class="str">"rolling..."</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_progress"</span>: <span class="num">0.50</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_staging"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"next_poll_at"</span>: <span class="str hl">"14:25:44Z"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num hl">1</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: { <span class="key">"deploy_id"</span>: <span class="str">"dpl_3f82"</span> },<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#fbbf24" class="hl">"blocked"</span><br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
 
-      <!-- TERMINAL: Complete -->
-      <div class="full-section">
+    <!-- STEP 6: run_smoke_tests -->
+    <div class="step-section">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 6 &mdash; run_smoke_tests (final step)</div>
+        <div class="step-track">
+          <div class="step-node theme-submit">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">W</div>
+                <div class="step-name">Write-Ahead</div>
+                <div class="step-badge">submitted</div>
+              </div>
+              <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+            </div>
+          </div>
+
+          <div class="step-node theme-sync">
+            <div class="step-dot"></div>
+            <div class="step-card">
+              <div class="step-header">
+                <div class="step-num">6</div>
+                <div class="step-name">run_smoke_tests</div>
+                <div class="step-badge">sync</div>
+              </div>
+              <div class="step-body">
+                Runs smoke tests against the staging deployment. Verifies health endpoints and critical user flows. Final step in the pipeline.
+              </div>
+              <div class="step-meta">
+                <span class="meta-tag">no retry</span>
+                <span class="meta-tag">final step</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-node theme-complete">
+            <div class="step-dot"></div>
+            <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+              <div class="step-header">
+                <div class="step-name" style="font-size:11px; color:#34d399;">Context updated</div>
+              </div>
+              <div class="step-body">
+                <code>{"smoke_passed": true, "endpoints_checked": 8}</code> &rarr; <code>workflow.context</code><br>
+                <code>current_step_index</code>: 5 &rarr; 6 (no more steps)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="step-doc"><div class="panel">
+        <div class="panel-title">After Step 6 &mdash; run_smoke_tests</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"c4d5...f8"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">6</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">12</span>,<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"inst_b2"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"ci_cd_pipeline"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[0]"</span>: { <span class="key">"name"</span>: <span class="str">"lint_code"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: { <span class="key">"name"</span>: <span class="str">"run_tests"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[2]"</span>: { <span class="key">"name"</span>: <span class="str">"build_artifact"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[3]"</span>: { <span class="key">"name"</span>: <span class="str">"push_to_registry"</span>, <span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;<span class="key">"steps[4]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"deploy_staging"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps[5]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"run_smoke_tests"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"result"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"endpoints_checked"</span>: <span class="num">8</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"smoke_passed"</span>: <span class="num">true</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399" class="hl">"completed"</span><br>
+          &nbsp;&nbsp;}<br>
+          }
+        </div>
+      </div></div>
+    </div>
+
+    <!-- TERMINAL: Complete -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">Complete</div>
         <div class="step-track">
           <div class="step-node">
@@ -1013,9 +1018,11 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- TERMINAL: Retry exhaustion -->
-      <div class="full-section">
+    <!-- TERMINAL: Retry exhaustion -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">If All Retries Exhausted</div>
         <div class="step-track">
           <div class="step-node">
@@ -1036,9 +1043,11 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- TERMINAL: Crash recovery -->
-      <div class="full-section">
+    <!-- TERMINAL: Crash recovery -->
+    <div class="full-section">
+      <div class="step-flow-panel">
         <div class="section-label">If Process Dies Mid-Step</div>
         <div class="step-track">
           <div class="step-node">
@@ -1061,41 +1070,41 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- TERMINAL: State Transitions -->
-      <div class="full-section">
-        <div class="section-label">State Transitions</div>
-        <div class="panel" style="display: inline-block;">
-          <div style="font-family: monospace; font-size: 10.5px; line-height: 2; color: #6b7280;">
-            <span style="color:#4b5563;">pending</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#a5b4fc;">submitted</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#7dd3fc;">running</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#34d399;">completed</span><br>
+    <!-- TERMINAL: State Transitions -->
+    <div class="full-section">
+      <div class="section-label">State Transitions</div>
+      <div class="panel" style="display: inline-block;">
+        <div style="font-family: monospace; font-size: 10.5px; line-height: 2; color: #6b7280;">
+          <span style="color:#4b5563;">pending</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#a5b4fc;">submitted</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#7dd3fc;">running</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#34d399;">completed</span><br>
 
-            <span style="color:#7dd3fc;">running</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#f87171;">failed</span>
-            <span style="color:#6b7280;">(retries exhausted)</span><br>
+          <span style="color:#7dd3fc;">running</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#f87171;">failed</span>
+          <span style="color:#6b7280;">(retries exhausted)</span><br>
 
-            <span style="color:#a5b4fc;">submitted</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#fbbf24;">blocked</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#34d399;">completed</span>
-            <span style="color:#6b7280;">(async)</span><br>
+          <span style="color:#a5b4fc;">submitted</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#fbbf24;">blocked</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#34d399;">completed</span>
+          <span style="color:#6b7280;">(async)</span><br>
 
-            <span style="color:#fbbf24;">blocked</span>
-            <span style="color:#374151;">&rarr;</span>
-            <span style="color:#f87171;">failed</span>
-            <span style="color:#6b7280;">(poll timeout)</span>
-          </div>
+          <span style="color:#fbbf24;">blocked</span>
+          <span style="color:#374151;">&rarr;</span>
+          <span style="color:#f87171;">failed</span>
+          <span style="color:#6b7280;">(poll timeout)</span>
         </div>
       </div>
-
     </div>
+
   </div>
 </div>
 
