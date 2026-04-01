@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<!-- saved from url=(0222)file:///C:/Users/james/AppData/Roaming/Claude/local-agent-mode-sessions/d5ea4117-49b2-4f1b-bab9-9a8e591bdcfa/7a2a06bb-b25b-43be-aae7-a21209e426f4/local_41bf355e-e4c4-4405-9486-32342cd85255/outputs/workflow_engine_flow.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workflow Engine — Flow Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0e17; color: #c8cdd5; min-height: 100vh; padding: 40px 20px; }
+
+  h1 { text-align: center; font-size: 22px; font-weight: 600; color: #e2e6ec; margin-bottom: 6px; }
+  .subtitle { text-align: center; font-size: 13px; color: #6b7280; margin-bottom: 36px; }
+
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* --- Example workflow banner --- */
+  .example-banner {
+    background: linear-gradient(135deg, #1a1f2e, #1e2740);
+    border: 1px solid #2a3450;
+    border-radius: 10px;
+    padding: 18px 24px;
+    margin-bottom: 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .example-banner .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #7c8db5; }
+  .example-banner .name { font-size: 16px; font-weight: 600; color: #a5b4fc; }
+  .example-steps { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .example-steps span {
+    font-size: 11px; padding: 4px 10px; border-radius: 20px;
+    background: rgba(165,180,252,0.1); color: #a5b4fc; border: 1px solid rgba(165,180,252,0.2);
+  }
+
+  /* --- Main layout --- */
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    gap: 24px;
+    align-items: start;
+  }
+
+  /* --- Side panels --- */
+  .panel {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .panel-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: #6b7280; margin-bottom: 12px; font-weight: 600;
+  }
+
+  /* --- MongoDB doc --- */
+  .mongo-doc {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: #9ca3af;
+  }
+  .mongo-doc .key { color: #7dd3fc; }
+  .mongo-doc .str { color: #86efac; }
+  .mongo-doc .num { color: #fbbf24; }
+  .mongo-doc .hl { background: rgba(251,191,36,0.1); padding: 1px 3px; border-radius: 3px; }
+
+  /* --- Loops panel --- */
+  .loop-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #1f2937;
+  }
+  .loop-item:last-child { margin-bottom: 0; }
+  .loop-fast { background: rgba(52,211,153,0.06); border-color: rgba(52,211,153,0.2); }
+  .loop-heartbeat { background: rgba(251,191,36,0.06); border-color: rgba(251,191,36,0.2); }
+  .loop-slow { background: rgba(248,113,113,0.06); border-color: rgba(248,113,113,0.2); }
+  .loop-name { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .loop-fast .loop-name { color: #34d399; }
+  .loop-heartbeat .loop-name { color: #fbbf24; }
+  .loop-slow .loop-name { color: #f87171; }
+  .loop-desc { font-size: 10.5px; color: #6b7280; line-height: 1.4; }
+  .loop-interval { font-size: 10px; color: #4b5563; margin-top: 4px; font-family: monospace; }
+
+  /* Lock release badge */
+  .lock-release {
+    display: inline-block;
+    font-size: 9px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(248,113,113,0.1); color: #f87171;
+    border: 1px solid rgba(248,113,113,0.2);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+  .lock-claim {
+    display: inline-block;
+    font-size: 9px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(52,211,153,0.1); color: #34d399;
+    border: 1px solid rgba(52,211,153,0.2);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+
+  /* --- Center flow --- */
+  .flow-center { position: relative; }
+
+  .step-track {
+    position: relative;
+    padding-left: 40px;
+  }
+  .step-track::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, #34d399 0%, #a5b4fc 33%, #fbbf24 66%, #34d399 100%);
+    opacity: 0.3;
+  }
+
+  .step-node {
+    position: relative;
+    margin-bottom: 16px;
+    animation: fadeSlideIn 0.5s ease-out both;
+  }
+  .step-node:nth-child(1) { animation-delay: 0.1s; }
+  .step-node:nth-child(2) { animation-delay: 0.2s; }
+  .step-node:nth-child(3) { animation-delay: 0.3s; }
+  .step-node:nth-child(4) { animation-delay: 0.4s; }
+  .step-node:nth-child(5) { animation-delay: 0.5s; }
+  .step-node:nth-child(6) { animation-delay: 0.6s; }
+  .step-node:nth-child(7) { animation-delay: 0.7s; }
+  .step-node:nth-child(8) { animation-delay: 0.8s; }
+  .step-node:nth-child(9) { animation-delay: 0.9s; }
+  .step-node:nth-child(10) { animation-delay: 1.0s; }
+  .step-node:nth-child(11) { animation-delay: 1.1s; }
+  .step-node:nth-child(12) { animation-delay: 1.2s; }
+  .step-node:nth-child(13) { animation-delay: 1.3s; }
+  .step-node:nth-child(14) { animation-delay: 1.4s; }
+
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .step-dot {
+    position: absolute;
+    left: -40px;
+    top: 14px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid;
+    background: #0a0e17;
+    z-index: 1;
+  }
+
+  .step-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: border-color 0.2s;
+  }
+  .step-card:hover { border-color: #374151; }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .step-num {
+    font-size: 10px;
+    font-weight: 700;
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .step-name { font-size: 13px; font-weight: 600; color: #e2e6ec; }
+  .step-badge {
+    font-size: 9px; padding: 2px 7px; border-radius: 10px;
+    margin-left: auto; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+
+  .step-body { font-size: 11px; color: #6b7280; line-height: 1.5; margin-bottom: 8px; }
+
+  .step-meta {
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .meta-tag {
+    font-size: 10px; font-family: monospace;
+    padding: 2px 8px; border-radius: 4px;
+    background: rgba(255,255,255,0.03); color: #4b5563;
+    border: 1px solid #1f2937;
+  }
+
+  /* Engine actions */
+  .engine-action {
+    background: rgba(99,102,241,0.08);
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .engine-action .step-dot { border-color: #6366f1; background: #6366f1; }
+  .engine-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #6366f1; font-weight: 600; margin-bottom: 4px; }
+  .engine-desc { font-size: 11px; color: #9ca3af; line-height: 1.5; }
+
+  /* Color themes per step type */
+  .theme-submit .step-dot { border-color: #34d399; }
+  .theme-submit .step-num { background: rgba(52,211,153,0.15); color: #34d399; }
+  .theme-submit .step-badge { background: rgba(52,211,153,0.1); color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
+
+  .theme-sync .step-dot { border-color: #a5b4fc; }
+  .theme-sync .step-num { background: rgba(165,180,252,0.15); color: #a5b4fc; }
+  .theme-sync .step-badge { background: rgba(165,180,252,0.1); color: #a5b4fc; border: 1px solid rgba(165,180,252,0.2); }
+
+  .theme-async .step-dot { border-color: #fbbf24; }
+  .theme-async .step-num { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .theme-async .step-badge { background: rgba(251,191,36,0.1); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+
+  .theme-complete .step-dot { border-color: #34d399; background: #34d399; }
+
+  /* Poll sub-steps */
+  .poll-track {
+    margin: 10px 0 4px 20px;
+    padding-left: 16px;
+    border-left: 2px dashed rgba(251,191,36,0.2);
+  }
+  .poll-step {
+    font-size: 10.5px;
+    color: #6b7280;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .poll-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .poll-dot.pending { background: #4b5563; }
+  .poll-dot.done { background: #34d399; }
+  .poll-dot.fail { background: #f87171; }
+
+  /* Retry sub-steps */
+  .retry-track {
+    margin: 10px 0 4px 20px;
+    padding-left: 16px;
+    border-left: 2px dashed rgba(248,113,113,0.2);
+  }
+  .retry-step {
+    font-size: 10.5px;
+    color: #6b7280;
+    padding: 5px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .retry-badge-fail {
+    display: inline-block;
+    font-size: 8px; padding: 1px 6px; border-radius: 8px;
+    background: rgba(248,113,113,0.1); color: #f87171;
+    border: 1px solid rgba(248,113,113,0.2);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+    margin-left: auto;
+  }
+  .retry-badge-ok {
+    display: inline-block;
+    font-size: 8px; padding: 1px 6px; border-radius: 8px;
+    background: rgba(52,211,153,0.1); color: #34d399;
+    border: 1px solid rgba(52,211,153,0.2);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+    margin-left: auto;
+  }
+  .retry-wait {
+    font-size: 9px; font-family: monospace; color: #4b5563;
+    padding: 2px 0 2px 12px;
+    font-style: italic;
+  }
+  .retry-db-write {
+    font-size: 9px; font-family: monospace; color: #7dd3fc;
+    padding: 1px 0;
+  }
+  .poll-progress {
+    margin-left: auto;
+    font-family: monospace;
+    font-size: 9px;
+    color: #fbbf24;
+  }
+
+  /* Crash recovery callout */
+  .crash-callout {
+    background: rgba(248,113,113,0.06);
+    border: 1px dashed rgba(248,113,113,0.3);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .crash-callout .step-dot { border-color: #f87171; }
+  .crash-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #f87171; font-weight: 600; margin-bottom: 4px; }
+  .crash-desc { font-size: 11px; color: #9ca3af; line-height: 1.5; }
+  .crash-tree { font-size: 10.5px; color: #6b7280; margin-top: 6px; font-family: monospace; line-height: 1.8; }
+  .crash-tree .yes { color: #34d399; }
+  .crash-tree .no { color: #f87171; }
+
+  /* Section dividers */
+  .phase-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0 16px -40px;
+    padding-left: 40px;
+  }
+  .phase-divider span {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #374151;
+    white-space: nowrap;
+  }
+  .phase-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #1f2937;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Workflow Engine — Flow Diagram</h1>
+  <p class="subtitle">Sweep-only discovery • Claim-poll-release for async steps • MongoDB as sole state store • Multi-instance safe</p>
+
+  <!-- Example workflow banner -->
+  <div class="example-banner">
+    <div>
+      <div class="label">Example Workflow</div>
+      <div class="name">User Onboarding</div>
+    </div>
+    <div class="example-steps">
+      <span>1. validate_input</span>
+      <span>2. create_account</span>
+      <span>3. provision_resources</span>
+      <span>4. send_welcome_email</span>
+    </div>
+  </div>
+
+  <div class="flow-grid">
+
+    <!-- LEFT PANEL: Background loops -->
+    <div>
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-title">Background Loops</div>
+        <div class="loop-item loop-fast">
+          <div class="loop-name">Fast Sweep</div>
+          <div class="loop-desc">Polls MongoDB for new, abandoned, and <strong>released async</strong> workflows. Claims atomically with fence token.</div>
+          <div class="loop-interval">every 5s → find_claimable()</div>
+        </div>
+        <div class="loop-item loop-heartbeat">
+          <div class="loop-name">Heartbeat</div>
+          <div class="loop-desc">Extends lock TTL on active workflows. Cancels task if lock is stolen.</div>
+          <div class="loop-interval">every 10s → heartbeat()</div>
+        </div>
+        <div class="loop-item loop-slow">
+          <div class="loop-name">Slow Sweep</div>
+          <div class="loop-desc">Detects stuck steps, stale locks, un-advanced indexes. Force-releases locks.</div>
+          <div class="loop-interval">every 60s → find_anomalies()</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Fence Token</div>
+        <div style="font-size: 11px; color: #6b7280; line-height: 1.6;">
+          Incremented on every <code style="color:#7dd3fc;">try_claim()</code>. Every write includes the token in its query filter. If the token doesn't match, the write is silently rejected — the instance lost its lock.
+        </div>
+        <div style="margin-top: 12px; font-family: monospace; font-size: 10px; color: #4b5563; line-height: 1.8;">
+          Instance A claims → fence=<span style="color:#fbbf24">3</span><br>
+          Lock expires, B claims → fence=<span style="color:#fbbf24">4</span><br>
+          A tries to write (fence=3) → <span style="color:#f87171">rejected</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: Flow timeline -->
+    <div class="flow-center">
+      <div class="step-track">
+
+        <!-- PHASE: Discovery -->
+        <div class="phase-divider"><span>Discovery</span></div>
+
+        <div class="step-node">
+          <div class="step-dot" style="border-color: #6366f1; background: #6366f1;"></div>
+          <div class="engine-action">
+            <div class="engine-label">Engine — Fast Sweep</div>
+            <div class="engine-desc">
+              <code>find_claimable()</code> returns workflow ID.<br>
+              <code>try_claim()</code> → atomic <code>findOneAndUpdate</code> sets <code>locked_by</code>, extends TTL, <code>$inc fence_token</code>.<br>
+              Status: <strong style="color:#34d399">pending → running</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- PHASE: Step 1 -->
+        <div class="phase-divider"><span>Step 1 — validate_input (sync)</span></div>
+
+        <div class="step-node theme-submit">
+          <div class="step-dot"></div>
+          <div class="step-card">
+            <div class="step-header">
+              <div class="step-num">W</div>
+              <div class="step-name">Write-Ahead</div>
+              <div class="step-badge">submitted</div>
+            </div>
+            <div class="step-body">Persist <code>status=SUBMITTED</code> to MongoDB <em>before</em> executing. This is the crash-safe boundary.</div>
+          </div>
+        </div>
+
+        <div class="step-node theme-sync">
+          <div class="step-dot"></div>
+          <div class="step-card">
+            <div class="step-header">
+              <div class="step-num">1</div>
+              <div class="step-name">validate_input</div>
+              <div class="step-badge">sync</div>
+            </div>
+            <div class="step-body">
+              Checks email format from <code>config.data</code>. Each retry attempt persisted to MongoDB (<code>attempt=1</code>, <code>status=RUNNING</code>) before execution.
+            </div>
+            <div class="step-meta">
+              <span class="meta-tag">retry: 3 attempts</span>
+              <span class="meta-tag">idempotent: true</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-node theme-complete">
+          <div class="step-dot"></div>
+          <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+            <div class="step-header">
+              <div class="step-name" style="font-size:11px; color:#34d399;">Result merged into context</div>
+            </div>
+            <div class="step-body">
+              <code>{"validated": true, "email": "alice@example.com"}</code> → <code>workflow.context</code><br>
+              <code>current_step_index</code>: 0 → 1
+            </div>
+          </div>
+        </div>
+
+        <!-- PHASE: Step 2 -->
+        <div class="phase-divider"><span>Step 2 — create_account (sync, 5 retries)</span></div>
+
+        <div class="step-node theme-sync">
+          <div class="step-dot"></div>
+          <div class="step-card">
+            <div class="step-header">
+              <div class="step-num">2</div>
+              <div class="step-name">create_account</div>
+              <div class="step-badge">sync</div>
+            </div>
+            <div class="step-body">
+              Reads <code>context.email</code> (set by step 1). Creates user record. Simulates a transient failure — tenacity retries with exponential backoff, each attempt persisted to MongoDB <em>before</em> execution.
+            </div>
+            <div class="step-meta">
+              <span class="meta-tag">retry: 5 attempts</span>
+              <span class="meta-tag">backoff: 1s × 2.0</span>
+              <span class="meta-tag">max wait: 60s</span>
+              <span class="meta-tag">idempotent: true</span>
+            </div>
+
+            <!-- Retry sub-track -->
+            <div class="retry-track">
+              <div class="retry-step">
+                <div class="retry-db-write">DB → status=RUNNING, attempt=1</div>
+              </div>
+              <div class="retry-step">
+                <div class="poll-dot fail"></div>
+                Attempt 1 — <code>create_account(config, context)</code>
+                <span class="retry-badge-fail">ConnectionError</span>
+              </div>
+              <div class="retry-wait">… tenacity waits 1.0s (exponential backoff) …</div>
+
+              <div class="retry-step">
+                <div class="retry-db-write">DB → status=RUNNING, attempt=2</div>
+              </div>
+              <div class="retry-step">
+                <div class="poll-dot fail"></div>
+                Attempt 2 — <code>create_account(config, context)</code>
+                <span class="retry-badge-fail">ConnectionError</span>
+              </div>
+              <div class="retry-wait">… tenacity waits 2.0s (1.0 × 2.0) …</div>
+
+              <div class="retry-step">
+                <div class="retry-db-write">DB → status=RUNNING, attempt=3</div>
+              </div>
+              <div class="retry-step">
+                <div class="poll-dot done"></div>
+                Attempt 3 — <code>create_account(config, context)</code>
+                <span class="retry-badge-ok">success</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Retry observability callout -->
+        <div class="step-node">
+          <div class="step-dot" style="border-color: #6366f1;"></div>
+          <div class="engine-action" style="background: rgba(125,211,252,0.05); border-color: rgba(125,211,252,0.2);">
+            <div class="engine-label" style="color: #7dd3fc;">Retry Observability</div>
+            <div class="engine-desc">
+              Each attempt is persisted <em>before</em> execution via <code>_run_step_with_retry()</code>. Query MongoDB at any time to see:<br>
+              <code style="color:#7dd3fc;">steps.1.attempt</code> = <span style="color:#fbbf24;">3</span>,
+              <code style="color:#7dd3fc;">steps.1.status</code> = <span style="color:#7dd3fc;">"running"</span><br>
+              If the process crashes mid-attempt, the DB shows exactly which retry it was on.
+            </div>
+          </div>
+        </div>
+
+        <div class="step-node theme-complete">
+          <div class="step-dot"></div>
+          <div class="step-card" style="border-color: rgba(52,211,153,0.2);">
+            <div class="step-header">
+              <div class="step-name" style="font-size:11px; color:#34d399;">Context updated — after 3 attempts</div>
+            </div>
+            <div class="step-body"><code>{"user_id": "user_8842"}</code> → <code>workflow.context</code></div>
+          </div>
+        </div>
+
+        <!-- PHASE: Step 3 -->
+        <div class="phase-divider"><span>Step 3 — provision_resources (async)</span></div>
+
+        <div class="step-node theme-async">
+          <div class="step-dot"></div>
+          <div class="step-card">
+            <div class="step-header">
+              <div class="step-num">3</div>
+              <div class="step-name">provision_resources</div>
+              <div class="step-badge">async</div>
+            </div>
+            <div class="step-body">
+              <strong>Submission phase:</strong> Handler executes, returns <code>{"job_id": "job_123"}</code>. Engine sets <code>status=BLOCKED</code>, persists <code>next_poll_at</code>, then <strong>releases the lock</strong>.
+            </div>
+            <div class="step-meta">
+              <span class="meta-tag">poll: 2s initial</span>
+              <span class="meta-tag">backoff: ×1.5</span>
+              <span class="meta-tag">max: 10s</span>
+              <span class="meta-tag">timeout: 60s</span>
+            </div>
+
+            <!-- Claim-poll-release sub-track -->
+            <div class="poll-track">
+              <div class="poll-step">
+                <span class="lock-release">lock released</span>
+                &nbsp;after submission — <code>next_poll_at</code> in 2.0s
+              </div>
+              <div class="poll-step" style="color: #4b5563; font-style: italic;">
+                … no instance holds the lock …
+              </div>
+              <div class="poll-step">
+                <span class="lock-claim">instance B claims</span>
+                &nbsp;fast sweep finds unlocked RUNNING workflow
+              </div>
+              <div class="poll-step">
+                <div class="poll-dot done"></div>
+                Poll 1 — <code>_poll_once()</code> → <code>check_provisioning()</code>
+                <span class="poll-progress">33% • 2.0s</span>
+              </div>
+              <div class="poll-step">
+                <span class="lock-release">lock released</span>
+                &nbsp;<code>next_poll_at</code> in 3.0s (backoff ×1.5)
+              </div>
+              <div class="poll-step">
+                <span class="lock-claim">instance A claims</span>
+                &nbsp;any instance can pick up next poll
+              </div>
+              <div class="poll-step">
+                <div class="poll-dot done"></div>
+                Poll 2 — <code>_poll_once()</code> → <code>check_provisioning()</code>
+                <span class="poll-progress">66% • 3.0s</span>
+              </div>
+              <div class="poll-step">
+                <span class="lock-release">lock released</span>
+                &nbsp;<code>next_poll_at</code> in 4.5s
+              </div>
+              <div class="poll-step">
+                <span class="lock-claim">instance C claims</span>
+              </div>
+              <div class="poll-step">
+                <div class="poll-dot done"></div>
+                Poll 3 — returns <code>{"complete": true, "progress": 1.0}</code>
+                <span class="poll-progress" style="color:#34d399;">done</span>
+              </div>
+              <div class="poll-step" style="color: #34d399; font-size: 10px;">
+                Lock <strong>kept</strong> for advance → step COMPLETED → advance to step 4
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PHASE: Step 4 -->
+        <div class="phase-divider"><span>Step 4 — send_welcome_email (sync)</span></div>
+
+        <div class="step-node theme-sync">
+          <div class="step-dot"></div>
+          <div class="step-card">
+            <div class="step-header">
+              <div class="step-num">4</div>
+              <div class="step-name">send_welcome_email</div>
+              <div class="step-badge">sync</div>
+            </div>
+            <div class="step-body">
+              Reads <code>context.email</code>. Sends welcome email. Final step.
+            </div>
+            <div class="step-meta">
+              <span class="meta-tag">retry: 3 attempts</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- PHASE: Complete -->
+        <div class="phase-divider"><span>Complete</span></div>
+
+        <div class="step-node">
+          <div class="step-dot" style="border-color: #34d399; background: #34d399;"></div>
+          <div class="engine-action" style="background: rgba(52,211,153,0.08); border-color: rgba(52,211,153,0.2);">
+            <div class="engine-label" style="color: #34d399;">Workflow Complete</div>
+            <div class="engine-desc">
+              <code>status</code> → <strong style="color:#34d399">completed</strong><br>
+              Lock released via <code>release_lock()</code>. Removed from <code>_active</code>.
+            </div>
+          </div>
+        </div>
+
+        <!-- Retry exhaustion -->
+        <div class="phase-divider"><span>If All Retries Exhausted</span></div>
+
+        <div class="step-node">
+          <div class="step-dot" style="border-color: #f87171; background: #f87171;"></div>
+          <div class="crash-callout" style="background: rgba(248,113,113,0.08); border-style: solid;">
+            <div class="crash-label">Retry Failure Path</div>
+            <div class="crash-desc">
+              When all <code>max_attempts</code> are exhausted, tenacity re-raises the final exception:
+            </div>
+            <div class="crash-tree">
+              attempt 5/5 <span class="no">→ exception raised</span><br>
+              engine catches → persist <span class="no">step.status = FAILED</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ persist <span class="no">step.result.error = traceback</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ <span class="no">workflow.status = FAILED</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ release lock, remove from _active
+            </div>
+          </div>
+        </div>
+
+        <!-- Crash recovery -->
+        <div class="phase-divider"><span>If Process Dies Mid-Step</span></div>
+
+        <div class="step-node">
+          <div class="step-dot" style="border-color: #f87171;"></div>
+          <div class="crash-callout">
+            <div class="crash-label">Crash Recovery Path</div>
+            <div class="crash-desc">Step found in <code>SUBMITTED</code> or <code>RUNNING</code> when a new instance claims the workflow:</div>
+            <div class="crash-tree">
+              verify_completion hook? <span class="yes">→ yes → call it → done? skip</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ no<br>
+              async + completeness_check + has result?<br>
+              &nbsp;&nbsp;<span class="yes">→ yes → call checker → complete? mark COMPLETED</span><br>
+              &nbsp;&nbsp;<span class="yes">→ yes → call checker → not complete? → BLOCKED (don't re-submit)</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ no / threw<br>
+              step is idempotent? <span class="yes">&nbsp;&nbsp;&nbsp;→ yes → reset to PENDING, re-run</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓ no<br>
+              <span class="no">mark workflow NEEDS_REVIEW, stop</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL: MongoDB document -->
+    <div>
+      <div class="panel">
+        <div class="panel-title">MongoDB Document (mid-step 3, between polls)</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"_id"</span>: <span class="str">"a1b2...d6"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"user_onboarding"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"status"</span>: <span class="str hl">"running"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;<span class="key">"context"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"validated"</span>: <span class="num">true</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"email"</span>: <span class="str">"alice@..."</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"user_id"</span>: <span class="str">"user_8842"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"job_id"</span>: <span class="str">"job_123"</span><br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"steps"</span>: [<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"name"</span>: <span class="str">"validate"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"name"</span>: <span class="str">"create_acct"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#34d399">"completed"</span> },<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"name"</span>: <span class="str">"provision"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#fbbf24" class="hl">"blocked"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"poll_count"</span>: <span class="num">2</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"next_poll_at"</span>: <span class="str hl">"10:30:15Z"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"current_poll_interval"</span>: <span class="num hl">4.5</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_progress"</span>: <span class="num">0.66</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"last_poll_message"</span>: <span class="str">"2/3"</span> },<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;{ <span class="key">"name"</span>: <span class="str">"send_email"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#4b5563">"pending"</span> }<br>
+          &nbsp;&nbsp;],<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span style="color:#f87171" class="hl">null</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num hl">5</span>,<br>
+          &nbsp;&nbsp;<span class="key">"lock_expires_at"</span>: <span style="color:#f87171">null</span><br>
+          }
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 16px;">
+        <div class="panel-title">MongoDB Document (mid-retry, step 2)</div>
+        <div class="mongo-doc">
+          {<br>
+          &nbsp;&nbsp;<span class="key">"current_step_index"</span>: <span class="num">1</span>,<br>
+          &nbsp;&nbsp;<span class="key">"steps[1]"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"name"</span>: <span class="str">"create_account"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"status"</span>: <span style="color:#7dd3fc" class="hl">"running"</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"attempt"</span>: <span class="num hl">2</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"retry_policy"</span>: {<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"max_attempts"</span>: <span class="num">5</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"wait_seconds"</span>: <span class="num">1.0</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"wait_multiplier"</span>: <span class="num">2.0</span>,<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"wait_max"</span>: <span class="num">60.0</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+          &nbsp;&nbsp;},<br>
+          &nbsp;&nbsp;<span class="key">"locked_by"</span>: <span class="str">"host1-a3f2"</span>,<br>
+          &nbsp;&nbsp;<span class="key">"fence_token"</span>: <span class="num">3</span><br>
+          }
+        </div>
+        <div style="margin-top: 8px; font-size: 10px; color: #4b5563; line-height: 1.5;">
+          <span style="color:#f87171">•</span> Lock held throughout retry loop<br>
+          <span style="color:#f87171">•</span> <code>attempt</code> incremented in DB before each try<br>
+          <span style="color:#34d399">•</span> On success → <code>status="completed"</code>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 16px;">
+        <div class="panel-title">State Transitions</div>
+        <div style="font-family: monospace; font-size: 10.5px; line-height: 2; color: #6b7280;">
+          <span style="color:#4b5563;">pending</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#a5b4fc;">submitted</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#7dd3fc;">running</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#34d399;">completed</span><br>
+
+          <span style="color:#7dd3fc;">running</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#f87171;">failed</span>
+          <span style="color:#6b7280;">(retries exhausted)</span><br>
+
+          <span style="color:#a5b4fc;">submitted</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#fbbf24;">blocked</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#34d399;">completed</span>
+          <span style="color:#6b7280;">(async)</span><br>
+
+          <span style="color:#fbbf24;">blocked</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#f87171;">failed</span>
+          <span style="color:#6b7280;">(poll timeout)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+</body></html>
