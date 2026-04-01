@@ -232,10 +232,15 @@ class WorkflowRunner:
         if step_run is None or step_run.status != StepStatus.SUSPENDED:
             raise WorkflowRunNotFoundError(f"No suspended step with correlation_id '{correlation_id}'")
 
-        # Re-acquire lease for the resume path
+        step_id = step_run.step_id
+
+        # Re-acquire lease for the resume path — replaces `run` with a fresh
+        # copy from the store, so we must re-fetch step_run afterwards.
         run = await self.store.acquire_lease_for_resume(run.id, self.instance_id, self.lease_ttl)
         if run is None:
             raise RuntimeError("Could not acquire lease for resume on run. " "It may be held by another runner.")
+
+        step_run = run.get_step(step_id)
 
         heartbeat = self._start_heartbeat(str(run.id))
         try:
@@ -247,7 +252,6 @@ class WorkflowRunner:
                     f"Step '{step_run.step_id}' ({step_run.step_type}) is not an EventStep"
                 )
 
-            step_id = step_run.step_id
             try:
                 output = step_instance.on_resume(payload, context) or {}
             except Exception as exc:
@@ -261,9 +265,6 @@ class WorkflowRunner:
                 await self.store.save_with_version(run)
                 return
 
-            step_run = run.get_step(step_id)
-            if step_run is None:
-                raise WorkflowRunNotFoundError(step_id)
             self._complete_step(run, step_run, output=output, context=context)
             await self._continue_run(run, context, heartbeat=heartbeat)
         except ConcurrentModificationError:
