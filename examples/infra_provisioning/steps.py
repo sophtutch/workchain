@@ -15,6 +15,8 @@ import random
 import uuid
 from typing import cast
 
+from pydantic import Field
+
 from workchain import (
     PollPolicy,
     StepConfig,
@@ -35,7 +37,7 @@ class VpcConfig(StepConfig):
 
 class VpcResult(StepResult):
     vpc_id: str = ""
-    subnet_ids: list[str] = []
+    subnet_ids: list[str] = Field(default_factory=list)
 
 
 class DatabaseConfig(StepConfig):
@@ -95,7 +97,7 @@ class HealthCheckResult(StepResult):
 
 
 @step(name="create_vpc")
-async def create_vpc(config: VpcConfig, results: dict[str, StepResult]) -> VpcResult:
+async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcResult:
     """Create a VPC with public and private subnets."""
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
     subnet_count = random.randint(2, 4)
@@ -113,8 +115,8 @@ async def create_vpc(config: VpcConfig, results: dict[str, StepResult]) -> VpcRe
 
 
 async def check_database(
-    config: DatabaseConfig,
-    results: dict[str, StepResult],
+    _config: DatabaseConfig,
+    _results: dict[str, StepResult],
     result: DatabaseResult,
 ) -> dict:
     """Completeness check: simulates database becoming available after 3 polls."""
@@ -129,10 +131,9 @@ async def check_database(
     if progress >= 1.0:
         print(f"  [db] Instance {result.db_instance_id} is available!")
         return {"complete": True, "progress": 1.0, "message": "Database available"}
-    else:
-        label = next(s[2] for s in stages if s[0] == progress)
-        print(f"  [db] Instance {result.db_instance_id} -- {label} ({progress:.0%})")
-        return {"complete": False, "progress": progress, "message": label}
+    label = next(s[2] for s in stages if s[0] == progress)
+    print(f"  [db] Instance {result.db_instance_id} -- {label} ({progress:.0%})")
+    return {"complete": False, "progress": progress, "message": label}
 
 
 @async_step(
@@ -166,7 +167,7 @@ async def provision_database(
 
 async def check_deployment(
     config: DeployConfig,
-    results: dict[str, StepResult],
+    _results: dict[str, StepResult],
     result: DeployResult,
 ) -> dict:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
@@ -181,16 +182,15 @@ async def check_deployment(
             "progress": ready / config.replicas,
             "message": f"{ready}/{config.replicas} replicas ready",
         }
-    else:
-        print(
-            f"  [deploy] Deployment {result.deployment_id} -- "
-            f"{config.replicas}/{config.replicas} replicas healthy!"
-        )
-        return {
-            "complete": True,
-            "progress": 1.0,
-            "message": "All replicas healthy",
-        }
+    print(
+        f"  [deploy] Deployment {result.deployment_id} -- "
+        f"{config.replicas}/{config.replicas} replicas healthy!"
+    )
+    return {
+        "complete": True,
+        "progress": 1.0,
+        "message": "All replicas healthy",
+    }
 
 
 @async_step(
@@ -240,8 +240,8 @@ async def configure_dns(
 
 async def check_tls_cert(
     config: TlsConfig,
-    results: dict[str, StepResult],
-    result: TlsResult,
+    _results: dict[str, StepResult],
+    _result: TlsResult,
 ) -> dict:
     """Completeness check: simulates certificate issued after 2 polls."""
     if random.random() < 0.5:
@@ -251,9 +251,8 @@ async def check_tls_cert(
             "progress": 0.5,
             "message": "Pending domain validation",
         }
-    else:
-        print(f"  [tls] Certificate for {config.domain} -- issued!")
-        return {"complete": True, "progress": 1.0, "message": "Certificate issued"}
+    print(f"  [tls] Certificate for {config.domain} -- issued!")
+    return {"complete": True, "progress": 1.0, "message": "Certificate issued"}
 
 
 @async_step(
@@ -262,7 +261,7 @@ async def check_tls_cert(
     poll=PollPolicy(interval=10.0, backoff_multiplier=1.0, timeout=900.0, max_polls=20),
 )
 async def issue_tls_cert(
-    config: TlsConfig,
+    _config: TlsConfig,
     results: dict[str, StepResult],
 ) -> TlsResult:
     """Request a TLS certificate for the domain."""

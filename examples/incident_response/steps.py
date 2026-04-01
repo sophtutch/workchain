@@ -7,6 +7,8 @@ import time
 import uuid
 from typing import cast
 
+from pydantic import Field
+
 from workchain import (
     PollPolicy,
     RetryPolicy,
@@ -45,7 +47,7 @@ class PageResult(StepResult):
 
 class DiagnosticsResult(StepResult):
     logs_collected: int = 0
-    metrics_snapshot: dict = {}
+    metrics_snapshot: dict = Field(default_factory=dict)
 
 
 class RemediationConfig(StepConfig):
@@ -83,7 +85,7 @@ _poll_counts: dict[str, int] = {}
 @step(name="create_ticket")
 async def create_ticket(
     config: TicketConfig,
-    results: dict[str, StepResult],
+    _results: dict[str, StepResult],
 ) -> TicketResult:
     """Open an incident ticket in the tracking system."""
     ticket_id = f"INC-{uuid.uuid4().hex[:8].upper()}"
@@ -100,7 +102,7 @@ async def create_ticket(
     retry=RetryPolicy(max_attempts=3, wait_seconds=1.0, wait_multiplier=2.0),
 )
 async def page_oncall(
-    config: TicketConfig,
+    _config: TicketConfig,
     results: dict[str, StepResult],
 ) -> PageResult:
     """Page the on-call engineer via the escalation policy."""
@@ -115,7 +117,7 @@ async def page_oncall(
 
 @step(name="gather_diagnostics")
 async def gather_diagnostics(
-    config: TicketConfig,
+    _config: TicketConfig,
     results: dict[str, StepResult],
 ) -> DiagnosticsResult:
     """Collect logs and metrics snapshots for the affected service."""
@@ -138,8 +140,8 @@ async def gather_diagnostics(
 
 
 async def check_remediation(
-    config: TicketConfig,
-    results: dict[str, StepResult],
+    _config: TicketConfig,
+    _results: dict[str, StepResult],
     result: RemediationResult,
 ) -> dict:
     """
@@ -173,7 +175,7 @@ async def check_remediation(
     poll=PollPolicy(interval=2.0, timeout=120.0, max_polls=10),
 )
 async def apply_remediation(
-    config: TicketConfig,
+    _config: TicketConfig,
     results: dict[str, StepResult],
 ) -> RemediationResult:
     """Submit the automated remediation runbook for execution."""
@@ -191,7 +193,7 @@ async def apply_remediation(
 
 @step(name="verify_resolution")
 async def verify_resolution(
-    config: TicketConfig,
+    _config: TicketConfig,
     results: dict[str, StepResult],
 ) -> VerifyResult:
     """Verify the service has recovered after remediation."""
@@ -207,7 +209,7 @@ async def verify_resolution(
 
 @step(name="close_ticket")
 async def close_ticket(
-    config: TicketConfig,
+    _config: TicketConfig,
     results: dict[str, StepResult],
 ) -> CloseTicketResult:
     """Close the incident ticket with a resolution summary."""

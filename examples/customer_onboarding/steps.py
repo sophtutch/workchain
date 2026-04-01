@@ -60,7 +60,7 @@ _poll_counts: dict[str, int] = {}
 @step(name="validate_email")
 async def validate_email(
     config: ValidateEmailConfig,
-    results: dict[str, StepResult],
+    _results: dict[str, StepResult],
 ) -> ValidateEmailResult:
     """Validate that the provided email address is well-formed."""
     email = config.email
@@ -76,7 +76,7 @@ async def validate_email(
     retry=RetryPolicy(max_attempts=5, wait_seconds=0.5, wait_multiplier=2.0),
 )
 async def create_account(
-    config: StepConfig | None,
+    _config: StepConfig | None,
     results: dict[str, StepResult],
 ) -> CreateAccountResult:
     """Create a user account. Retries up to 5 times with exponential backoff."""
@@ -87,8 +87,8 @@ async def create_account(
 
 
 async def check_provisioning(
-    config: StepConfig | None,
-    results: dict[str, StepResult],
+    _config: StepConfig | None,
+    _results: dict[str, StepResult],
     result: ProvisionResult,
 ) -> dict:
     """
@@ -122,7 +122,7 @@ async def check_provisioning(
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=5),
 )
 async def provision_resources(
-    config: StepConfig | None,
+    _config: StepConfig | None,
     results: dict[str, StepResult],
 ) -> ProvisionResult:
     """Submit resource provisioning for the new account."""
@@ -134,7 +134,7 @@ async def provision_resources(
 
 @step(name="send_welcome_email")
 async def send_welcome_email(
-    config: StepConfig | None,
+    _config: StepConfig | None,
     results: dict[str, StepResult],
 ) -> WelcomeEmailResult:
     """Send a welcome email to the newly onboarded customer."""

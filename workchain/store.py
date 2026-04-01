@@ -305,8 +305,6 @@ class MongoWorkflowStore:
         """
         now = datetime.now(UTC)
         stale_cutoff = now - timedelta(seconds=step_stuck_seconds)
-        results: list[dict] = []
-
         # 1. Steps stuck in transient states too long
         cursor = self._col.find(
             {
@@ -323,11 +321,10 @@ class MongoWorkflowStore:
             },
             {"_id": 1},
         ).limit(limit)
-        async for doc in cursor:
-            results.append({
-                "workflow_id": doc["_id"],
-                "anomaly": "step_stuck_in_transient_state",
-            })
+        results: list[dict] = [
+            {"workflow_id": doc["_id"], "anomaly": "step_stuck_in_transient_state"}
+            async for doc in cursor
+        ]
 
         # 2. Stale lock — running but no heartbeat activity
         cursor = self._col.find(

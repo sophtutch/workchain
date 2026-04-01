@@ -66,7 +66,7 @@ class CatalogResult(StepResult):
 @step(name="extract_from_source")
 async def extract_from_source(
     config: ExtractConfig,
-    results: dict[str, StepResult],
+    _results: dict[str, StepResult],
 ) -> ExtractResult:
     """Simulate extracting records from a data source."""
     # In a real implementation this would query a database / API.
@@ -99,7 +99,7 @@ async def validate_schema(
 
 @step(name="transform_records")
 async def transform_records(
-    config: StepConfig | None,
+    _config: StepConfig | None,
     results: dict[str, StepResult],
 ) -> TransformResult:
     """Apply transformations: cleaning, mapping, deduplication."""
@@ -117,7 +117,7 @@ async def transform_records(
 # ---------------------------------------------------------------------------
 
 async def check_load(
-    config: LoadConfig,
+    _config: LoadConfig,
     results: dict[str, StepResult],
     result: LoadResult,
 ) -> dict:
@@ -154,8 +154,8 @@ async def check_load(
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=10),
 )
 async def load_to_warehouse(
-    config: LoadConfig,
-    results: dict[str, StepResult],
+    _config: LoadConfig,
+    _results: dict[str, StepResult],
 ) -> LoadResult:
     """Submit a batch load job to the data warehouse."""
     load_id = uuid.uuid4().hex[:12]
@@ -168,7 +168,7 @@ async def load_to_warehouse(
 
 @step(name="update_catalog")
 async def update_catalog(
-    config: StepConfig | None,
+    _config: StepConfig | None,
     results: dict[str, StepResult],
 ) -> CatalogResult:
     """Register the freshly loaded dataset in the data catalog."""

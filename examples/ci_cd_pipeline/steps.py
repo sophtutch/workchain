@@ -90,7 +90,7 @@ class SmokeTestResult(StepResult):
 # ---------------------------------------------------------------------------
 
 @step(name="lint_code")
-async def lint_code(config: LintConfig, results: dict[str, StepResult]) -> LintResult:
+async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
     """Run static analysis / linting on source files."""
     files_checked = random.randint(40, 120)
     warnings = random.randint(0, 5)
@@ -106,7 +106,7 @@ async def lint_code(config: LintConfig, results: dict[str, StepResult]) -> LintR
     name="run_tests",
     retry=RetryPolicy(max_attempts=3, wait_seconds=1.0, wait_multiplier=2.0),
 )
-async def run_tests(config: TestConfig, results: dict[str, StepResult]) -> TestResult:
+async def run_tests(config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
     """Execute the test suite. May flake on first attempt."""
     total = random.randint(80, 200)
     # Simulate occasional flaky failure (20% chance)
@@ -122,8 +122,8 @@ async def run_tests(config: TestConfig, results: dict[str, StepResult]) -> TestR
 # ---------------------------------------------------------------------------
 
 async def check_build(
-    config: BuildConfig,
-    results: dict[str, StepResult],
+    _config: BuildConfig,
+    _results: dict[str, StepResult],
     result: BuildResult,
 ) -> dict:
     """Completeness check: simulates build completing after 3 polls."""
@@ -138,13 +138,12 @@ async def check_build(
     if progress >= 1.0:
         print(f"  [build] Build {result.build_id} completed!")
         return {"complete": True, "progress": 1.0, "message": "Build finished"}
-    else:
-        print(f"  [build] Build {result.build_id} in progress ({progress:.0%})")
-        return {
-            "complete": False,
-            "progress": progress,
-            "message": f"Compiling and packaging ({progress:.0%})",
-        }
+    print(f"  [build] Build {result.build_id} in progress ({progress:.0%})")
+    return {
+        "complete": False,
+        "progress": progress,
+        "message": f"Compiling and packaging ({progress:.0%})",
+    }
 
 
 @async_step(
@@ -152,7 +151,7 @@ async def check_build(
     completeness_check=check_build,
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=120.0, max_polls=10),
 )
-async def build_artifact(config: BuildConfig, results: dict[str, StepResult]) -> BuildResult:
+async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -> BuildResult:
     """Kick off a container image build."""
     build_id = uuid.uuid4().hex[:12]
     artifact_url = f"https://builds.example.com/{config.repo}/{build_id}"
@@ -182,8 +181,8 @@ async def push_to_registry(
 # ---------------------------------------------------------------------------
 
 async def check_deployment(
-    config: DeployConfig,
-    results: dict[str, StepResult],
+    _config: DeployConfig,
+    _results: dict[str, StepResult],
     result: DeployResult,
 ) -> dict:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
@@ -195,9 +194,8 @@ async def check_deployment(
             "progress": 0.5,
             "message": "Rolling update in progress",
         }
-    else:
-        print(f"  [deploy] Deployment {result.deployment_id} is healthy!")
-        return {"complete": True, "progress": 1.0, "message": "All replicas healthy"}
+    print(f"  [deploy] Deployment {result.deployment_id} is healthy!")
+    return {"complete": True, "progress": 1.0, "message": "All replicas healthy"}
 
 
 @async_step(
