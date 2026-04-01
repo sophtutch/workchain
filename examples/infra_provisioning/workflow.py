@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from workchain import PollPolicy, Step, Workflow
-
-from .steps import (
+from examples.infra_provisioning.steps import (
     DatabaseConfig,
     DeployConfig,
     DnsConfig,
@@ -12,6 +10,7 @@ from .steps import (
     TlsConfig,
     VpcConfig,
 )
+from workchain import PollPolicy, Step, Workflow
 
 
 def build_workflow(

@@ -16,8 +16,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from .decorators import get_handler
-from .models import (
+from workchain.decorators import get_handler
+from workchain.models import (
     PollHint,
     Step,
     StepResult,
@@ -25,8 +25,8 @@ from .models import (
     Workflow,
     WorkflowStatus,
 )
-from .retry import retrying_from_policy
-from .store import MongoWorkflowStore
+from workchain.retry import retrying_from_policy
+from workchain.store import MongoWorkflowStore
 
 logger = logging.getLogger(__name__)
 

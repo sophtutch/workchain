@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+from examples.data_pipeline_etl.steps import ExtractConfig, LoadConfig, SchemaConfig
 from workchain import PollPolicy, Step, Workflow
-
-from .steps import ExtractConfig, LoadConfig, SchemaConfig
 
 
 def build_workflow(

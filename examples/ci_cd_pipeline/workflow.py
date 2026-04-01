@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from workchain import PollPolicy, RetryPolicy, Step, Workflow
-
-from .steps import (
+from examples.ci_cd_pipeline.steps import (
     BuildConfig,
     DeployConfig,
     LintConfig,
@@ -12,6 +10,7 @@ from .steps import (
     SmokeTestConfig,
     TestConfig,
 )
+from workchain import PollPolicy, RetryPolicy, Step, Workflow
 
 
 def build_workflow(repo: str, branch: str = "main") -> Workflow:

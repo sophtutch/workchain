@@ -13,10 +13,8 @@ from typing import cast
 
 from mongomock_motor import AsyncMongoMockClient
 
-from workchain import MongoWorkflowStore, WorkflowEngine
-
 # Import steps so decorators register handlers
-from .steps import (  # noqa: F401
+from examples.ci_cd_pipeline.steps import (  # noqa: F401
     BuildResult,
     DeployResult,
     LintResult,
@@ -30,7 +28,8 @@ from .steps import (  # noqa: F401
     run_smoke_tests,
     run_tests,
 )
-from .workflow import build_workflow
+from examples.ci_cd_pipeline.workflow import build_workflow
+from workchain import MongoWorkflowStore, WorkflowEngine
 
 logging.basicConfig(
     level=logging.INFO,

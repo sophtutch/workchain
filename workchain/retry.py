@@ -8,7 +8,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from .models import RetryPolicy
+from workchain.models import RetryPolicy
 
 
 def retrying_from_policy(policy: RetryPolicy) -> AsyncRetrying:

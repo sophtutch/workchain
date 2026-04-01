@@ -12,11 +12,10 @@ import logging
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from workchain import MongoWorkflowStore, WorkflowEngine
-
 # Import steps so decorators register handlers
-from . import steps as _steps  # noqa: F401
-from .workflow import build_workflow
+from examples.data_pipeline_etl import steps as _steps  # noqa: F401
+from examples.data_pipeline_etl.workflow import build_workflow
+from workchain import MongoWorkflowStore, WorkflowEngine
 
 logging.basicConfig(
     level=logging.INFO,

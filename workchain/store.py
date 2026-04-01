@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
-from .models import StepStatus, Workflow, WorkflowStatus
+from workchain.models import StepStatus, Workflow, WorkflowStatus
 
 logger = logging.getLogger(__name__)
 

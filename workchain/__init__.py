@@ -1,6 +1,6 @@
-from .decorators import async_step, step
-from .engine import WorkflowEngine
-from .models import (
+from workchain.decorators import async_step, step
+from workchain.engine import WorkflowEngine
+from workchain.models import (
     PollHint,
     PollPolicy,
     RetryPolicy,
@@ -11,7 +11,7 @@ from .models import (
     Workflow,
     WorkflowStatus,
 )
-from .store import MongoWorkflowStore
+from workchain.store import MongoWorkflowStore
 
 __all__ = [
     "Workflow", "Step", "StepConfig", "StepResult", "RetryPolicy",

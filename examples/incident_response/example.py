@@ -12,9 +12,8 @@ import logging
 
 from mongomock_motor import AsyncMongoMockClient
 
+from examples.incident_response.workflow import build_workflow
 from workchain import MongoWorkflowStore, WorkflowEngine
-
-from .workflow import build_workflow
 
 logging.basicConfig(
     level=logging.INFO,

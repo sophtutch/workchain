@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .models import PollPolicy, RetryPolicy
+from workchain.models import PollPolicy, RetryPolicy
 
 # Global step registry: handler_name -> callable
 _STEP_REGISTRY: dict[str, Callable] = {}

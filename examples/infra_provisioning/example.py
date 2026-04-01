@@ -13,10 +13,8 @@ from typing import cast
 
 from mongomock_motor import AsyncMongoMockClient
 
-from workchain import MongoWorkflowStore, WorkflowEngine
-
 # Import steps so decorators register handlers
-from .steps import (  # noqa: F401
+from examples.infra_provisioning.steps import (  # noqa: F401
     DatabaseResult,
     DeployResult,
     DnsResult,
@@ -30,7 +28,8 @@ from .steps import (  # noqa: F401
     issue_tls_cert,
     provision_database,
 )
-from .workflow import build_workflow
+from examples.infra_provisioning.workflow import build_workflow
+from workchain import MongoWorkflowStore, WorkflowEngine
 
 logging.basicConfig(
     level=logging.INFO,

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from workchain import PollPolicy, RetryPolicy, Step, Workflow
-
 # Import steps module to trigger handler registration via decorators.
-from . import steps  # noqa: F401
-from .steps import TicketConfig
+from examples.incident_response import steps  # noqa: F401
+from examples.incident_response.steps import TicketConfig
+from workchain import PollPolicy, RetryPolicy, Step, Workflow
 
 
 def build_workflow(
