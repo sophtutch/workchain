@@ -1,45 +1,68 @@
 # Add a new Step
 
-Scaffold a new step for the workchain library.
+Scaffold a new step handler for a workchain workflow.
 
-**Arguments:** `$ARGUMENTS` — the name of the step class (e.g. `SendEmailStep`)
+**Arguments:** `$ARGUMENTS` — the step name in snake_case (e.g. `send_welcome_email`)
 
 ## Instructions
 
-1. Determine the appropriate base class from the user's description:
-   - `Step` — synchronous, completes immediately
-   - `EventStep` — suspends until an external signal is received
-   - `PollingStep` — retries a condition check on an interval
+1. Determine the step mode from the user's description:
+   - **Sync** (`@step`) — executes and returns immediately
+   - **Async** (`@async_step`) — submits external work, polls until complete
 
-2. Create the step file at `workchain/steps/<snake_case_name>.py` with:
-   - A `Config(BaseModel)` inner class with typed fields
-   - The `execute(self, context: Context) -> StepResult` method
-   - For `EventStep`: also implement `on_resume(self, payload, context)`
-   - For `PollingStep`: also implement `check(self, context) -> bool` and optionally `on_complete(self, context) -> dict`
+2. Create config and result Pydantic models extending `StepConfig` and `StepResult`.
 
-3. Add the new step to `workchain/steps/__init__.py` exports (create the file if it doesn't exist yet).
+3. Create the handler as an async function decorated with `@step` or `@async_step`.
 
-4. Add the step class name to the example registry in `CLAUDE.md` if it isn't already there.
+4. If async, create a `completeness_check` function.
 
-5. Remind the user to register it in their `WorkflowRunner` registry dict.
+5. Handler signature supports optional engine context (3rd arg):
+   - Without context: `async def handler(config, results) -> MyResult`
+   - With context: `async def handler(config, results, ctx: dict[str, Any]) -> MyResult`
 
-## Template — Standard Step
+## Template — Sync Step
 
 ```python
-from pydantic import BaseModel
-from workchain.steps import Step, StepResult
-from workchain.context import Context
+from workchain import StepConfig, StepResult, step
 
-
-class $ARGUMENTS Config(BaseModel):
+class $ARGUMENTS_Config(StepConfig):
     # TODO: define config fields
     pass
 
+class $ARGUMENTS_Result(StepResult):
+    # TODO: define result fields
+    pass
 
-class $ARGUMENTS(Step["$ARGUMENTS Config"]):
-    Config = $ARGUMENTS Config
+@step(name="$ARGUMENTS")
+async def $ARGUMENTS(
+    config: $ARGUMENTS_Config,
+    _results: dict[str, StepResult],
+) -> $ARGUMENTS_Result:
+    # TODO: implement step logic
+    return $ARGUMENTS_Result()
+```
 
-    def execute(self, context: Context) -> StepResult:
-        # TODO: implement step logic
-        return StepResult.complete(output={})
+## Template — Async Step
+
+```python
+from workchain import StepConfig, StepResult, PollHint, PollPolicy, async_step
+
+class $ARGUMENTS_Result(StepResult):
+    job_id: str
+
+async def check_$ARGUMENTS(config, results, result: $ARGUMENTS_Result) -> PollHint:
+    # TODO: check if external work is done
+    return PollHint(complete=False, progress=0.5)
+
+@async_step(
+    name="$ARGUMENTS",
+    completeness_check=check_$ARGUMENTS,
+    poll=PollPolicy(interval=5.0, timeout=300.0),
+)
+async def $ARGUMENTS(
+    config: StepConfig,
+    _results: dict[str, StepResult],
+) -> $ARGUMENTS_Result:
+    # TODO: submit external work
+    return $ARGUMENTS_Result(job_id="job_123")
 ```

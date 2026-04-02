@@ -37,3 +37,6 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Claude Code — local settings are per-machine
+.claude/settings.local.json

@@ -165,6 +165,27 @@ workchain/
 └── audit.py        -- AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ```
 
+## Claude Code Commands
+
+The project includes slash commands for [Claude Code](https://claude.com/claude-code) in `.claude/commands/`:
+
+| Command | Description |
+|---------|-------------|
+| `/add-step <name>` | Scaffold a new step handler (sync or async) with config/result models |
+| `/new-workflow <name>` | Scaffold a new workflow example with steps, builder, and CLI runner |
+| `/test` | Run `hatch test` + `hatch fmt` and report results |
+
+## Test Harness
+
+A FastAPI web app for interacting with the example workflows:
+
+```bash
+hatch run harness:serve
+# Open http://localhost:8000
+```
+
+The landing page lets you create workflow instances, watch their progress, and generate HTML audit execution reports.
+
 ## Running Tests
 
 ```bash
