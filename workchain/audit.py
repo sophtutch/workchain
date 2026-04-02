@@ -175,7 +175,7 @@ class MongoAuditLogger:
 
     async def ensure_indexes(self) -> None:
         """Create indexes for efficient queries."""
-        await self._col.create_index([("workflow_id", 1), ("timestamp", 1)])
+        await self._col.create_index([("workflow_id", 1), ("sequence", 1)])
         await self._col.create_index("timestamp")
 
     def _next_sequence(self, workflow_id: str) -> int:
@@ -203,11 +203,11 @@ class MongoAuditLogger:
         workflow_id: str,
         event_type: AuditEventType | None = None,
     ) -> list[AuditEvent]:
-        """Retrieve audit events for a workflow, ordered by timestamp."""
+        """Retrieve audit events for a workflow, ordered by sequence."""
         query: dict = {"workflow_id": workflow_id}
         if event_type is not None:
             query["event_type"] = event_type.value
-        cursor = self._col.find(query).sort([("timestamp", 1), ("_id", 1)])
+        cursor = self._col.find(query).sort("sequence", 1)
         events = []
         async for doc in cursor:
             doc["id"] = doc.pop("_id")
