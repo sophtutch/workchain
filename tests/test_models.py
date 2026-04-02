@@ -1,209 +1,290 @@
-"""Tests for workchain.models — StepRun, WorkflowRun, enums."""
+"""Tests for workchain.models — enums, policies, Step, Workflow."""
 
 from __future__ import annotations
 
-from workchain import DependencyFailurePolicy, RetryPolicy, StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from datetime import UTC, datetime
+
+import pytest
+from pydantic import ValidationError
+
+from workchain.models import (
+    PollHint,
+    PollPolicy,
+    RetryPolicy,
+    Step,
+    StepConfig,
+    StepResult,
+    StepStatus,
+    Workflow,
+    WorkflowStatus,
+)
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
 
 
 class TestStepStatus:
-    def test_all_values(self):
-        expected = {"pending", "running", "completed", "failed", "suspended", "awaiting_poll", "skipped"}
-        assert {s.value for s in StepStatus} == expected
+    def test_values(self):
+        assert StepStatus.PENDING.value == "pending"
+        assert StepStatus.SUBMITTED.value == "submitted"
+        assert StepStatus.RUNNING.value == "running"
+        assert StepStatus.BLOCKED.value == "blocked"
+        assert StepStatus.COMPLETED.value == "completed"
+        assert StepStatus.FAILED.value == "failed"
+
+    def test_str_enum(self):
+        assert StepStatus.PENDING == "pending"
+
+    def test_all_members(self):
+        assert len(StepStatus) == 6
 
 
 class TestWorkflowStatus:
-    def test_all_values(self):
-        expected = {"pending", "running", "completed", "failed", "suspended"}
-        assert {s.value for s in WorkflowStatus} == expected
+    def test_values(self):
+        assert WorkflowStatus.PENDING.value == "pending"
+        assert WorkflowStatus.RUNNING.value == "running"
+        assert WorkflowStatus.COMPLETED.value == "completed"
+        assert WorkflowStatus.FAILED.value == "failed"
+        assert WorkflowStatus.NEEDS_REVIEW.value == "needs_review"
+
+    def test_all_members(self):
+        assert len(WorkflowStatus) == 5
 
 
-class TestStepRun:
+# ---------------------------------------------------------------------------
+# PollHint
+# ---------------------------------------------------------------------------
+
+
+class TestPollHint:
     def test_defaults(self):
-        sr = StepRun(step_id="s1", step_type="NoOpStep")
-        assert sr.status == StepStatus.PENDING
-        assert sr.depends_on == []
-        assert sr.on_dependency_failure == DependencyFailurePolicy.FAIL
-        assert sr.output == {}
-        assert sr.error is None
-        assert sr.resume_correlation_id is None
-        assert sr.next_poll_at is None
-        assert sr.last_polled_at is None
-        assert sr.started_at is None
-        assert sr.completed_at is None
+        h = PollHint()
+        assert h.complete is False
+        assert h.retry_after is None
+        assert h.progress is None
+        assert h.message is None
+
+    def test_complete_true(self):
+        h = PollHint(complete=True, progress=1.0, message="done")
+        assert h.complete is True
+        assert h.progress == 1.0
+
+    @pytest.mark.parametrize("val", [0.0, 0.5, 1.0])
+    def test_valid_progress(self, val):
+        h = PollHint(progress=val)
+        assert h.progress == val
+
+    def test_progress_below_zero_raises(self):
+        with pytest.raises(ValidationError):
+            PollHint(progress=-0.1)
+
+    def test_progress_above_one_raises(self):
+        with pytest.raises(ValidationError):
+            PollHint(progress=1.1)
+
+    def test_progress_none_valid(self):
+        h = PollHint(progress=None)
+        assert h.progress is None
+
+    def test_retry_after(self):
+        h = PollHint(retry_after=10.0)
+        assert h.retry_after == 10.0
 
 
-class TestWorkflowRun:
-    def test_defaults(self):
-        run = WorkflowRun(workflow_name="test", workflow_version="1.0")
-        assert run.status == WorkflowStatus.PENDING
-        assert run.steps == []
-        assert run.context == {}
-        assert run.doc_version == 0
-        assert run.lease_owner is None
-
-    def test_get_step_found(self):
-        run = WorkflowRun(
-            workflow_name="test",
-            workflow_version="1.0",
-            steps=[
-                StepRun(step_id="a", step_type="X"),
-                StepRun(step_id="b", step_type="Y"),
-            ],
-        )
-        assert run.get_step("b").step_id == "b"
-
-    def test_get_step_not_found(self):
-        run = WorkflowRun(workflow_name="test", workflow_version="1.0")
-        assert run.get_step("missing") is None
-
-    def test_is_terminal_completed(self):
-        run = WorkflowRun(workflow_name="t", workflow_version="1", status=WorkflowStatus.COMPLETED)
-        assert run.is_terminal() is True
-
-    def test_is_terminal_failed(self):
-        run = WorkflowRun(workflow_name="t", workflow_version="1", status=WorkflowStatus.FAILED)
-        assert run.is_terminal() is True
-
-    def test_is_terminal_running(self):
-        run = WorkflowRun(workflow_name="t", workflow_version="1", status=WorkflowStatus.RUNNING)
-        assert run.is_terminal() is False
-
-    def test_is_terminal_pending(self):
-        run = WorkflowRun(workflow_name="t", workflow_version="1", status=WorkflowStatus.PENDING)
-        assert run.is_terminal() is False
-
-
-class TestComputeStatus:
-    def _run(self, steps: list[StepRun]) -> WorkflowRun:
-        return WorkflowRun(workflow_name="t", workflow_version="1", steps=steps)
-
-    def test_all_completed(self):
-        run = self._run([StepRun(step_id="a", step_type="X", status=StepStatus.COMPLETED)])
-        assert run.compute_status() == WorkflowStatus.COMPLETED
-
-    def test_any_running(self):
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.COMPLETED),
-            StepRun(step_id="b", step_type="X", status=StepStatus.RUNNING),
-        ])
-        assert run.compute_status() == WorkflowStatus.RUNNING
-
-    def test_ready_pending_deps_met(self):
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.COMPLETED),
-            StepRun(step_id="b", step_type="X", status=StepStatus.PENDING, depends_on=["a"]),
-        ])
-        assert run.compute_status() == WorkflowStatus.RUNNING
-
-    def test_blocked_pending_deps_not_met(self):
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.SUSPENDED),
-            StepRun(step_id="b", step_type="X", status=StepStatus.PENDING, depends_on=["a"]),
-        ])
-        assert run.compute_status() == WorkflowStatus.SUSPENDED
-
-    def test_pending_with_future_retry_after(self):
-        from datetime import UTC, datetime, timedelta
-
-        run = self._run([
-            StepRun(
-                step_id="a", step_type="X", status=StepStatus.PENDING,
-                retry_after=datetime.now(UTC) + timedelta(hours=1),
-            ),
-        ])
-        assert run.compute_status() == WorkflowStatus.SUSPENDED
-
-    def test_all_terminal_with_failed(self):
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.COMPLETED),
-            StepRun(step_id="b", step_type="X", status=StepStatus.FAILED),
-        ])
-        assert run.compute_status() == WorkflowStatus.FAILED
-
-    def test_awaiting_poll(self):
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.AWAITING_POLL),
-        ])
-        assert run.compute_status() == WorkflowStatus.SUSPENDED
-
-    def test_recompute_status_sets_field(self):
-        run = self._run([StepRun(step_id="a", step_type="X", status=StepStatus.COMPLETED)])
-        run.status = WorkflowStatus.PENDING  # stale
-        run.recompute_status()
-        assert run.status == WorkflowStatus.COMPLETED
-
-
-class TestComputeNeedsWorkAfter:
-    def _run(self, steps: list[StepRun], **kwargs) -> WorkflowRun:
-        return WorkflowRun(workflow_name="t", workflow_version="1", steps=steps, **kwargs)
-
-    def test_terminal_returns_none(self):
-        run = self._run(
-            [StepRun(step_id="a", step_type="X", status=StepStatus.COMPLETED)],
-            status=WorkflowStatus.COMPLETED,
-        )
-        assert run.compute_needs_work_after() is None
-
-    def test_ready_pending_returns_now_or_past(self):
-        from datetime import UTC, datetime
-
-        run = self._run([StepRun(step_id="a", step_type="X", status=StepStatus.PENDING)])
-        result = run.compute_needs_work_after()
-        assert result is not None
-        assert result <= datetime.now(UTC)
-
-    def test_pending_with_future_retry_after(self):
-        from datetime import UTC, datetime, timedelta
-
-        future = datetime.now(UTC) + timedelta(hours=1)
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.PENDING, retry_after=future),
-        ])
-        assert run.compute_needs_work_after() == future
-
-    def test_awaiting_poll_returns_next_poll_at(self):
-        from datetime import UTC, datetime, timedelta
-
-        poll_time = datetime.now(UTC) + timedelta(minutes=5)
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.AWAITING_POLL, next_poll_at=poll_time),
-        ])
-        assert run.compute_needs_work_after() == poll_time
-
-    def test_suspended_event_only_returns_none(self):
-        run = self._run([StepRun(step_id="a", step_type="X", status=StepStatus.SUSPENDED)])
-        assert run.compute_needs_work_after() is None
-
-    def test_multiple_actionable_returns_earliest(self):
-        from datetime import UTC, datetime, timedelta
-
-        soon = datetime.now(UTC) + timedelta(minutes=1)
-        later = datetime.now(UTC) + timedelta(hours=1)
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.AWAITING_POLL, next_poll_at=later),
-            StepRun(step_id="b", step_type="X", status=StepStatus.AWAITING_POLL, next_poll_at=soon),
-        ])
-        assert run.compute_needs_work_after() == soon
-
-    def test_blocked_pending_returns_none(self):
-        run = self._run([
-            StepRun(step_id="a", step_type="X", status=StepStatus.SUSPENDED),
-            StepRun(step_id="b", step_type="X", status=StepStatus.PENDING, depends_on=["a"]),
-        ])
-        assert run.compute_needs_work_after() is None
+# ---------------------------------------------------------------------------
+# RetryPolicy
+# ---------------------------------------------------------------------------
 
 
 class TestRetryPolicy:
-    def test_compute_delay_clamped_at_absolute_max(self):
-        from workchain.models import _ABSOLUTE_MAX_DELAY_SECONDS
+    def test_defaults(self):
+        p = RetryPolicy()
+        assert p.max_attempts == 3
+        assert p.wait_seconds == 1.0
+        assert p.wait_multiplier == 2.0
+        assert p.wait_max == 60.0
 
-        policy = RetryPolicy(max_retries=10, delay_seconds=1.0, backoff_multiplier=100.0)
-        delay = policy.compute_delay(attempt=5)
-        assert delay == _ABSOLUTE_MAX_DELAY_SECONDS
+    def test_custom_values(self):
+        p = RetryPolicy(max_attempts=5, wait_seconds=0.5, wait_multiplier=1.5, wait_max=30.0)
+        assert p.max_attempts == 5
+        assert p.wait_multiplier == 1.5
 
-    def test_compute_delay_respects_explicit_max(self):
-        policy = RetryPolicy(
-            max_retries=10, delay_seconds=1.0, backoff_multiplier=10.0, max_delay_seconds=5.0
+
+# ---------------------------------------------------------------------------
+# PollPolicy
+# ---------------------------------------------------------------------------
+
+
+class TestPollPolicy:
+    def test_defaults(self):
+        p = PollPolicy()
+        assert p.interval == 5.0
+        assert p.backoff_multiplier == 1.0
+        assert p.max_interval == 60.0
+        assert p.timeout == 3600.0
+        assert p.max_polls == 0
+
+    def test_custom_values(self):
+        p = PollPolicy(interval=2.0, backoff_multiplier=2.0, max_polls=10)
+        assert p.interval == 2.0
+        assert p.max_polls == 10
+
+
+# ---------------------------------------------------------------------------
+# StepConfig / StepResult
+# ---------------------------------------------------------------------------
+
+
+class TestStepConfig:
+    def test_base_instantiation(self):
+        c = StepConfig()
+        assert c is not None
+
+    def test_subclass(self):
+        class MyConfig(StepConfig):
+            x: int
+        c = MyConfig(x=42)
+        assert c.x == 42
+
+    def test_json_round_trip(self):
+        class MyConfig(StepConfig):
+            x: int
+        c = MyConfig(x=42)
+        data = c.model_dump(mode="json")
+        c2 = MyConfig.model_validate(data)
+        assert c2.x == 42
+
+
+class TestStepResult:
+    def test_defaults(self):
+        r = StepResult()
+        assert r.error is None
+        assert r.completed_at is None
+
+    def test_with_error(self):
+        r = StepResult(error="oops")
+        assert r.error == "oops"
+
+    def test_subclass(self):
+        class MyResult(StepResult):
+            count: int
+        r = MyResult(count=5)
+        assert r.count == 5
+        assert r.error is None
+
+    def test_json_round_trip(self):
+        class MyResult(StepResult):
+            count: int
+        r = MyResult(count=5, completed_at=datetime.now(UTC))
+        data = r.model_dump(mode="json")
+        r2 = MyResult.model_validate(data)
+        assert r2.count == 5
+
+
+# ---------------------------------------------------------------------------
+# Step
+# ---------------------------------------------------------------------------
+
+
+class TestStep:
+    def test_defaults(self):
+        s = Step(name="s1", handler="mod.func")
+        assert s.status == StepStatus.PENDING
+        assert s.config is None
+        assert s.config_type is None
+        assert s.result is None
+        assert s.result_type is None
+        assert s.attempt == 0
+        assert s.is_async is False
+        assert s.idempotent is True
+        assert s.poll_count == 0
+
+    def test_config_type_auto_set(self):
+        class MyConfig(StepConfig):
+            x: int
+        s = Step(name="s1", handler="mod.func", config=MyConfig(x=1))
+        assert s.config_type is not None
+        assert "MyConfig" in s.config_type
+
+    def test_config_type_not_set_for_base(self):
+        s = Step(name="s1", handler="mod.func", config=StepConfig())
+        assert s.config_type is None
+
+    def test_config_type_not_overwritten(self):
+        class MyConfig(StepConfig):
+            x: int
+        s = Step(name="s1", handler="mod.func", config=MyConfig(x=1), config_type="custom.path")
+        assert s.config_type == "custom.path"
+
+    def test_result_type_auto_set(self):
+        class MyResult(StepResult):
+            val: str
+        s = Step(name="s1", handler="mod.func", result=MyResult(val="ok"))
+        assert s.result_type is not None
+        assert "MyResult" in s.result_type
+
+    def test_result_type_not_set_for_base(self):
+        s = Step(name="s1", handler="mod.func", result=StepResult())
+        assert s.result_type is None
+
+    def test_config_none_no_type_path(self):
+        s = Step(name="s1", handler="mod.func")
+        assert s.config_type is None
+
+    def test_retry_policy_default(self):
+        s = Step(name="s1", handler="mod.func")
+        assert s.retry_policy.max_attempts == 3
+
+    def test_poll_policy_default(self):
+        s = Step(name="s1", handler="mod.func")
+        assert s.poll_policy.interval == 5.0
+
+
+# ---------------------------------------------------------------------------
+# Workflow
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflow:
+    def test_defaults(self):
+        w = Workflow(name="test")
+        assert len(w.id) == 32
+        assert w.status == WorkflowStatus.PENDING
+        assert w.steps == []
+        assert w.current_step_index == 0
+        assert w.locked_by is None
+        assert w.lock_expires_at is None
+        assert w.fence_token == 0
+        assert w.created_at is not None
+        assert w.updated_at is not None
+
+    def test_unique_ids(self):
+        w1 = Workflow(name="a")
+        w2 = Workflow(name="b")
+        assert w1.id != w2.id
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (WorkflowStatus.PENDING, False),
+            (WorkflowStatus.RUNNING, False),
+            (WorkflowStatus.COMPLETED, True),
+            (WorkflowStatus.FAILED, True),
+            (WorkflowStatus.NEEDS_REVIEW, True),
+        ],
+    )
+    def test_is_terminal(self, status, expected):
+        w = Workflow(name="test", status=status)
+        assert w.is_terminal() is expected
+
+    def test_with_steps(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="s1", handler="mod.func"),
+                Step(name="s2", handler="mod.func2"),
+            ],
         )
-        delay = policy.compute_delay(attempt=5)
-        assert delay == 5.0
+        assert len(w.steps) == 2
+        assert w.steps[0].name == "s1"

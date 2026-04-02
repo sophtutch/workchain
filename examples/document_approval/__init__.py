@@ -1,1 +1,0 @@
-"""Document approval workflow example."""

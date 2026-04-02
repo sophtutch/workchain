@@ -1,239 +1,158 @@
-"""Shared fixtures for workchain tests."""
+"""Shared fixtures and sample step implementations for workchain tests."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from typing import Any
-
 import pytest
-from bson import ObjectId
-from pydantic import BaseModel
+from mongomock_motor import AsyncMongoMockClient
 
-from workchain import (
-    Context,
-    EventStep,
-    PollingStep,
+from workchain.decorators import _STEP_REGISTRY, async_step, step
+from workchain.engine import WorkflowEngine
+from workchain.models import (
+    PollHint,
+    PollPolicy,
+    RetryPolicy,
     Step,
+    StepConfig,
     StepResult,
-    WorkflowRun,
+    Workflow,
 )
-from workchain.exceptions import ConcurrentModificationError, WorkflowRunNotFoundError
+from workchain.store import MongoWorkflowStore
 
 # ---------------------------------------------------------------------------
-# Sample step implementations for testing
-# ---------------------------------------------------------------------------
-
-
-class AddConfig(BaseModel):
-    a: int
-    b: int
-
-
-class AddStep(Step[AddConfig]):
-    Config = AddConfig
-
-    def execute(self, context: Context) -> StepResult:
-        result = self.config.a + self.config.b
-        return StepResult.complete(output={"sum": result})
-
-
-class NoOpStep(Step):
-    def execute(self, context: Context) -> StepResult:
-        return StepResult.complete(output={"done": True})
-
-
-class FailingStep(Step):
-    def execute(self, context: Context) -> StepResult:
-        return StepResult.fail(error="intentional failure")
-
-
-class ExplodingStep(Step):
-    """Step that raises an exception."""
-
-    def execute(self, context: Context) -> StepResult:
-        raise RuntimeError("boom")
-
-
-class SuspendStep(EventStep):
-    def execute(self, context: Context) -> StepResult:
-        return StepResult.suspend(correlation_id="test-correlation-123")
-
-    def on_resume(self, payload: dict[str, Any], context: Context) -> dict[str, Any]:
-        context.set("resumed_with", payload)
-        return {"approved": payload.get("approved", False)}
-
-
-class CountingPollStep(PollingStep):
-    """PollingStep that completes after a set number of checks."""
-
-    poll_interval_seconds = 1
-    timeout_seconds = None
-
-    def __init__(self, config=None, *, checks_until_done: int = 1):
-        super().__init__(config=config)
-        self._checks_until_done = checks_until_done
-        self._check_count = 0
-
-    def check(self, context: Context) -> bool:
-        self._check_count += 1
-        return self._check_count >= self._checks_until_done
-
-    def on_complete(self, context: Context) -> dict[str, Any]:
-        return {"checks": self._check_count}
-
-
-class TimeoutPollStep(PollingStep):
-    poll_interval_seconds = 1
-    timeout_seconds = 0  # immediate timeout
-
-    def check(self, context: Context) -> bool:
-        return False
-
-
-class ContextReaderStep(Step):
-    """Reads upstream step output from context."""
-
-    def execute(self, context: Context) -> StepResult:
-        upstream = context.step_output("upstream")
-        return StepResult.complete(output={"read_value": upstream.get("sum")})
-
-
-class FlakeyStep(Step):
-    """Fails a configurable number of times then succeeds."""
-
-    def __init__(self, config=None, *, fail_count: int = 2):
-        super().__init__(config=config)
-        self._fail_count = fail_count
-        self._call_count = 0
-
-    def execute(self, context: Context) -> StepResult:
-        self._call_count += 1
-        if self._call_count <= self._fail_count:
-            return StepResult.fail(error=f"flakey failure {self._call_count}")
-        return StepResult.complete(output={"attempts": self._call_count})
-
-
-class SlowStep(Step):
-    """Step that sleeps for a given duration (for timeout testing)."""
-
-    def __init__(self, config=None, *, duration: float = 5.0):
-        super().__init__(config=config)
-        self._duration = duration
-
-    def execute(self, context: Context) -> StepResult:
-        import time
-
-        time.sleep(self._duration)
-        return StepResult.complete(output={"slept": self._duration})
-
-
-class ExplodingResumeStep(EventStep):
-    """EventStep whose on_resume() always raises."""
-
-    def execute(self, context: Context) -> StepResult:
-        return StepResult.suspend(correlation_id="exploding-resume-123")
-
-    def on_resume(self, payload: dict[str, Any], context: Context) -> dict[str, Any]:
-        raise RuntimeError("on_resume exploded")
-
-
-class ExplodingCompletePollStep(PollingStep):
-    """PollingStep whose on_complete() always raises."""
-
-    poll_interval_seconds = 1
-    timeout_seconds = None
-
-    def check(self, context: Context) -> bool:
-        return True
-
-    def on_complete(self, context: Context) -> dict[str, Any]:
-        raise RuntimeError("on_complete exploded")
-
-
-# ---------------------------------------------------------------------------
-# In-memory WorkflowStore for runner unit tests (async)
+# Sample config / result types
 # ---------------------------------------------------------------------------
 
 
-class InMemoryWorkflowStore:
-    """Minimal async in-memory store implementing the WorkflowStore protocol."""
+class GreetConfig(StepConfig):
+    name: str
 
-    def __init__(self, owner_id: str = "test-runner", lease_ttl_seconds: int = 30):
-        self._runs: dict[str, WorkflowRun] = {}
-        self._owner_id = owner_id
-        self._lease_ttl = lease_ttl_seconds
 
-    async def save(self, run: WorkflowRun) -> WorkflowRun:
-        if run.id is None:
-            run.id = ObjectId()
-        self._runs[str(run.id)] = run
-        return run
+class GreetResult(StepResult):
+    greeting: str
 
-    async def save_with_version(self, run: WorkflowRun) -> WorkflowRun:
-        key = str(run.id)
-        stored = self._runs.get(key)
-        if stored is None or stored.doc_version != run.doc_version:
-            raise ConcurrentModificationError(key)
-        run.doc_version += 1
-        run.updated_at = datetime.now(UTC)
-        self._runs[key] = run
-        return run
 
-    async def load(self, run_id: str) -> WorkflowRun:
-        run = self._runs.get(run_id)
-        if run is None:
-            raise WorkflowRunNotFoundError(run_id)
-        return run
+class SubmitResult(StepResult):
+    job_id: str
 
-    async def find_actionable(self) -> WorkflowRun | None:
-        now = datetime.now(UTC)
-        candidates = [
-            run for run in self._runs.values()
-            if run.needs_work_after is not None
-            and run.needs_work_after <= now
-            and (run.lease_expires_at is None or run.lease_expires_at < now)
-        ]
-        if not candidates:
-            return None
-        candidates.sort(key=lambda r: r.needs_work_after)
-        run = candidates[0]
-        run.lease_owner = self._owner_id
-        run.lease_expires_at = now + timedelta(seconds=self._lease_ttl)
-        run.lease_renewed_at = now
-        return run
 
-    async def find_by_correlation_id(self, correlation_id: str) -> WorkflowRun | None:
-        for run in self._runs.values():
-            for step in run.steps:
-                if step.resume_correlation_id == correlation_id:
-                    return run
-        return None
+# ---------------------------------------------------------------------------
+# Sample step handlers (registered via decorators)
+# ---------------------------------------------------------------------------
 
-    async def renew_lease(self, run_id: str, owner_id: str, ttl_seconds: int) -> bool:
-        run = self._runs.get(run_id)
-        if run is None or run.lease_owner != owner_id:
-            return False
-        run.lease_expires_at = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
-        run.lease_renewed_at = datetime.now(UTC)
-        return True
+_FLAKY_COUNTER: dict[str, int] = {}
 
-    async def release_lease(self, run_id: str, owner_id: str) -> None:
-        run = self._runs.get(run_id)
-        if run is not None and run.lease_owner == owner_id:
-            run.lease_owner = None
-            run.lease_expires_at = None
 
-    async def acquire_lease_for_resume(self, run_id, owner_id: str, lease_ttl_seconds: int) -> WorkflowRun | None:
-        run = self._runs.get(str(run_id))
-        if run is None:
-            return None
-        now = datetime.now(UTC)
-        if run.lease_expires_at is not None and run.lease_expires_at >= now:
-            return None
-        run.lease_owner = owner_id
-        run.lease_expires_at = now + timedelta(seconds=lease_ttl_seconds)
-        run.lease_renewed_at = now
-        return run
+@step(name="tests.greet")
+async def greet_handler(config: GreetConfig, _results: dict[str, StepResult]) -> GreetResult:
+    return GreetResult(greeting=f"Hello, {config.name}!")
+
+
+@step(name="tests.noop")
+async def noop_handler(_config: StepConfig, _results: dict[str, StepResult]) -> StepResult:
+    return StepResult()
+
+
+@step(name="tests.fail_always")
+async def fail_handler(_config: StepConfig, _results: dict[str, StepResult]) -> StepResult:
+    raise RuntimeError("intentional failure")
+
+
+@step(name="tests.flaky", retry=RetryPolicy(max_attempts=3, wait_seconds=0.01, wait_multiplier=1.0))
+async def flaky_handler(_config: StepConfig, _results: dict[str, StepResult]) -> StepResult:
+    """Fails on first call, succeeds on second."""
+    key = "flaky"
+    _FLAKY_COUNTER.setdefault(key, 0)
+    _FLAKY_COUNTER[key] += 1
+    if _FLAKY_COUNTER[key] <= 1:
+        raise RuntimeError(f"flaky failure #{_FLAKY_COUNTER[key]}")
+    return StepResult()
+
+
+@async_step(
+    name="tests.async_submit",
+    completeness_check="tests.check_complete",
+    poll=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+)
+async def async_submit_handler(_config: StepConfig, _results: dict[str, StepResult]) -> SubmitResult:
+    return SubmitResult(job_id="job_123")
+
+
+_POLL_COUNTER: dict[str, int] = {}
+
+
+async def _check_complete_impl(
+    _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
+) -> PollHint:
+    key = "poll"
+    _POLL_COUNTER.setdefault(key, 0)
+    _POLL_COUNTER[key] += 1
+    if _POLL_COUNTER[key] >= 2:
+        return PollHint(complete=True, progress=1.0)
+    return PollHint(complete=False, progress=0.5, message="in progress")
+
+
+# Register the completeness check manually
+_STEP_REGISTRY["tests.check_complete"] = _check_complete_impl
+
+
+async def check_complete_always_done(
+    _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
+) -> bool:
+    return True
+
+
+_STEP_REGISTRY["tests.check_always_done"] = check_complete_always_done
+
+
+async def verify_done(
+    _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
+) -> bool:
+    return True
+
+
+_STEP_REGISTRY["tests.verify_done"] = verify_done
+
+
+async def verify_not_done(
+    _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
+) -> bool:
+    return False
+
+
+_STEP_REGISTRY["tests.verify_not_done"] = verify_not_done
+
+
+# ---------------------------------------------------------------------------
+# Context-aware sample handlers (3-arg step, 4-arg completeness check)
+# ---------------------------------------------------------------------------
+
+
+@step(name="tests.greet_ctx")
+async def greet_ctx_handler(
+    config: GreetConfig, _results: dict[str, StepResult], ctx: dict[str, object]
+) -> GreetResult:
+    """Step handler that uses engine context."""
+    prefix = ctx.get("greeting_prefix", "Hello")
+    return GreetResult(greeting=f"{prefix}, {config.name}!")
+
+
+async def check_complete_ctx(
+    _config: StepConfig,
+    _results: dict[str, StepResult],
+    _result: StepResult,
+    ctx: dict[str, object],
+) -> PollHint:
+    """Completeness check that uses engine context."""
+    threshold = ctx.get("complete_threshold", 2)
+    key = "poll_ctx"
+    _POLL_COUNTER.setdefault(key, 0)
+    _POLL_COUNTER[key] += 1
+    if _POLL_COUNTER[key] >= threshold:
+        return PollHint(complete=True, progress=1.0)
+    return PollHint(complete=False, progress=0.5)
+
+
+_STEP_REGISTRY["tests.check_complete_ctx"] = check_complete_ctx
 
 
 # ---------------------------------------------------------------------------
@@ -242,23 +161,71 @@ class InMemoryWorkflowStore:
 
 
 @pytest.fixture
-def in_memory_store():
-    return InMemoryWorkflowStore()
+def mongo_db():
+    client = AsyncMongoMockClient()
+    return client["test_workchain"]
 
 
 @pytest.fixture
-def step_registry():
-    return {
-        "AddStep": AddStep,
-        "NoOpStep": NoOpStep,
-        "FailingStep": FailingStep,
-        "ExplodingStep": ExplodingStep,
-        "SuspendStep": SuspendStep,
-        "CountingPollStep": CountingPollStep,
-        "TimeoutPollStep": TimeoutPollStep,
-        "ContextReaderStep": ContextReaderStep,
-        "FlakeyStep": FlakeyStep,
-        "SlowStep": SlowStep,
-        "ExplodingResumeStep": ExplodingResumeStep,
-        "ExplodingCompletePollStep": ExplodingCompletePollStep,
-    }
+def store(mongo_db):
+    return MongoWorkflowStore(mongo_db, lock_ttl_seconds=5)
+
+
+@pytest.fixture
+def engine(store):
+    return WorkflowEngine(
+        store,
+        instance_id="test-engine-001",
+        claim_interval=0.05,
+        heartbeat_interval=0.05,
+        sweep_interval=0.1,
+        step_stuck_seconds=1.0,
+        max_concurrent=5,
+    )
+
+
+@pytest.fixture
+def sample_workflow():
+    """A simple 2-step sync workflow."""
+    return Workflow(
+        name="test_workflow",
+        steps=[
+            Step(
+                name="greet",
+                handler="tests.greet",
+                config=GreetConfig(name="World"),
+            ),
+            Step(
+                name="noop",
+                handler="tests.noop",
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def async_workflow():
+    """A workflow with 1 sync step + 1 async step."""
+    return Workflow(
+        name="test_async_workflow",
+        steps=[
+            Step(
+                name="noop",
+                handler="tests.noop",
+            ),
+            Step(
+                name="async_submit",
+                handler="tests.async_submit",
+                is_async=True,
+                completeness_check="tests.check_complete",
+                poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+            ),
+        ],
+    )
+
+
+@pytest.fixture(autouse=True)
+def reset_counters():
+    """Reset global mutable counters before each test."""
+    _FLAKY_COUNTER.clear()
+    _POLL_COUNTER.clear()

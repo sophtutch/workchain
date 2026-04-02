@@ -9,9 +9,9 @@ description = "Programmatic construction and execution of persistent, multi-step
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic>=2.0",
-    "pydantic-mongo>=2.0",
     "motor>=3.0",
+    "pydantic>=2.0",
+    "tenacity>=8.2.0",
 ]
 
 [project.optional-dependencies]
@@ -22,9 +22,20 @@ dev = [
 ]
 examples = [
     "fastapi>=0.110",
-    "uvicorn>=0.27",
+    "uvicorn>=0.34",
     "mongomock-motor>=0.0.20",
 ]
+
+[tool.hatch.envs.harness]
+description = "FastAPI test harness for example workflows"
+extra-dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.34",
+    "mongomock-motor>=0.0.20",
+]
+
+[tool.hatch.envs.harness.scripts]
+serve = "uvicorn examples.app:app --reload --host 0.0.0.0 --port 8000"
 
 [tool.hatch.envs.hatch-test]
 extra-dependencies = [
@@ -53,13 +64,6 @@ ignore = [
     "S101",     # assert is standard in tests
     "FBT002",   # boolean positional args in test helpers are fine
     "PLR2004",  # magic values in assertions are fine
-]
-"workchain/runner.py" = [
-    "ARG002",   # interface params like `run`, `context`, `failed_step_id` are part of the signature
-    "S101",     # assert used for intentional type narrowing
-]
-"workchain/steps.py" = [
-    "ARG002",   # `context` param is part of the step interface even when unused in base
 ]
 "examples/*" = [
     "T201",     # print() is the intended output mechanism in examples
