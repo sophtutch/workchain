@@ -422,6 +422,7 @@ class MongoWorkflowStore:
                     "lock_expires_at": None,
                     "updated_at": now,
                 },
+                "$inc": {"fence_token": 1},
             },
             return_document=ReturnDocument.AFTER,
         )
