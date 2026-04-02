@@ -12,7 +12,8 @@ workchain/
 ├── decorators.py   — @step / @async_step decorators + handler registry
 ├── engine.py       — WorkflowEngine: claim loop, heartbeat, sweep, execution
 ├── store.py        — MongoWorkflowStore: persistence, distributed locking, typed deserialization
-└── retry.py        — Retry utilities wrapping tenacity with RetryPolicy
+├── retry.py        — Retry utilities wrapping tenacity with RetryPolicy
+└── audit.py        — AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ```
 
 ## Key design decisions
@@ -139,3 +140,30 @@ await engine.stop()    # graceful shutdown, releases all locks
 - `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures
 - `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios; understand all paths before changing
 - `models.py` — changing field names affects all persisted MongoDB documents; `Step._set_type_paths` auto-populates `config_type`/`result_type`
+
+## Audit logging
+
+The engine emits structured `AuditEvent` objects for every MongoDB write that changes workflow or step state. Events capture enough context to reconstruct flow diagrams from the log alone.
+
+- **`AuditLogger` protocol** — pluggable backend with `emit(event)` and `get_events(workflow_id)`
+- **`MongoAuditLogger`** — default implementation, writes to `workflow_audit_log` collection with fire-and-forget semantics (zero critical-path latency). Audit write failures log a warning but never block workflow execution.
+- **`NullAuditLogger`** — no-op implementation for tests and environments that don't need auditing (default when no logger is passed)
+- **22 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`
+- Events are ordered by a per-workflow `sequence` number
+
+```python
+from workchain import MongoAuditLogger, WorkflowEngine
+
+audit = MongoAuditLogger(db)
+engine = WorkflowEngine(store, audit_logger=audit)
+```
+
+## Flow diagram generation
+
+`examples/generate_diagrams.py` generates self-contained `flow_diagram.html` files for all 5 example workflows. Each HTML file shows the complete step execution flow with retry scenarios, polling phases, instance claim/release cycles, fence token progression, and MongoDB document diffs.
+
+```bash
+python examples/generate_diagrams.py
+```
+
+The generator uses Python dataclasses (`WorkflowData`, `StepData`, `RetryScenario`, `PollScenario`) to define per-example data, and renders all 5 files from a shared CSS/HTML template with no external dependencies.
