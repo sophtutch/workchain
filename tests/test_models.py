@@ -49,7 +49,7 @@ class TestWorkflowStatus:
         assert WorkflowStatus.NEEDS_REVIEW.value == "needs_review"
 
     def test_all_members(self):
-        assert len(WorkflowStatus) == 5
+        assert len(WorkflowStatus) == 6
 
 
 # ---------------------------------------------------------------------------

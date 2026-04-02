@@ -728,3 +728,63 @@ class TestContextInjection:
 
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Workflow cancellation
+# ---------------------------------------------------------------------------
+
+
+class TestCancellation:
+    async def test_cancellation_stops_execution(self, store):
+        """Cancel a workflow mid-execution — engine should stop after detecting it."""
+        call_count = 0
+
+        async def slow_handler(_config, _results):
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0.3)
+            return StepResult()
+
+        slow_handler._step_meta = {"handler": "tests.slow_cancel", "needs_context": False}
+        _STEP_REGISTRY["tests.slow_cancel"] = slow_handler
+
+        engine = WorkflowEngine(
+            store, instance_id="cancel-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+        )
+        wf = Workflow(
+            name="cancel_test",
+            steps=[
+                Step(name="s1", handler="tests.slow_cancel"),
+                Step(name="s2", handler="tests.slow_cancel"),
+                Step(name="s3", handler="tests.slow_cancel"),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+
+        await store.cancel_workflow(wf.id)
+        await asyncio.sleep(1.0)
+
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.CANCELLED
+        assert call_count < 3
+
+    async def test_cancelled_workflow_not_claimed(self, store):
+        wf = Workflow(name="already_cancelled", status=WorkflowStatus.CANCELLED)
+        await store.insert(wf)
+
+        ids = await store.find_claimable()
+        assert wf.id not in ids
+
+        result = await store.try_claim(wf.id, "inst_1")
+        assert result is None
+
+    async def test_is_terminal_includes_cancelled(self):
+        wf = Workflow(name="terminal_check", status=WorkflowStatus.CANCELLED)
+        assert wf.is_terminal() is True

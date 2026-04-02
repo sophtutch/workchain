@@ -347,6 +347,14 @@ class WorkflowEngine:
                 if self._shutdown_event.is_set():
                     return
 
+                # Check for external cancellation
+                wf = await self._store.get(wf_id)
+                if wf is None or wf.status == WorkflowStatus.CANCELLED:
+                    if wf:
+                        self._emit(AuditEventType.WORKFLOW_CANCELLED, wf)
+                    logger.info("Workflow %s cancelled.", wf_id)
+                    return
+
                 step = wf.steps[wf.current_step_index]
                 idx = wf.current_step_index
 

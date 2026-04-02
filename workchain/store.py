@@ -397,6 +397,40 @@ class MongoWorkflowStore:
             return True
         return False
 
+    async def cancel_workflow(self, workflow_id: str) -> Workflow | None:
+        """
+        Cancel a workflow. Only non-terminal workflows can be cancelled.
+        Releases any held lock and sets status to CANCELLED.
+        Returns the updated workflow, or None if already terminal / not found.
+        """
+        now = datetime.now(UTC)
+        terminal = [
+            WorkflowStatus.COMPLETED.value,
+            WorkflowStatus.FAILED.value,
+            WorkflowStatus.NEEDS_REVIEW.value,
+            WorkflowStatus.CANCELLED.value,
+        ]
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                "status": {"$nin": terminal},
+            },
+            {
+                "$set": {
+                    "status": WorkflowStatus.CANCELLED.value,
+                    "locked_by": None,
+                    "lock_expires_at": None,
+                    "updated_at": now,
+                },
+                "$inc": {"fence_token": 1},
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        if doc is None:
+            return None
+        logger.info("Cancelled workflow=%s", workflow_id)
+        return self._doc_to_workflow(doc)
+
     async def find_needs_review(self) -> list[str]:
         cursor = self._col.find(
             {"status": WorkflowStatus.NEEDS_REVIEW.value},
