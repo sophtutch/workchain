@@ -81,6 +81,46 @@ await engine.start()   # runs claim loop, heartbeat, sweep
 await engine.stop()    # graceful shutdown, releases all locks
 ```
 
+### 3. FastAPI integration
+
+Use the lifespan context manager to start/stop the engine with the app:
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from motor.motor_asyncio import AsyncIOMotorClient
+from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["myapp"]
+
+    store = MongoWorkflowStore(db, lock_ttl_seconds=30)
+    audit = MongoAuditLogger(db)
+
+    engine = WorkflowEngine(
+        store,
+        audit_logger=audit,
+        context={"db": db, "store": store},
+    )
+    
+    await engine.start()
+    
+    app.state.engine = engine
+    app.state.store = store
+    app.state.audit = audit
+    
+    yield
+    
+    await engine.stop()
+
+
+app = FastAPI(lifespan=lifespan)
+```
+
 ## Engine Context (Dependency Injection)
 
 Pass external resources to step handlers without globals or framework coupling:
@@ -92,14 +132,14 @@ engine = WorkflowEngine(store, context={"db": db_client, "http": http_session})
 # Handlers opt in via needs_context=True
 @step(needs_context=True)
 async def fetch_user(config: UserConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> UserResult:
-    db = ctx["db"]
+    db = cast(AsyncIOMotorDatabase, ctx["db"])
     user = await db.users.find_one({"id": config.user_id})
     return UserResult(name=user["name"])
 
 # Completeness checks opt in the same way
 @completeness_check(needs_context=True)
 async def check_deploy(config, results, result: DeployResult, ctx: dict[str, Any]) -> PollHint:
-    http = ctx["http"]
+    http = cast(httpx.AsyncClient, ctx["http"])
     resp = await http.get(f"/deployments/{result.job_id}")
     return PollHint(complete=resp.json()["status"] == "ready")
 ```
