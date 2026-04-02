@@ -23,10 +23,10 @@ pip install -e ".[dev]"
 
 ### 1. Define steps
 
-Use `@step` for synchronous handlers and `@async_step` for handlers that submit external work and poll for completion:
+Use `@step` for synchronous handlers, `@async_step` for handlers that submit external work, and `@completeness_check` for poll functions. Handler names are auto-generated from module + qualname:
 
 ```python
-from workchain import StepConfig, StepResult, step, async_step, PollPolicy
+from workchain import StepConfig, StepResult, step, async_step, completeness_check, PollPolicy
 
 class ValidateConfig(StepConfig):
     email: str
@@ -34,7 +34,7 @@ class ValidateConfig(StepConfig):
 class ValidateResult(StepResult):
     validated: bool
 
-@step(name="validate_input")
+@step()
 async def validate_input(config: ValidateConfig, results: dict[str, StepResult]) -> ValidateResult:
     if "@" not in config.email:
         raise ValueError(f"Invalid email: {config.email}")
@@ -43,11 +43,11 @@ async def validate_input(config: ValidateConfig, results: dict[str, StepResult])
 class ProvisionResult(StepResult):
     job_id: str
 
+@completeness_check()
 async def check_provisioning(config, results, result: ProvisionResult) -> dict:
     return {"complete": False, "progress": 0.5}
 
 @async_step(
-    name="provision",
     completeness_check=check_provisioning,
     poll=PollPolicy(interval=5.0, timeout=300.0),
 )
@@ -89,21 +89,22 @@ Pass external resources to step handlers without globals or framework coupling:
 # Wire up at engine creation
 engine = WorkflowEngine(store, context={"db": db_client, "http": http_session})
 
-# Handlers opt in by accepting a 3rd argument
-@step(name="fetch_user")
+# Handlers opt in via needs_context=True
+@step(needs_context=True)
 async def fetch_user(config: UserConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> UserResult:
     db = ctx["db"]
     user = await db.users.find_one({"id": config.user_id})
     return UserResult(name=user["name"])
 
-# Completeness checks opt in via 4th argument
+# Completeness checks opt in the same way
+@completeness_check(needs_context=True)
 async def check_deploy(config, results, result: DeployResult, ctx: dict[str, Any]) -> PollHint:
     http = ctx["http"]
     resp = await http.get(f"/deployments/{result.job_id}")
     return PollHint(complete=resp.json()["status"] == "ready")
 ```
 
-Existing 2-arg handlers and 3-arg completeness checks continue to work unchanged -- the engine inspects each handler's parameter count and only passes context if the handler declares it.
+Handlers without `needs_context=True` receive only the standard arguments. The engine reads decorator metadata -- no runtime parameter inspection.
 
 ## Step Types
 
@@ -112,7 +113,7 @@ Existing 2-arg handlers and 3-arg completeness checks continue to work unchanged
 Execute the handler, persist the result, advance to the next step -- all within a single lock hold:
 
 ```python
-@step(name="send_email")
+@step()
 async def send_email(config: EmailConfig, results: dict[str, StepResult]) -> EmailResult:
     # Access preceding step results
     account = cast(AccountResult, results["create_account"])
@@ -126,7 +127,6 @@ Submit external work, release the lock, and poll until complete. Any engine inst
 
 ```python
 @async_step(
-    name="deploy",
     completeness_check=check_deploy,
     poll=PollPolicy(interval=10.0, backoff_multiplier=1.5, timeout=600.0),
 )

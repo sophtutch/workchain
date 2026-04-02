@@ -13,6 +13,7 @@ from workchain import (
     StepConfig,
     StepResult,
     async_step,
+    completeness_check,
     step,
 )
 
@@ -57,7 +58,7 @@ _poll_counts: dict[str, int] = {}
 # ---------------------------------------------------------------------------
 
 
-@step(name="validate_email")
+@step()
 async def validate_email(
     config: ValidateEmailConfig,
     _results: dict[str, StepResult],
@@ -72,7 +73,6 @@ async def validate_email(
 
 
 @step(
-    name="create_account",
     retry=RetryPolicy(max_attempts=5, wait_seconds=0.5, wait_multiplier=2.0),
 )
 async def create_account(
@@ -86,6 +86,7 @@ async def create_account(
     return CreateAccountResult(user_id=user_id)
 
 
+@completeness_check()
 async def check_provisioning(
     _config: StepConfig | None,
     _results: dict[str, StepResult],
@@ -117,7 +118,6 @@ async def check_provisioning(
 
 
 @async_step(
-    name="provision_resources",
     completeness_check=check_provisioning,
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=5),
 )
@@ -132,7 +132,7 @@ async def provision_resources(
     return ProvisionResult(job_id=job_id)
 
 
-@step(name="send_welcome_email")
+@step()
 async def send_welcome_email(
     _config: StepConfig | None,
     results: dict[str, StepResult],

@@ -15,6 +15,7 @@ from workchain import (
     StepConfig,
     StepResult,
     async_step,
+    completeness_check,
     step,
 )
 
@@ -82,7 +83,7 @@ _poll_counts: dict[str, int] = {}
 # ---------------------------------------------------------------------------
 
 
-@step(name="create_ticket")
+@step()
 async def create_ticket(
     config: TicketConfig,
     _results: dict[str, StepResult],
@@ -98,7 +99,6 @@ async def create_ticket(
 
 
 @step(
-    name="page_oncall",
     retry=RetryPolicy(max_attempts=3, wait_seconds=1.0, wait_multiplier=2.0),
 )
 async def page_oncall(
@@ -115,7 +115,7 @@ async def page_oncall(
     return PageResult(paged_user=paged_user, acknowledged=True)
 
 
-@step(name="gather_diagnostics")
+@step()
 async def gather_diagnostics(
     _config: TicketConfig,
     results: dict[str, StepResult],
@@ -139,6 +139,7 @@ async def gather_diagnostics(
     )
 
 
+@completeness_check()
 async def check_remediation(
     _config: TicketConfig,
     _results: dict[str, StepResult],
@@ -170,7 +171,6 @@ async def check_remediation(
 
 
 @async_step(
-    name="apply_remediation",
     completeness_check=check_remediation,
     poll=PollPolicy(interval=2.0, timeout=120.0, max_polls=10),
 )
@@ -191,7 +191,7 @@ async def apply_remediation(
     return RemediationResult(remediation_id=remediation_id, action_taken=action)
 
 
-@step(name="verify_resolution")
+@step()
 async def verify_resolution(
     _config: TicketConfig,
     results: dict[str, StepResult],
@@ -207,7 +207,7 @@ async def verify_resolution(
     return VerifyResult(service_healthy=healthy, latency_ms=latency_ms)
 
 
-@step(name="close_ticket")
+@step()
 async def close_ticket(
     _config: TicketConfig,
     results: dict[str, StepResult],

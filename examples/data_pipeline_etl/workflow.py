@@ -29,7 +29,7 @@ def build_workflow(
         steps=[
             Step(
                 name="extract_from_source",
-                handler="extract_from_source",
+                handler="examples.data_pipeline_etl.steps.extract_from_source",
                 config=ExtractConfig(
                     source_uri=source_uri,
                     table_name=target_table,
@@ -38,7 +38,7 @@ def build_workflow(
             ),
             Step(
                 name="validate_schema",
-                handler="validate_schema",
+                handler="examples.data_pipeline_etl.steps.validate_schema",
                 config=SchemaConfig(
                     expected_columns=columns,
                     strict=True,
@@ -46,11 +46,11 @@ def build_workflow(
             ),
             Step(
                 name="transform_records",
-                handler="transform_records",
+                handler="examples.data_pipeline_etl.steps.transform_records",
             ),
             Step(
                 name="load_to_warehouse",
-                handler="load_to_warehouse",
+                handler="examples.data_pipeline_etl.steps.load_to_warehouse",
                 is_async=True,
                 completeness_check="examples.data_pipeline_etl.steps.check_load",
                 poll_policy=PollPolicy(
@@ -65,7 +65,7 @@ def build_workflow(
             ),
             Step(
                 name="update_catalog",
-                handler="update_catalog",
+                handler="examples.data_pipeline_etl.steps.update_catalog",
             ),
         ],
     )

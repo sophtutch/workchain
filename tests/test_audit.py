@@ -7,7 +7,12 @@ import asyncio
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
-from tests.conftest import GreetConfig
+from tests.conftest import (
+    GreetConfig,
+    fail_handler,
+    greet_handler,
+    noop_handler,
+)
 from workchain.audit import (
     AuditEvent,
     AuditEventType,
@@ -52,7 +57,7 @@ class TestAuditEvent:
             event_type=AuditEventType.STEP_COMPLETED,
             step_index=0,
             step_name="greet",
-            step_handler="tests.greet",
+            step_handler=greet_handler._step_meta["handler"],
             step_status="completed",
             step_status_before="running",
             result_summary={"greeting": "hi"},
@@ -222,7 +227,7 @@ class TestEngineAuditIntegration:
         """A simple sync workflow should emit: CLAIMED, SUBMITTED, RUNNING, COMPLETED, ADVANCED, WORKFLOW_COMPLETED."""
         wf = Workflow(
             name="audit_sync",
-            steps=[Step(name="noop", handler="tests.noop")],
+            steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])],
         )
         await store.insert(wf)
 
@@ -242,7 +247,7 @@ class TestEngineAuditIntegration:
         assert AuditEventType.WORKFLOW_COMPLETED in event_types
 
     async def test_claimed_event_has_fence_token(self, store, engine, audit_logger):
-        wf = Workflow(name="audit_fence", steps=[Step(name="noop", handler="tests.noop")])
+        wf = Workflow(name="audit_fence", steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])])
         await store.insert(wf)
 
         await engine.start()
@@ -259,7 +264,7 @@ class TestEngineAuditIntegration:
     async def test_step_events_have_step_context(self, store, engine, audit_logger):
         wf = Workflow(
             name="audit_step_ctx",
-            steps=[Step(name="greet", handler="tests.greet", config=GreetConfig(name="Test"))],
+            steps=[Step(name="greet", handler=greet_handler._step_meta["handler"], config=GreetConfig(name="Test"))],
         )
         await store.insert(wf)
 
@@ -272,7 +277,7 @@ class TestEngineAuditIntegration:
         assert len(completed) >= 1
         e = completed[0]
         assert e.step_name == "greet"
-        assert e.step_handler == "tests.greet"
+        assert e.step_handler == greet_handler._step_meta["handler"]
         assert e.step_index == 0
 
     async def test_failed_step_emits_failure_events(self, store, engine, audit_logger):
@@ -280,7 +285,7 @@ class TestEngineAuditIntegration:
             name="audit_fail",
             steps=[Step(
                 name="fail",
-                handler="tests.fail_always",
+                handler=fail_handler._step_meta["handler"],
                 retry_policy=RetryPolicy(max_attempts=1, wait_seconds=0.01, wait_multiplier=0.01),
             )],
         )
@@ -308,7 +313,7 @@ class TestEngineAuditIntegration:
             fence_token=1,
             steps=[Step(
                 name="noop",
-                handler="tests.noop",
+                handler=noop_handler._step_meta["handler"],
                 status=StepStatus.SUBMITTED,
                 idempotent=True,
             )],
@@ -330,8 +335,8 @@ class TestEngineAuditIntegration:
         wf = Workflow(
             name="audit_order",
             steps=[
-                Step(name="s1", handler="tests.noop"),
-                Step(name="s2", handler="tests.noop"),
+                Step(name="s1", handler=noop_handler._step_meta["handler"]),
+                Step(name="s2", handler=noop_handler._step_meta["handler"]),
             ],
         )
         await store.insert(wf)
@@ -355,7 +360,7 @@ class TestEngineAuditIntegration:
             heartbeat_interval=0.05,
             sweep_interval=10,
         )
-        wf = Workflow(name="no_audit", steps=[Step(name="noop", handler="tests.noop")])
+        wf = Workflow(name="no_audit", steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])])
         await store.insert(wf)
 
         await engine.start()

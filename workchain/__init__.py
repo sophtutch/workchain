@@ -6,7 +6,7 @@ from workchain.audit import (
     NullAuditLogger,
 )
 from workchain.audit_report import generate_audit_report
-from workchain.decorators import async_step, step
+from workchain.decorators import async_step, completeness_check, step
 from workchain.engine import WorkflowEngine
 from workchain.models import (
     PollHint,
@@ -27,5 +27,5 @@ __all__ = [
     "Workflow", "Step", "StepConfig", "StepResult", "RetryPolicy",
     "PollPolicy", "PollHint", "StepStatus", "WorkflowStatus",
     "MongoWorkflowStore", "WorkflowEngine",
-    "step", "async_step",
+    "step", "async_step", "completeness_check",
 ]

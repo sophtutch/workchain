@@ -29,13 +29,13 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             # 1. Lint
             Step(
                 name="lint_code",
-                handler="lint_code",
+                handler="examples.ci_cd_pipeline.steps.lint_code",
                 config=LintConfig(source_dir="src"),
             ),
             # 2. Tests (with retry for flaky tests)
             Step(
                 name="run_tests",
-                handler="run_tests",
+                handler="examples.ci_cd_pipeline.steps.run_tests",
                 config=TestConfig(test_dir="tests", coverage_threshold=80.0),
                 retry_policy=RetryPolicy(
                     max_attempts=3,
@@ -46,7 +46,7 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             # 3. Build artifact (async -- polls for completion)
             Step(
                 name="build_artifact",
-                handler="build_artifact",
+                handler="examples.ci_cd_pipeline.steps.build_artifact",
                 config=BuildConfig(repo=repo, branch=branch),
                 is_async=True,
                 completeness_check=(
@@ -62,13 +62,13 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             # 4. Push to container registry
             Step(
                 name="push_to_registry",
-                handler="push_to_registry",
+                handler="examples.ci_cd_pipeline.steps.push_to_registry",
                 config=RegistryConfig(registry="ghcr.io"),
             ),
             # 5. Deploy to staging (async -- polls for healthy rollout)
             Step(
                 name="deploy_staging",
-                handler="deploy_staging",
+                handler="examples.ci_cd_pipeline.steps.deploy_staging",
                 config=DeployConfig(environment="staging"),
                 is_async=True,
                 completeness_check=(
@@ -84,7 +84,7 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             # 6. Smoke tests against staging
             Step(
                 name="run_smoke_tests",
-                handler="run_smoke_tests",
+                handler="examples.ci_cd_pipeline.steps.run_smoke_tests",
                 config=SmokeTestConfig(
                     base_url="https://staging.example.com",
                 ),

@@ -108,24 +108,21 @@ class WorkflowEngine:
     # ------------------------------------------------------------------
 
     async def _call_handler(self, handler: Callable[..., Any], *args: Any) -> Any:
-        """Call a handler, appending engine context if the handler accepts it.
+        """Call a handler, using decorator metadata to decide context injection.
 
-        Inspects the handler's parameter count:
-        - Step handlers: (config, results) → 2 params, no context
-                         (config, results, ctx) → 3 params, context injected
-        - Completeness checks: (config, results, result) → 3 params, no context
-                               (config, results, result, ctx) → 4 params, context injected
+        Reads ``_step_meta["needs_context"]`` from the handler (set by
+        ``@step``, ``@async_step``, or ``@completeness_check`` decorators).
+        If True, appends ``self._context`` as the final argument.
 
-        The caller passes the base args; this method decides whether to
-        append self._context based on how many params the handler declares.
+        Supports both async and sync handlers — sync results are returned
+        directly without awaiting.
         """
-        import inspect
+        meta = getattr(handler, "_step_meta", {})
+        result = handler(*args, self._context) if meta.get("needs_context", False) else handler(*args)
 
-        sig = inspect.signature(handler)
-        n_params = len(sig.parameters)
-        if n_params > len(args):
-            return await handler(*args, self._context)
-        return await handler(*args)
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
 
     # ------------------------------------------------------------------
     # Audit helpers

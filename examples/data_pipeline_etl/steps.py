@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import cast
 
-from workchain import PollPolicy, StepConfig, StepResult, async_step, step
+from workchain import PollPolicy, StepConfig, StepResult, async_step, completeness_check, step
 
 # Poll simulation state — keyed by load_id
 _poll_counts: dict[str, int] = {}
@@ -63,7 +63,7 @@ class CatalogResult(StepResult):
 # Step handlers
 # ---------------------------------------------------------------------------
 
-@step(name="extract_from_source")
+@step()
 async def extract_from_source(
     config: ExtractConfig,
     _results: dict[str, StepResult],
@@ -77,7 +77,7 @@ async def extract_from_source(
     )
 
 
-@step(name="validate_schema")
+@step()
 async def validate_schema(
     config: SchemaConfig,
     results: dict[str, StepResult],
@@ -97,7 +97,7 @@ async def validate_schema(
     return SchemaResult(valid=valid, column_count=column_count)
 
 
-@step(name="transform_records")
+@step()
 async def transform_records(
     _config: StepConfig | None,
     results: dict[str, StepResult],
@@ -116,6 +116,7 @@ async def transform_records(
 # Async step: load_to_warehouse (with polling)
 # ---------------------------------------------------------------------------
 
+@completeness_check()
 async def check_load(
     _config: LoadConfig,
     results: dict[str, StepResult],
@@ -149,7 +150,6 @@ async def check_load(
 
 
 @async_step(
-    name="load_to_warehouse",
     completeness_check=check_load,
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=10),
 )
@@ -166,7 +166,7 @@ async def load_to_warehouse(
 # Final step: update catalog
 # ---------------------------------------------------------------------------
 
-@step(name="update_catalog")
+@step()
 async def update_catalog(
     _config: StepConfig | None,
     results: dict[str, StepResult],

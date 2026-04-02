@@ -35,12 +35,12 @@ def build_workflow(
         steps=[
             Step(
                 name="create_ticket",
-                handler="create_ticket",
+                handler="examples.incident_response.steps.create_ticket",
                 config=config,
             ),
             Step(
                 name="page_oncall",
-                handler="page_oncall",
+                handler="examples.incident_response.steps.page_oncall",
                 config=config,
                 retry_policy=RetryPolicy(
                     max_attempts=3,
@@ -50,12 +50,12 @@ def build_workflow(
             ),
             Step(
                 name="gather_diagnostics",
-                handler="gather_diagnostics",
+                handler="examples.incident_response.steps.gather_diagnostics",
                 config=config,
             ),
             Step(
                 name="apply_remediation",
-                handler="apply_remediation",
+                handler="examples.incident_response.steps.apply_remediation",
                 config=config,
                 is_async=True,
                 completeness_check=(
@@ -69,12 +69,12 @@ def build_workflow(
             ),
             Step(
                 name="verify_resolution",
-                handler="verify_resolution",
+                handler="examples.incident_response.steps.verify_resolution",
                 config=config,
             ),
             Step(
                 name="close_ticket",
-                handler="close_ticket",
+                handler="examples.incident_response.steps.close_ticket",
                 config=config,
             ),
         ],

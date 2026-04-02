@@ -34,13 +34,13 @@ def build_workflow(
             # 1. Create VPC and subnets
             Step(
                 name="create_vpc",
-                handler="create_vpc",
+                handler="examples.infra_provisioning.steps.create_vpc",
                 config=VpcConfig(cidr_block="10.0.0.0/16", region=region),
             ),
             # 2. Provision database (async -- polls until available)
             Step(
                 name="provision_database",
-                handler="provision_database",
+                handler="examples.infra_provisioning.steps.provision_database",
                 config=DatabaseConfig(engine="postgres", instance_class="db.t3.medium"),
                 is_async=True,
                 completeness_check=(
@@ -57,7 +57,7 @@ def build_workflow(
             # 3. Deploy application (async -- polls until healthy)
             Step(
                 name="deploy_application",
-                handler="deploy_application",
+                handler="examples.infra_provisioning.steps.deploy_application",
                 config=DeployConfig(image=image, replicas=2),
                 is_async=True,
                 completeness_check=(
@@ -73,13 +73,13 @@ def build_workflow(
             # 4. Configure DNS records
             Step(
                 name="configure_dns",
-                handler="configure_dns",
+                handler="examples.infra_provisioning.steps.configure_dns",
                 config=DnsConfig(domain=domain, record_type="A"),
             ),
             # 5. Issue TLS certificate (async -- polls until issued)
             Step(
                 name="issue_tls_cert",
-                handler="issue_tls_cert",
+                handler="examples.infra_provisioning.steps.issue_tls_cert",
                 config=TlsConfig(domain=domain),
                 is_async=True,
                 completeness_check=(
@@ -95,7 +95,7 @@ def build_workflow(
             # 6. Final health check
             Step(
                 name="health_check",
-                handler="health_check",
+                handler="examples.infra_provisioning.steps.health_check",
                 config=HealthCheckConfig(
                     endpoint=f"https://{domain}/healthz",
                     expected_status=200,

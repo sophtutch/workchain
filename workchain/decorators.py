@@ -1,4 +1,4 @@
-"""Decorators for defining workflow steps."""
+"""Decorators for defining workflow steps and completeness checks."""
 
 from __future__ import annotations
 
@@ -45,9 +45,9 @@ def get_handler(name: str) -> Callable:
 
 
 def step(
-    name: str | None = None,
     retry: RetryPolicy | None = None,
     idempotent: bool = True,
+    needs_context: bool = False,
 ):
     """
     Decorator to register a step handler.
@@ -55,18 +55,20 @@ def step(
     The handler signature should be:
         async def my_step(config: MyConfig, results: dict[str, StepResult]) -> MyResult
 
-    Config is a StepConfig subclass (deserialized at the store level), or None
-    if the step has no configuration.
-    Results is a dict of preceding step results keyed by step name.
-    Return a StepResult subclass with typed fields.
+    Or with engine context:
+        async def my_step(config: MyConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> MyResult
+
+    Set ``needs_context=True`` to receive the engine context dict as the
+    third argument.  The handler name is auto-generated from module + qualname.
     """
     def decorator(fn: Callable) -> Callable:
-        handler_name = name or f"{fn.__module__}.{fn.__qualname__}"
+        handler_name = f"{fn.__module__}.{fn.__qualname__}"
         fn._step_meta = {
             "handler": handler_name,
             "retry": retry or RetryPolicy(),
             "is_async": False,
             "idempotent": idempotent,
+            "needs_context": needs_context,
         }
         _STEP_REGISTRY[handler_name] = fn
         return fn
@@ -74,9 +76,9 @@ def step(
 
 
 def async_step(
-    name: str | None = None,
     retry: RetryPolicy | None = None,
     idempotent: bool = True,
+    needs_context: bool = False,
     poll: PollPolicy | None = None,
     completeness_check: str | Callable | None = None,
 ):
@@ -88,23 +90,51 @@ def async_step(
     poll the completeness_check callable until it returns True or a PollHint.
 
     completeness_check can be:
+      - A callable decorated with @completeness_check
       - A dotted string path: "myapp.steps.check_provisioning"
-      - A callable: the function itself (auto-registered)
       - None: no polling (step completes immediately)
 
-    completeness_check signature:
-        async def check(config: StepConfig, results: dict, result: MyResult) -> bool | dict | PollHint
+    Set ``needs_context=True`` to receive the engine context dict as the
+    third argument.  The handler name is auto-generated from module + qualname.
     """
     def decorator(fn: Callable) -> Callable:
-        handler_name = name or f"{fn.__module__}.{fn.__qualname__}"
+        handler_name = f"{fn.__module__}.{fn.__qualname__}"
         check_name = _resolve_check_name(completeness_check)
         fn._step_meta = {
             "handler": handler_name,
             "retry": retry or RetryPolicy(),
             "is_async": True,
             "idempotent": idempotent,
+            "needs_context": needs_context,
             "poll": poll or PollPolicy(),
             "completeness_check": check_name,
+        }
+        _STEP_REGISTRY[handler_name] = fn
+        return fn
+    return decorator
+
+
+def completeness_check(
+    needs_context: bool = False,
+):
+    """
+    Decorator to register a completeness check function for async steps.
+
+    The check signature should be:
+        async def check(config: StepConfig, results: dict, result: MyResult) -> bool | dict | PollHint
+
+    Or with engine context:
+        async def check(config, results, result, ctx: dict[str, Any]) -> bool | dict | PollHint
+
+    Set ``needs_context=True`` to receive the engine context dict as the
+    fourth argument.  The handler name is auto-generated from module + qualname.
+    """
+    def decorator(fn: Callable) -> Callable:
+        handler_name = f"{fn.__module__}.{fn.__qualname__}"
+        fn._step_meta = {
+            "handler": handler_name,
+            "is_completeness_check": True,
+            "needs_context": needs_context,
         }
         _STEP_REGISTRY[handler_name] = fn
         return fn

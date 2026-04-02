@@ -25,12 +25,12 @@ def build_workflow(email: str) -> Workflow:
         steps=[
             Step(
                 name="validate_email",
-                handler="validate_email",
+                handler="examples.customer_onboarding.steps.validate_email",
                 config=config,
             ),
             Step(
                 name="create_account",
-                handler="create_account",
+                handler="examples.customer_onboarding.steps.create_account",
                 retry_policy=RetryPolicy(
                     max_attempts=5,
                     wait_seconds=0.5,
@@ -39,7 +39,7 @@ def build_workflow(email: str) -> Workflow:
             ),
             Step(
                 name="provision_resources",
-                handler="provision_resources",
+                handler="examples.customer_onboarding.steps.provision_resources",
                 is_async=True,
                 completeness_check=(
                     "examples.customer_onboarding.steps.check_provisioning"
@@ -52,7 +52,7 @@ def build_workflow(email: str) -> Workflow:
             ),
             Step(
                 name="send_welcome_email",
-                handler="send_welcome_email",
+                handler="examples.customer_onboarding.steps.send_welcome_email",
             ),
         ],
     )
