@@ -35,9 +35,10 @@ class MongoWorkflowStore:
         self,
         db: AsyncIOMotorDatabase,
         lock_ttl_seconds: int = 30,
+        collection_name: str = COLLECTION,
     ):
         self._db = db
-        self._col = db[COLLECTION]
+        self._col = db[collection_name]
         self._lock_ttl = lock_ttl_seconds
 
     # ------------------------------------------------------------------

@@ -369,3 +369,20 @@ class TestEngineAuditIntegration:
 
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Collection name configuration
+# ---------------------------------------------------------------------------
+
+
+class TestAuditCollectionName:
+    def test_custom_audit_collection(self):
+        db = AsyncMongoMockClient()["test_col_name"]
+        logger = MongoAuditLogger(db, collection_name="my_audit")
+        assert logger._col.name == "my_audit"
+
+    def test_default_audit_collection(self):
+        db = AsyncMongoMockClient()["test_col_default"]
+        logger = MongoAuditLogger(db)
+        assert logger._col.name == "workflow_audit_log"
