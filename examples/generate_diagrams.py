@@ -468,7 +468,7 @@ def _render_discovery(wf: WorkflowData, fence: int) -> str:
     tx = (
         '      <div class="step-transitions">\n'
         + _tx("purple", "Workflow", "pending &rarr; running")
-        + _tx("green", "Lock", "claimed")
+        + _tx("green", "Locks", "1 claim")
         + _tx("indigo", "Fence Token", f"fence_token &rarr; {fence}")
         + "      </div>"
     )
@@ -675,9 +675,10 @@ def _render_step_section(
 
     # --- Transition column ---
     txs = []
+    n_releases = 0
     if step.needs_reclaim:
         reclaim_fence = fence_before + 1
-        txs.append(_tx("green", "Lock", "claimed"))
+        txs.append(_tx("green", "Locks", "1 claim"))
         txs.append(_tx("indigo", "Fence Token", f"fence_token &rarr; {reclaim_fence}"))
 
     txs.append(_tx("indigo", "Step Status", "&rarr; submitted"))
@@ -685,10 +686,11 @@ def _render_step_section(
     if step.is_async:
         txs.append(_tx("amber", "Handler", "async submit"))
         txs.append(_tx("amber", "Step Status", "&rarr; blocked"))
-        txs.append(_tx("red", "Lock", "released"))
+        n_releases += 1  # lock released after blocking
         if step.poll:
             txs.append(_tx("amber", "Polls", f"{step.poll.num_polls} polls"))
             txs.append(_tx("indigo", "Fence Token", f"fence_token +{step.poll.num_polls}"))
+            n_releases += step.poll.num_polls  # each poll releases after check
     else:
         txs.append(_tx("indigo", "Handler", "sync exec"))
         if step.retry and step.retry.fail_attempts:
@@ -700,7 +702,10 @@ def _render_step_section(
 
     if step.is_final:
         txs.append(_tx("purple", "Workflow", "&rarr; completed"))
-        txs.append(_tx("red", "Lock", "released"))
+        n_releases += 1  # final lock release
+
+    if n_releases > 0:
+        txs.append(_tx("red", "Locks", f"{n_releases} released"))
 
     tx_col = '      <div class="step-transitions">\n' + "".join(txs) + "      </div>"
 

@@ -432,7 +432,7 @@ def _render_discovery(wf_events: list[AuditEvent]) -> str:
 
     txs = (
         _tx("purple", "Workflow", "pending &rarr; running")
-        + _tx("green", "Lock", "claimed")
+        + _tx("green", "Locks", "1 claim")
         + _tx("indigo", "Fence Token", f"fence_token &rarr; {claim.fence_token}")
     )
     tx_col = f'      <div class="step-transitions">\n{txs}      </div>\n'
@@ -647,8 +647,9 @@ def _render_step_section(
 
     # Lock claimed (if reclaim after async)
     claim_events = [e for e in step_events if e.event_type == AuditEventType.WORKFLOW_CLAIMED]
+    n_claims = len(claim_events)
     if claim_events:
-        txs.append(_tx("green", "Lock", "claimed"))
+        txs.append(_tx("green", "Locks", f"{n_claims} {'claim' if n_claims == 1 else 'claims'}"))
         txs.append(_tx("indigo", "Fence Token", f"fence_token &rarr; {claim_events[0].fence_token}"))
 
     if submitted:
@@ -665,11 +666,14 @@ def _render_step_section(
 
     if blocked:
         txs.append(_tx("amber", "Step Status", "&rarr; blocked"))
-        txs.append(_tx("red", "Lock", "released"))
+
+    # Count all lock releases for this step
+    n_releases = len(lock_released)
+    if blocked:
+        n_releases += 1  # the BLOCKED event itself implies a release
 
     if polls:
         txs.append(_tx("amber", "Polls", f"{len(polls)} polls"))
-        # Fence token progression across polls
         if len(polls) > 1:
             txs.append(_tx("indigo", "Fence Token", f"fence_token +{len(polls)}"))
 
@@ -681,8 +685,8 @@ def _render_step_section(
     if advanced:
         txs.append(_tx("purple", "Step Index", f"idx &rarr; {step_num}"))
 
-    if lock_released and not blocked:
-        txs.append(_tx("red", "Lock", "released"))
+    if n_releases > 0:
+        txs.append(_tx("red", "Locks", f"{n_releases} released"))
 
     tx_col = f'      <div class="step-transitions">\n{"".join(txs)}      </div>\n'
 
