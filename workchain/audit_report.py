@@ -25,13 +25,13 @@ CSS = """\
   body {
     background: #0a0e17; color: #e5e7eb;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    line-height: 1.6; padding: 2rem 1.5rem;
+    font-size: 16px; line-height: 1.6; padding: 2rem 1.5rem;
   }
 
   /* header */
   .page-header { text-align: center; margin-bottom: 2rem; }
-  .page-header h1 { font-size: 1.75rem; font-weight: 700; color: #f9fafb; letter-spacing: -0.02em; }
-  .page-header .subtitle { font-size: 0.82rem; color: #9ca3af; margin-top: 0.35rem; letter-spacing: 0.02em; }
+  .page-header h1 { font-size: 2.2rem; font-weight: 700; color: #f9fafb; letter-spacing: -0.02em; }
+  .page-header .subtitle { font-size: 1.05rem; color: #9ca3af; margin-top: 0.35rem; letter-spacing: 0.02em; }
 
   /* summary banner */
   .summary-banner {
@@ -40,14 +40,14 @@ CSS = """\
     padding: 1.1rem 1.5rem; margin-bottom: 2rem;
     display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
   }
-  .summary-banner .wf-name { font-weight: 700; font-size: 1rem; color: #c4b5fd; }
+  .summary-banner .wf-name { font-weight: 700; font-size: 1.2rem; color: #c4b5fd; }
   .summary-banner .wf-name code {
     background: #312e81; padding: 0.15em 0.5em; border-radius: 4px;
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 0.92em;
   }
   .summary-stats { display: flex; gap: 1rem; flex-wrap: wrap; margin-left: auto; }
   .stat {
-    font-size: 0.72rem; font-weight: 600; padding: 0.2em 0.7em;
+    font-size: 0.88rem; font-weight: 600; padding: 0.25em 0.75em;
     border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
   }
   .stat.completed { background: rgba(52,211,153,0.15); color: #34d399; }
@@ -79,10 +79,10 @@ CSS = """\
     flex: 1; display: flex; flex-direction: column; justify-content: center;
   }
   .tx-label {
-    font-size: 8.5px; font-weight: 700; text-transform: uppercase;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.04em; opacity: 0.6; margin-bottom: 2px;
   }
-  .tx-value { font-size: 10px; font-family: monospace; line-height: 1.3; }
+  .tx-value { font-size: 13px; font-family: monospace; line-height: 1.3; }
   .tx-green  { border-color: #34d399; background: rgba(52,211,153,0.07); color: #34d399; }
   .tx-indigo { border-color: #a5b4fc; background: rgba(165,180,252,0.07); color: #a5b4fc; }
   .tx-amber  { border-color: #fbbf24; background: rgba(251,191,36,0.07); color: #fbbf24; }
@@ -95,7 +95,7 @@ CSS = """\
 
   /* section label */
   .section-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
     letter-spacing: 1.5px; color: #4b5563; margin-bottom: 12px;
     padding-bottom: 8px; border-bottom: 1px solid #1f2937;
   }
@@ -106,11 +106,11 @@ CSS = """\
     padding: 1.25rem; margin-bottom: 1.25rem;
   }
   .panel-title {
-    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    font-size: 0.88rem; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.08em; color: #6b7280; margin-bottom: 0.85rem;
   }
   .doc-label {
-    font-size: 0.68rem; font-weight: 600; color: #6b7280;
+    font-size: 0.82rem; font-weight: 600; color: #6b7280;
     text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem;
   }
 
@@ -149,12 +149,12 @@ CSS = """\
     display: flex; align-items: center; gap: 0.5rem;
     margin-bottom: 0.3rem; flex-wrap: wrap;
   }
-  .node-title { font-weight: 700; font-size: 0.88rem; color: #f3f4f6; }
-  .node-desc { font-size: 0.76rem; color: #9ca3af; }
+  .node-title { font-weight: 700; font-size: 1.05rem; color: #f3f4f6; }
+  .node-desc { font-size: 0.92rem; color: #9ca3af; }
 
   /* badges */
   .badge {
-    font-size: 0.65rem; font-weight: 700; padding: 0.15em 0.55em;
+    font-size: 0.78rem; font-weight: 700; padding: 0.2em 0.6em;
     border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
     display: inline-flex; align-items: center; gap: 0.25em;
   }
@@ -166,19 +166,19 @@ CSS = """\
 
   code, .mono {
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-    font-size: 0.82em;
+    font-size: 0.92em;
   }
 
   /* retry sub-track */
   .retry-track { margin: 0.5rem 0 0.25rem 1rem; padding-left: 1rem; border-left: 2px dashed #f87171; }
-  .retry-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; font-size: 0.76rem; }
+  .retry-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; font-size: 0.92rem; }
   .retry-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .retry-dot.fail { background: #f87171; }
   .retry-dot.ok   { background: #34d399; }
 
   /* poll sub-track */
   .poll-track { margin: 0.5rem 0 0.25rem 1rem; padding-left: 1rem; border-left: 2px dashed #fbbf24; }
-  .poll-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.76rem; }
+  .poll-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.92rem; }
   .poll-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .poll-dot.pending { background: #4b5563; }
   .poll-dot.done    { background: #34d399; }
@@ -187,14 +187,14 @@ CSS = """\
     overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 0.35rem;
   }
   .poll-progress-fill { height: 100%; border-radius: 4px; background: #fbbf24; }
-  .poll-instance { font-size: 0.65rem; color: #6b7280; font-style: italic; }
+  .poll-instance { font-size: 0.82rem; color: #6b7280; font-style: italic; }
 
   /* mongodb doc */
   .mongo-doc {
     background: #0d1117; border: 1px solid #1f2937; border-radius: 6px;
     padding: 0.85rem;
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-    font-size: 0.7rem; line-height: 1.7; overflow-x: auto; color: #c9d1d9;
+    font-size: 0.85rem; line-height: 1.7; overflow-x: auto; color: #c9d1d9;
   }
   .mongo-doc .key { color: #79c0ff; }
   .mongo-doc .str { color: #a5d6ff; }
@@ -202,16 +202,16 @@ CSS = """\
   .mongo-doc .kw  { color: #ff7b72; }
 
   /* state transitions table */
-  .state-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
+  .state-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 12px; }
   .state-table th {
-    text-align: left; font-size: 10px; text-transform: uppercase;
+    text-align: left; font-size: 12px; text-transform: uppercase;
     letter-spacing: 0.5px; color: #4b5563; padding: 6px 10px;
     border-bottom: 1px solid #1f2937; font-weight: 600;
   }
   .state-table td { padding: 7px 10px; border-bottom: 1px solid #111827; color: #6b7280; vertical-align: top; }
   .state-table tr:last-child td { border-bottom: none; }
   .state-badge {
-    display: inline-block; font-size: 9px; padding: 1px 7px;
+    display: inline-block; font-size: 12px; padding: 2px 8px;
     border-radius: 8px; font-weight: 600; font-family: monospace;
   }
   .s-pending   { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }

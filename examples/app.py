@@ -240,42 +240,42 @@ LANDING_HTML = """\
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.6; padding: 2rem;
   }
-  h1 { text-align: center; font-size: 1.75rem; color: #f9fafb; margin-bottom: 0.5rem; }
-  .subtitle { text-align: center; font-size: 0.82rem; color: #9ca3af; margin-bottom: 2rem; }
-  .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-bottom: 2rem; }
+  h1 { text-align: center; font-size: 2.2rem; color: #f9fafb; margin-bottom: 0.5rem; }
+  .subtitle { text-align: center; font-size: 1.05rem; color: #9ca3af; margin-bottom: 2rem; }
+  .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; margin-bottom: 2rem; }
   .card {
     background: #111827; border: 1px solid #1f2937; border-radius: 10px;
-    padding: 1.25rem; display: flex; flex-direction: column;
+    padding: 1.5rem; display: flex; flex-direction: column;
   }
-  .card h3 { font-size: 1rem; color: #c4b5fd; margin-bottom: 0.25rem; }
-  .card .desc { font-size: 0.75rem; color: #6b7280; margin-bottom: 0.75rem; }
-  .card .step-count { font-size: 0.68rem; color: #4b5563; margin-bottom: 0.75rem; }
-  .field { margin-bottom: 0.5rem; }
-  .field label { display: block; font-size: 0.72rem; color: #9ca3af; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .card h3 { font-size: 1.25rem; color: #c4b5fd; margin-bottom: 0.35rem; }
+  .card .desc { font-size: 0.95rem; color: #6b7280; margin-bottom: 0.75rem; }
+  .card .step-count { font-size: 0.85rem; color: #4b5563; margin-bottom: 0.75rem; }
+  .field { margin-bottom: 0.6rem; }
+  .field label { display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
   .field input {
     width: 100%; background: #0d1117; border: 1px solid #1f2937; border-radius: 6px;
-    color: #e5e7eb; padding: 0.4rem 0.6rem; font-size: 0.82rem;
+    color: #e5e7eb; padding: 0.5rem 0.75rem; font-size: 1rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
   .field input:focus { outline: none; border-color: #6366f1; }
   .run-btn {
-    margin-top: auto; padding: 0.5rem 1rem; border: none; border-radius: 6px;
-    background: #4f46e5; color: white; font-weight: 600; font-size: 0.82rem;
+    margin-top: auto; padding: 0.6rem 1.2rem; border: none; border-radius: 6px;
+    background: #4f46e5; color: white; font-weight: 600; font-size: 1rem;
     cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em;
   }
   .run-btn:hover { background: #4338ca; }
   .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  h2 { font-size: 1.1rem; color: #f9fafb; margin-bottom: 1rem; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  h2 { font-size: 1.4rem; color: #f9fafb; margin-bottom: 1rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 1rem; }
   th {
-    text-align: left; padding: 0.5rem 0.75rem; color: #6b7280; font-weight: 600;
-    text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.04em;
+    text-align: left; padding: 0.6rem 0.85rem; color: #6b7280; font-weight: 600;
+    text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.04em;
     border-bottom: 1px solid #1f2937;
   }
-  td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #111827; color: #d1d5db; }
+  td { padding: 0.6rem 0.85rem; border-bottom: 1px solid #111827; color: #d1d5db; }
   .badge {
-    display: inline-block; font-size: 0.68rem; padding: 1px 8px;
+    display: inline-block; font-size: 0.85rem; padding: 2px 10px;
     border-radius: 8px; font-weight: 600; font-family: monospace;
   }
   .b-pending   { background: rgba(107,114,128,0.15); color: #9ca3af; }
@@ -283,12 +283,12 @@ LANDING_HTML = """\
   .b-completed { background: rgba(52,211,153,0.15); color: #34d399; }
   .b-failed    { background: rgba(248,113,113,0.15); color: #f87171; }
   .b-needs_review { background: rgba(251,191,36,0.15); color: #fbbf24; }
-  a { color: #818cf8; text-decoration: none; }
+  a { color: #818cf8; text-decoration: none; font-size: 1rem; }
   a:hover { text-decoration: underline; }
-  .empty { color: #4b5563; font-style: italic; padding: 1rem; text-align: center; }
+  .empty { color: #4b5563; font-style: italic; padding: 1rem; text-align: center; font-size: 1rem; }
   .toast {
     position: fixed; bottom: 1.5rem; right: 1.5rem; background: #065f46; color: #34d399;
-    padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+    padding: 0.7rem 1.4rem; border-radius: 8px; font-size: 1rem; font-weight: 600;
     opacity: 0; transition: opacity 0.3s;
   }
   .toast.show { opacity: 1; }
@@ -296,7 +296,7 @@ LANDING_HTML = """\
 </head>
 <body>
 
-<h1>workchain Test Harness</h1>
+<h1>Workchain Test Harness</h1>
 <p class="subtitle">Create and run example workflows &bull; View audit execution reports</p>
 
 <div class="examples" id="examples"></div>
