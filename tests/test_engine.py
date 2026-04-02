@@ -789,3 +789,64 @@ class TestCancellation:
     async def test_is_terminal_includes_cancelled(self):
         wf = Workflow(name="terminal_check", status=WorkflowStatus.CANCELLED)
         assert wf.is_terminal() is True
+
+
+# ---------------------------------------------------------------------------
+# Step timeouts
+# ---------------------------------------------------------------------------
+
+
+class TestStepTimeout:
+    async def test_step_timeout_fails_step(self, store, engine):
+        """A handler that sleeps forever should be killed by step_timeout."""
+
+        async def hang_forever(_config, _results):
+            await asyncio.sleep(3600)
+            return StepResult()
+
+        hang_forever._step_meta = {"needs_context": False}
+        _STEP_REGISTRY["tests.hang_forever"] = hang_forever
+
+        wf = Workflow(
+            name="timeout_test",
+            steps=[
+                Step(
+                    name="hanging",
+                    handler="tests.hang_forever",
+                    step_timeout=0.2,
+                    retry_policy=RetryPolicy(max_attempts=1, wait_seconds=0.01),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(1.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.steps[0].status == StepStatus.FAILED
+        assert "timed out" in (loaded.steps[0].result.error or "").lower()
+
+    async def test_step_timeout_zero_means_no_timeout(self, store, engine):
+        """step_timeout=0 means no timeout — handler completes normally."""
+        wf = Workflow(
+            name="no_timeout_test",
+            steps=[
+                Step(
+                    name="noop",
+                    handler=noop_handler._step_meta["handler"],
+                    step_timeout=0,
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert loaded.steps[0].status == StepStatus.COMPLETED

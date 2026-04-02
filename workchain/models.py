@@ -104,6 +104,7 @@ class Step(BaseModel):
     result: StepResult | None = None
     result_type: str | None = None        # dotted path to StepResult subclass
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
+    step_timeout: float = 0  # per-attempt timeout in seconds (0 = no timeout)
     attempt: int = 0
     is_async: bool = False                # if True, engine polls completeness_check
     completeness_check: str | None = None  # dotted path to async callable -> bool

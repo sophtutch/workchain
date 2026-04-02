@@ -66,6 +66,9 @@ class AuditEventType(str, Enum):
     # Cancellation
     WORKFLOW_CANCELLED = "workflow_cancelled"
 
+    # Timeout
+    STEP_TIMEOUT = "step_timeout"
+
 
 # ---------------------------------------------------------------------------
 # Event model
