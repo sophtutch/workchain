@@ -636,9 +636,15 @@ class WorkflowEngine:
                 raw = await self._call_handler(checker, step.config, _build_results(wf, idx), step.result)
                 # If the check doesn't throw, the submission went through.
                 # Transition to BLOCKED so we poll instead of re-submitting.
-                is_complete = raw is True or (
-                    isinstance(raw, dict) and raw.get("complete")
-                )
+                is_complete = False
+                if isinstance(raw, bool):
+                    is_complete = raw
+                elif isinstance(raw, dict):
+                    is_complete = raw.get("complete", False)
+                elif isinstance(raw, PollHint):
+                    is_complete = raw.complete
+                else:
+                    is_complete = bool(raw)
                 if is_complete:
                     logger.info("Step %s already complete after recovery.", step.name)
                     wf = await self._store.update_step(

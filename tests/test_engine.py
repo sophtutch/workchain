@@ -512,6 +512,39 @@ class TestRecovery:
         # check_always_done returns True, so step should be COMPLETED
         assert loaded.steps[0].status == StepStatus.COMPLETED
 
+    async def test_recover_async_with_poll_hint(self, store, engine):
+        """Async recovery handles PollHint(complete=True) correctly."""
+
+        async def check_returns_poll_hint(_config, _results, _result):
+            return PollHint(complete=True, progress=1.0)
+
+        _STEP_REGISTRY["tests.check_poll_hint_done"] = check_returns_poll_hint
+
+        wf = Workflow(
+            name="recovery_poll_hint",
+            status=WorkflowStatus.RUNNING,
+            fence_token=1,
+            steps=[
+                Step(
+                    name="async_step",
+                    handler="tests.async_submit",
+                    status=StepStatus.SUBMITTED,
+                    is_async=True,
+                    completeness_check="tests.check_poll_hint_done",
+                    result=SubmitResult(job_id="existing_job"),
+                    idempotent=False,
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        claimed = await store.try_claim(wf.id, "test-engine-001")
+        await engine._run_workflow(claimed)
+
+        loaded = await store.get(wf.id)
+        # PollHint(complete=True) should be recognized as complete
+        assert loaded.steps[0].status == StepStatus.COMPLETED
+
 
 # ---------------------------------------------------------------------------
 # Sweep loop
