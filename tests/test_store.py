@@ -313,6 +313,31 @@ class TestTryClaim:
         assert claimed2.fence_token == 2
 
 
+    async def test_claim_completed_workflow_rejected(self, store):
+        """Terminal workflows cannot be re-claimed even if unlocked."""
+        wf = Workflow(
+            name="completed_wf",
+            status=WorkflowStatus.COMPLETED,
+            locked_by=None,
+            lock_expires_at=None,
+        )
+        await store.insert(wf)
+
+        result = await store.try_claim(wf.id, "instance_1")
+        assert result is None
+
+    async def test_claim_failed_workflow_rejected(self, store):
+        wf = Workflow(
+            name="failed_wf",
+            status=WorkflowStatus.FAILED,
+            locked_by=None,
+        )
+        await store.insert(wf)
+
+        result = await store.try_claim(wf.id, "instance_1")
+        assert result is None
+
+
 class TestHeartbeat:
     async def test_heartbeat_succeeds(self, store):
         wf = Workflow(name="hb_test")
