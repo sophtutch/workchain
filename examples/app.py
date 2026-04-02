@@ -205,6 +205,15 @@ async def get_workflow(workflow_id: str):
     }
 
 
+@app.post("/workflows/{workflow_id}/cancel")
+async def cancel_workflow(workflow_id: str):
+    """Cancel a running or pending workflow."""
+    wf = await store.cancel_workflow(workflow_id)
+    if wf is None:
+        raise HTTPException(status_code=404, detail="Workflow not found or already terminal")
+    return {"workflow_id": wf.id, "status": wf.status.value}
+
+
 @app.get("/workflows/{workflow_id}/report", response_class=HTMLResponse)
 async def get_workflow_report(workflow_id: str):
     """Generate an HTML audit report for a workflow."""
@@ -284,6 +293,7 @@ LANDING_HTML = """\
   .b-completed { background: rgba(52,211,153,0.15); color: #34d399; }
   .b-failed    { background: rgba(248,113,113,0.15); color: #f87171; }
   .b-needs_review { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .b-cancelled { background: rgba(107,114,128,0.15); color: #9ca3af; }
   a { color: #818cf8; text-decoration: none; font-size: 1rem; }
   a:hover { text-decoration: underline; }
   .empty { color: #4b5563; font-style: italic; padding: 1rem; text-align: center; font-size: 1rem; }
@@ -384,16 +394,31 @@ async function refreshTable() {
       const reportLink = wf.status !== 'pending'
         ? `<a href="/workflows/${wf.id}/report" target="_blank">View Report</a>`
         : '<span style="color:#4b5563">pending</span>';
+      const terminal = ['completed', 'failed', 'needs_review', 'cancelled'];
+      const cancelBtn = terminal.includes(wf.status)
+        ? ''
+        : `<button class="badge b-failed" style="cursor:pointer;border:none;" onclick="cancelWorkflow('${wf.id}')">Cancel</button>`;
       return `<tr>
         <td>${wf.name}</td>
         <td><span class="badge ${badgeCls}">${wf.status}</span></td>
         <td>${wf.progress}</td>
         <td>${ts}</td>
-        <td>${reportLink}</td>
+        <td>${reportLink} ${cancelBtn}</td>
       </tr>`;
     }).join('');
   } catch (e) {
     // Silently retry on next interval
+  }
+}
+
+async function cancelWorkflow(wfId) {
+  try {
+    const res = await fetch(`/workflows/${wfId}/cancel`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Cancelled');
+    refreshTable();
+  } catch (e) {
+    showToast('Error: ' + e.message);
   }
 }
 

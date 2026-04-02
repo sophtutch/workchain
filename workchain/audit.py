@@ -63,6 +63,9 @@ class AuditEventType(str, Enum):
     # Sweep
     SWEEP_ANOMALY = "sweep_anomaly"
 
+    # Cancellation
+    WORKFLOW_CANCELLED = "workflow_cancelled"
+
 
 # ---------------------------------------------------------------------------
 # Event model

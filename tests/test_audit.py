@@ -48,7 +48,7 @@ class TestAuditEvent:
         assert e.lock_released is False
 
     def test_all_event_types(self):
-        assert len(AuditEventType) == 22
+        assert len(AuditEventType) == 23
 
     def test_event_with_step_context(self):
         e = AuditEvent(

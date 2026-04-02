@@ -412,6 +412,50 @@ class TestForceReleaseLock:
 
 
 # ---------------------------------------------------------------------------
+# Cancellation
+# ---------------------------------------------------------------------------
+
+
+class TestCancelWorkflow:
+    async def test_cancel_pending_workflow(self, store):
+        wf = Workflow(name="cancel_pending")
+        await store.insert(wf)
+
+        result = await store.cancel_workflow(wf.id)
+        assert result is not None
+        assert result.status == WorkflowStatus.CANCELLED
+
+    async def test_cancel_running_workflow(self, store):
+        wf = Workflow(name="cancel_running")
+        await store.insert(wf)
+        await store.try_claim(wf.id, "inst_1")
+
+        result = await store.cancel_workflow(wf.id)
+        assert result is not None
+        assert result.status == WorkflowStatus.CANCELLED
+        assert result.locked_by is None
+        assert result.lock_expires_at is None
+
+    async def test_cancel_completed_workflow_rejected(self, store):
+        wf = Workflow(name="cancel_completed", status=WorkflowStatus.COMPLETED)
+        await store.insert(wf)
+
+        result = await store.cancel_workflow(wf.id)
+        assert result is None
+
+    async def test_cancel_already_cancelled(self, store):
+        wf = Workflow(name="cancel_twice", status=WorkflowStatus.CANCELLED)
+        await store.insert(wf)
+
+        result = await store.cancel_workflow(wf.id)
+        assert result is None
+
+    async def test_cancel_nonexistent(self, store):
+        result = await store.cancel_workflow("doesnt_exist")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 

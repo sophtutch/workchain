@@ -35,6 +35,7 @@ class WorkflowStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     NEEDS_REVIEW = "needs_review"  # non-idempotent step crashed without verify hook
+    CANCELLED = "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -152,4 +153,5 @@ class Workflow(BaseModel):
             WorkflowStatus.COMPLETED,
             WorkflowStatus.FAILED,
             WorkflowStatus.NEEDS_REVIEW,
+            WorkflowStatus.CANCELLED,
         )
