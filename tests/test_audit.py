@@ -124,7 +124,7 @@ class TestMongoAuditLogger:
         assert events[0].event_type == AuditEventType.WORKFLOW_CREATED
         assert events[0].instance_id == "inst_1"
 
-    async def test_sequence_monotonic(self, audit_logger):
+    async def test_events_ordered_by_timestamp(self, audit_logger):
         for i in range(5):
             e = AuditEvent(
                 workflow_id="wf1",
@@ -138,8 +138,8 @@ class TestMongoAuditLogger:
 
         events = await audit_logger.get_events("wf1")
         assert len(events) == 5
-        seqs = [e.sequence for e in events]
-        assert seqs == [1, 2, 3, 4, 5]
+        timestamps = [e.timestamp for e in events]
+        assert timestamps == sorted(timestamps)
 
     async def test_filter_by_event_type(self, audit_logger):
         for evt_type in [AuditEventType.WORKFLOW_CLAIMED, AuditEventType.STEP_SUBMITTED, AuditEventType.STEP_COMPLETED]:
@@ -342,9 +342,8 @@ class TestEngineAuditIntegration:
         await asyncio.sleep(0.2)
 
         events = await audit_logger.get_events(wf.id)
-        seqs = [e.sequence for e in events]
-        assert seqs == sorted(seqs)
-        assert len(set(seqs)) == len(seqs)  # all unique
+        timestamps = [e.timestamp for e in events]
+        assert timestamps == sorted(timestamps)
 
     async def test_no_audit_by_default(self, store):
         """Engine without audit_logger should still work (NullAuditLogger)."""

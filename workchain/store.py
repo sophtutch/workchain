@@ -156,6 +156,7 @@ class MongoWorkflowStore:
         doc = await self._col.find_one_and_update(
             {
                 "_id": workflow_id,
+                "status": {"$in": [WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value]},
                 "$or": [
                     {"lock_expires_at": None},
                     {"lock_expires_at": {"$lt": now}},
