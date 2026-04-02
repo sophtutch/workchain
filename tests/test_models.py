@@ -195,6 +195,7 @@ class TestStep:
         assert s.config_type is None
         assert s.result is None
         assert s.result_type is None
+        assert s.step_timeout == 0
         assert s.attempt == 0
         assert s.is_async is False
         assert s.idempotent is True

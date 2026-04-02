@@ -999,7 +999,22 @@ class WorkflowEngine:
                     attempt_num,
                     step.retry_policy.max_attempts,
                 )
-                return await self._call_handler(handler, step.config, _build_results(wf, idx))
+                coro = self._call_handler(handler, step.config, _build_results(wf, idx))
+                if step.step_timeout > 0:
+                    try:
+                        return await asyncio.wait_for(coro, timeout=step.step_timeout)
+                    except TimeoutError:
+                        self._emit(
+                            AuditEventType.STEP_TIMEOUT, wf,
+                            step=wf.steps[idx], idx=idx,
+                            attempt=attempt_num,
+                            max_attempts=step.retry_policy.max_attempts,
+                            error=f"Step timed out after {step.step_timeout} seconds",
+                        )
+                        raise TimeoutError(  # noqa: B904
+                            f"Step timed out after {step.step_timeout} seconds"
+                        )
+                return await coro
 
         # Unreachable with reraise=True, but satisfies type checker / RET503
         raise RuntimeError(f"Step {step.name} exhausted all retry attempts")
