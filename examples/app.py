@@ -138,26 +138,29 @@ app = FastAPI(title="workchain Test Harness", lifespan=lifespan)
 @app.get("/api/workflows")
 async def list_workflows():
     """List all workflows with their current status."""
-    cursor = store._col.find(
-        {},
-        {"_id": 1, "name": 1, "status": 1, "steps": 1, "current_step_index": 1, "created_at": 1},
-    ).sort("created_at", -1).limit(50)
+    wf_list = await store.list_workflows()
 
     workflows = []
-    async for doc in cursor:
-        total_steps = len(doc.get("steps", []))
-        completed_steps = sum(1 for s in doc.get("steps", []) if s.get("status") == "completed")
+    for wf in wf_list:
+        total_steps = len(wf.steps)
+        completed_steps = sum(1 for s in wf.steps if s.status.value == "completed")
         workflows.append({
-            "id": doc["_id"],
-            "name": doc.get("name", "?"),
-            "status": doc.get("status", "?"),
+            "id": wf.id,
+            "name": wf.name,
+            "status": wf.status.value,
             "progress": f"{completed_steps}/{total_steps}",
-            "current_step_index": doc.get("current_step_index", 0),
+            "current_step_index": wf.current_step_index,
             "total_steps": total_steps,
             "completed_steps": completed_steps,
-            "created_at": str(doc.get("created_at", "")),
+            "created_at": str(wf.created_at),
         })
     return workflows
+
+
+@app.get("/api/workflows/stats")
+async def workflow_stats():
+    """Return workflow counts grouped by status."""
+    return await store.count_by_status()
 
 
 @app.post("/workflows/{example}")

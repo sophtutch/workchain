@@ -432,6 +432,68 @@ class MongoWorkflowStore:
         logger.info("Cancelled workflow=%s", workflow_id)
         return self._doc_to_workflow(doc)
 
+    # ------------------------------------------------------------------
+    # Query API
+    # ------------------------------------------------------------------
+
+    async def list_workflows(
+        self,
+        status: WorkflowStatus | None = None,
+        name: str | None = None,
+        limit: int = 50,
+        skip: int = 0,
+    ) -> list[Workflow]:
+        """
+        List workflows with optional filters, sorted by created_at descending.
+        """
+        query: dict = {}
+        if status is not None:
+            query["status"] = status.value
+        if name is not None:
+            query["name"] = name
+
+        cursor = (
+            self._col.find(query)
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        return [self._doc_to_workflow(doc) async for doc in cursor]
+
+    async def count_by_status(self) -> dict[str, int]:
+        """
+        Return a count of workflows grouped by status.
+        E.g. {"pending": 5, "running": 2, "completed": 10}
+        """
+        pipeline = [
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+        ]
+        result: dict[str, int] = {}
+        async for doc in self._col.aggregate(pipeline):
+            result[doc["_id"]] = doc["count"]
+        return result
+
+    async def delete_workflow(self, workflow_id: str) -> bool:
+        """
+        Delete a terminal workflow by ID.
+        Only terminal workflows (COMPLETED, FAILED, NEEDS_REVIEW, CANCELLED)
+        can be deleted.
+        """
+        terminal = [
+            WorkflowStatus.COMPLETED.value,
+            WorkflowStatus.FAILED.value,
+            WorkflowStatus.NEEDS_REVIEW.value,
+            WorkflowStatus.CANCELLED.value,
+        ]
+        result = await self._col.delete_one({
+            "_id": workflow_id,
+            "status": {"$in": terminal},
+        })
+        if result.deleted_count > 0:
+            logger.info("Deleted workflow=%s", workflow_id)
+            return True
+        return False
+
     async def find_needs_review(self) -> list[str]:
         cursor = self._col.find(
             {"status": WorkflowStatus.NEEDS_REVIEW.value},

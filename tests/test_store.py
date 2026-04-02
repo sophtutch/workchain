@@ -596,3 +596,87 @@ class TestCollectionName:
     async def test_default_collection_name(self, mongo_db):
         store = MongoWorkflowStore(mongo_db)
         assert store._col.name == "workflows"
+
+
+# ---------------------------------------------------------------------------
+# Query API
+# ---------------------------------------------------------------------------
+
+
+class TestQueryAPI:
+    async def test_list_workflows_all(self, store):
+        for i in range(3):
+            await store.insert(Workflow(name=f"wf_{i}"))
+
+        results = await store.list_workflows()
+        assert len(results) == 3
+
+    async def test_list_workflows_filter_by_status(self, store):
+        await store.insert(Workflow(name="pending_wf"))
+        await store.insert(Workflow(name="completed_wf", status=WorkflowStatus.COMPLETED))
+        await store.insert(Workflow(name="failed_wf", status=WorkflowStatus.FAILED))
+
+        results = await store.list_workflows(status=WorkflowStatus.COMPLETED)
+        assert len(results) == 1
+        assert results[0].name == "completed_wf"
+
+    async def test_list_workflows_filter_by_name(self, store):
+        await store.insert(Workflow(name="alpha"))
+        await store.insert(Workflow(name="beta"))
+        await store.insert(Workflow(name="alpha"))
+
+        results = await store.list_workflows(name="alpha")
+        assert len(results) == 2
+        assert all(wf.name == "alpha" for wf in results)
+
+    async def test_list_workflows_pagination(self, store):
+        for i in range(5):
+            await store.insert(Workflow(name=f"page_{i}"))
+
+        page1 = await store.list_workflows(limit=2, skip=0)
+        assert len(page1) == 2
+
+        page2 = await store.list_workflows(limit=2, skip=2)
+        assert len(page2) == 2
+
+        page3 = await store.list_workflows(limit=2, skip=4)
+        assert len(page3) == 1
+
+        # No overlap between pages
+        all_ids = [wf.id for wf in page1 + page2 + page3]
+        assert len(set(all_ids)) == 5
+
+    async def test_count_by_status(self, store):
+        await store.insert(Workflow(name="p1"))
+        await store.insert(Workflow(name="p2"))
+        await store.insert(Workflow(name="c1", status=WorkflowStatus.COMPLETED))
+        await store.insert(Workflow(name="f1", status=WorkflowStatus.FAILED))
+
+        counts = await store.count_by_status()
+        assert counts.get("pending") == 2
+        assert counts.get("completed") == 1
+        assert counts.get("failed") == 1
+
+    async def test_delete_completed_workflow(self, store):
+        wf = Workflow(name="done", status=WorkflowStatus.COMPLETED)
+        await store.insert(wf)
+
+        deleted = await store.delete_workflow(wf.id)
+        assert deleted is True
+
+        loaded = await store.get(wf.id)
+        assert loaded is None
+
+    async def test_delete_running_workflow_rejected(self, store):
+        wf = Workflow(name="active", status=WorkflowStatus.RUNNING)
+        await store.insert(wf)
+
+        deleted = await store.delete_workflow(wf.id)
+        assert deleted is False
+
+        loaded = await store.get(wf.id)
+        assert loaded is not None
+
+    async def test_delete_nonexistent(self, store):
+        deleted = await store.delete_workflow("doesnt_exist")
+        assert deleted is False
