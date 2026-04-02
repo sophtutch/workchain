@@ -75,7 +75,7 @@ class MongoWorkflowStore:
     # ------------------------------------------------------------------
 
     async def insert(self, workflow: Workflow) -> str:
-        doc = workflow.model_dump(mode="json")
+        doc = workflow.model_dump(mode="python", serialize_as_any=True)
         doc["_id"] = doc.pop("id")
         await self._col.insert_one(doc)
         return workflow.id
@@ -275,6 +275,11 @@ class MongoWorkflowStore:
                 steps = doc.get("steps", [])
                 if idx < len(steps):
                     next_poll = steps[idx].get("next_poll_at")
+                    if next_poll is not None:
+                        if isinstance(next_poll, str):
+                            next_poll = datetime.fromisoformat(next_poll)
+                        if next_poll.tzinfo is None:
+                            next_poll = next_poll.replace(tzinfo=UTC)
                     if next_poll is not None and next_poll > now:
                         continue  # not due yet
             results.append(doc["_id"])

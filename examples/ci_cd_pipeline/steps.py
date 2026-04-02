@@ -24,6 +24,8 @@ from workchain import (
     step,
 )
 
+_rng = random.SystemRandom()
+
 # ---------------------------------------------------------------------------
 # Configs and Results
 # ---------------------------------------------------------------------------
@@ -92,8 +94,8 @@ class SmokeTestResult(StepResult):
 @step(name="lint_code")
 async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
     """Run static analysis / linting on source files."""
-    files_checked = random.randint(40, 120)
-    warnings = random.randint(0, 5)
+    files_checked = _rng.randint(40, 120)
+    warnings = _rng.randint(0, 5)
     print(f"  [lint] Checked {files_checked} files in '{config.source_dir}/', {warnings} warning(s)")
     return LintResult(files_checked=files_checked, warnings=warnings)
 
@@ -108,11 +110,11 @@ async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> Lint
 )
 async def run_tests(config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
     """Execute the test suite. May flake on first attempt."""
-    total = random.randint(80, 200)
+    total = _rng.randint(80, 200)
     # Simulate occasional flaky failure (20% chance)
-    if random.random() < 0.2:
+    if _rng.random() < 0.2:
         raise RuntimeError("Flaky test failure -- transient network timeout in test_api_integration")
-    coverage = round(random.uniform(config.coverage_threshold, 98.0), 1)
+    coverage = round(_rng.uniform(config.coverage_threshold, 98.0), 1)
     print(f"  [test] {total} passed, 0 failed, coverage {coverage}%")
     return TestResult(tests_passed=total, tests_failed=0, coverage=coverage)
 
@@ -133,7 +135,7 @@ async def check_build(
     # Determine current progress based on how many times we've been called
     # We store state in result fields -- but since result is immutable from
     # engine perspective we rely on random progress simulation.
-    progress = random.choice(progress_steps)
+    progress = _rng.choice(progress_steps)
 
     if progress >= 1.0:
         print(f"  [build] Build {result.build_id} completed!")
@@ -187,7 +189,7 @@ async def check_deployment(
 ) -> dict:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
     # Simulate: first poll = rolling out, second poll = healthy
-    if random.random() < 0.5:
+    if _rng.random() < 0.5:
         print(f"  [deploy] Deployment {result.deployment_id} rolling out...")
         return {
             "complete": False,
@@ -228,7 +230,7 @@ async def run_smoke_tests(
 ) -> SmokeTestResult:
     """Run smoke tests against the staging deployment."""
     deploy_result = cast(DeployResult, results["deploy_staging"])
-    checks = random.randint(5, 15)
+    checks = _rng.randint(5, 15)
     print(
         f"  [smoke] Ran {checks} checks against {config.base_url} "
         f"(deployment {deploy_result.deployment_id})"

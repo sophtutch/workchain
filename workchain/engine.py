@@ -106,9 +106,11 @@ class WorkflowEngine:
         # Register signal handlers (POSIX only — Windows ProactorEventLoop
         # does not support add_signal_handler)
         loop = asyncio.get_running_loop()
-        if hasattr(loop, "add_signal_handler"):
+        try:
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(sig, lambda: asyncio.ensure_future(self.stop()))
+        except (NotImplementedError, OSError):
+            pass  # Windows ProactorEventLoop doesn't support signal handlers
 
         self._tasks.append(asyncio.create_task(self._claim_loop(), name="claim_loop"))
         self._tasks.append(
@@ -340,7 +342,8 @@ class WorkflowEngine:
                         fence,
                         {
                             "status": StepStatus.FAILED.value,
-                            "result": fail_result.model_dump(mode="json"),
+                            "result": fail_result.model_dump(mode="python", serialize_as_any=True),
+                            "result_type": None,
                         },
                     )
                     await self._store.advance_step(
@@ -360,9 +363,9 @@ class WorkflowEngine:
 
                     step_updates: dict[str, Any] = {
                         "status": StepStatus.BLOCKED.value,
-                        "result": result.model_dump(mode="json"),
-                        "poll_started_at": now.isoformat(),
-                        "next_poll_at": next_poll.isoformat(),
+                        "result": result.model_dump(mode="python", serialize_as_any=True),
+                        "poll_started_at": now,
+                        "next_poll_at": next_poll,
                         "current_poll_interval": policy.interval,
                     }
                     if result_type:
@@ -388,7 +391,7 @@ class WorkflowEngine:
                 # --- Sync step: mark completed, advance ---
                 step_updates = {
                     "status": StepStatus.COMPLETED.value,
-                    "result": result.model_dump(mode="json"),
+                    "result": result.model_dump(mode="python", serialize_as_any=True),
                 }
                 if result_type:
                     step_updates["result_type"] = result_type
@@ -507,10 +510,8 @@ class WorkflowEngine:
                     fence,
                     {
                         "status": StepStatus.BLOCKED.value,
-                        "poll_started_at": now.isoformat(),
-                        "next_poll_at": (
-                            now + timedelta(seconds=policy.interval)
-                        ).isoformat(),
+                        "poll_started_at": now,
+                        "next_poll_at": now + timedelta(seconds=policy.interval),
                         "current_poll_interval": policy.interval,
                     },
                 )
@@ -580,6 +581,8 @@ class WorkflowEngine:
 
         # --- Check timeout ---
         poll_started_at = step.poll_started_at or now
+        if poll_started_at.tzinfo is None:
+            poll_started_at = poll_started_at.replace(tzinfo=UTC)
         if policy.timeout > 0:
             elapsed = (now - poll_started_at).total_seconds()
             if elapsed >= policy.timeout:
@@ -599,7 +602,8 @@ class WorkflowEngine:
                     fence,
                     {
                         "status": StepStatus.FAILED.value,
-                        "result": fail_result.model_dump(mode="json"),
+                        "result": fail_result.model_dump(mode="python", serialize_as_any=True),
+                        "result_type": None,
                     },
                 )
                 if wf:
@@ -624,7 +628,8 @@ class WorkflowEngine:
                 fence,
                 {
                     "status": StepStatus.FAILED.value,
-                    "result": fail_result.model_dump(mode="json"),
+                    "result": fail_result.model_dump(mode="python", serialize_as_any=True),
+                    "result_type": None,
                 },
             )
             if wf:
@@ -659,7 +664,7 @@ class WorkflowEngine:
         current_interval = step.current_poll_interval or policy.interval
         poll_updates: dict = {
             "poll_count": step.poll_count + 1,
-            "last_poll_at": now.isoformat(),
+            "last_poll_at": now,
         }
         if hint and hint.progress is not None:
             poll_updates["last_poll_progress"] = hint.progress
@@ -671,7 +676,7 @@ class WorkflowEngine:
             poll_updates["status"] = StepStatus.COMPLETED.value
             # Keep the existing result (with result_type) and just set completed_at
             completed_result = step_result.model_copy(update={"completed_at": now})
-            poll_updates["result"] = completed_result.model_dump(mode="json")
+            poll_updates["result"] = completed_result.model_dump(mode="python", serialize_as_any=True)
 
             wf = await self._store.update_step(wf.id, idx, fence, poll_updates)
             if wf is None:
@@ -699,7 +704,7 @@ class WorkflowEngine:
             )
 
         next_poll_at = now + timedelta(seconds=next_wait)
-        poll_updates["next_poll_at"] = next_poll_at.isoformat()
+        poll_updates["next_poll_at"] = next_poll_at
         poll_updates["current_poll_interval"] = current_interval
 
         wf = await self._store.update_step(wf.id, idx, fence, poll_updates)

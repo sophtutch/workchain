@@ -344,7 +344,7 @@ def _mongo_val(v: object, indent: int = 2) -> str:
         return f'<span class="kw">{"true" if v else "false"}</span>'
     if v is None:
         return '<span class="kw">null</span>'
-    if isinstance(v, (int, float)):
+    if isinstance(v, int | float):
         return f'<span class="num">{v}</span>'
     if isinstance(v, str):
         return f'<span class="str">"{_esc(v)}"</span>'
@@ -502,10 +502,8 @@ def _render_step_section(
     fence_before: int,
     fence_after: int,
     instance: str,
-    prev_instance: str,
 ) -> str:
     step_num = idx + 1
-    parts = []
 
     # --- Flow panel ---
     label_parts = [f"Step {step_num} &mdash; {_esc(step.name)}"]
@@ -930,17 +928,14 @@ def generate(wf: WorkflowData) -> str:
 
     # Determine which instance is active for each step
     inst_idx = 0
-    step_instances: list[tuple[str, str]] = []  # (active_instance, prev_instance)
-    for i, step in enumerate(wf.steps):
-        prev = wf.instances[inst_idx % len(wf.instances)]
+    step_instances: list[str] = []
+    for _i, step in enumerate(wf.steps):
         if step.needs_reclaim:
             inst_idx += 1
         if step.is_async and step.poll:
-            # After polls, last poll instance becomes active
             poll_insts = step.poll.instances or wf.instances
             inst_idx = wf.instances.index(poll_insts[(step.poll.num_polls - 1) % len(poll_insts)]) if poll_insts[0] in wf.instances else inst_idx + step.poll.num_polls
-        active = wf.instances[inst_idx % len(wf.instances)]
-        step_instances.append((active, prev))
+        step_instances.append(wf.instances[inst_idx % len(wf.instances)])
 
     sections = [
         _render_header(wf),
@@ -952,9 +947,8 @@ def generate(wf: WorkflowData) -> str:
 
     for i, step in enumerate(wf.steps):
         fb, fa = fence_schedule[i]
-        active_inst, prev_inst = step_instances[i]
         sections.append(
-            _render_step_section(wf, step, i, fb, fa, active_inst, prev_inst)
+            _render_step_section(wf, step, i, fb, fa, step_instances[i])
         )
 
     sections.append(_render_complete(wf, final_fence))

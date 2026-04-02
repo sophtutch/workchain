@@ -25,6 +25,8 @@ from workchain import (
     step,
 )
 
+_rng = random.SystemRandom()
+
 # ---------------------------------------------------------------------------
 # Configs and Results
 # ---------------------------------------------------------------------------
@@ -100,7 +102,7 @@ class HealthCheckResult(StepResult):
 async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcResult:
     """Create a VPC with public and private subnets."""
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
-    subnet_count = random.randint(2, 4)
+    subnet_count = _rng.randint(2, 4)
     subnet_ids = [f"subnet-{uuid.uuid4().hex[:12]}" for _ in range(subnet_count)]
     print(
         f"  [vpc] Created {vpc_id} ({config.cidr_block}) in {config.region} "
@@ -126,7 +128,7 @@ async def check_database(
         (1.0, "available", "Database available"),
     ]
     # Pick a stage based on random progress to simulate advancement
-    progress = random.choice([s[0] for s in stages])
+    progress = _rng.choice([s[0] for s in stages])
 
     if progress >= 1.0:
         print(f"  [db] Instance {result.db_instance_id} is available!")
@@ -171,7 +173,7 @@ async def check_deployment(
     result: DeployResult,
 ) -> dict:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
-    if random.random() < 0.5:
+    if _rng.random() < 0.5:
         ready = max(1, config.replicas - 1)
         print(
             f"  [deploy] Deployment {result.deployment_id} -- "
@@ -244,7 +246,7 @@ async def check_tls_cert(
     _result: TlsResult,
 ) -> dict:
     """Completeness check: simulates certificate issued after 2 polls."""
-    if random.random() < 0.5:
+    if _rng.random() < 0.5:
         print(f"  [tls] Certificate for {config.domain} -- pending validation")
         return {
             "complete": False,
@@ -286,7 +288,7 @@ async def health_check(
 ) -> HealthCheckResult:
     """Verify the full stack is reachable and returns the expected status."""
     tls_result = cast(TlsResult, results["issue_tls_cert"])
-    response_time = round(random.uniform(50.0, 200.0), 1)
+    response_time = round(_rng.uniform(50.0, 200.0), 1)
     print(
         f"  [health] GET {config.endpoint} -> {config.expected_status} "
         f"({response_time}ms), cert {tls_result.certificate_arn[:40]}..."
