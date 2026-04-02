@@ -64,11 +64,11 @@ pytest tests/
 
 ## Defining steps
 
-Use the `@step` and `@async_step` decorators. Config and result types are Pydantic models extending `StepConfig` and `StepResult`.
+Use the `@step`, `@async_step`, and `@completeness_check` decorators. Config and result types are Pydantic models extending `StepConfig` and `StepResult`. Handler names are auto-generated from `module.qualname` — no `name` parameter.
 
 ```python
 from typing import cast
-from workchain import StepConfig, StepResult, step, async_step, PollPolicy
+from workchain import StepConfig, StepResult, step, async_step, completeness_check, PollPolicy
 
 class ValidateConfig(StepConfig):
     email: str
@@ -77,7 +77,7 @@ class ValidateResult(StepResult):
     validated: bool
     email: str
 
-@step(name="validate_input")
+@step()
 async def validate_input(config: ValidateConfig, results: dict[str, StepResult]) -> ValidateResult:
     if "@" not in config.email:
         raise ValueError(f"Invalid email: {config.email}")
@@ -86,11 +86,11 @@ async def validate_input(config: ValidateConfig, results: dict[str, StepResult])
 class ProvisionResult(StepResult):
     job_id: str
 
+@completeness_check()
 async def check_provisioning(config: StepConfig, results: dict[str, StepResult], result: ProvisionResult) -> dict:
     return {"complete": False, "progress": 0.5, "message": "In progress"}
 
 @async_step(
-    name="provision",
     completeness_check=check_provisioning,
     poll=PollPolicy(interval=5.0, timeout=300.0),
 )
@@ -133,10 +133,10 @@ The engine accepts an optional `context: dict[str, Any]` for injecting external 
 engine = WorkflowEngine(store, context={"db": db, "http_client": client})
 ```
 
-Handlers opt in by accepting a third argument. Existing 2-arg handlers are unaffected:
+Handlers opt in by setting `needs_context=True` on their decorator:
 
 ```python
-@step(name="my_step")
+@step(needs_context=True)
 async def my_step(config: MyConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> MyResult:
     db = ctx["db"]
     ...
@@ -145,12 +145,13 @@ async def my_step(config: MyConfig, results: dict[str, StepResult], ctx: dict[st
 Completeness checks can accept a fourth argument:
 
 ```python
+@completeness_check(needs_context=True)
 async def check(config, results, result, ctx: dict[str, Any]):
     client = ctx["http_client"]
     ...
 ```
 
-The engine inspects each handler's parameter count and only passes context if the handler declares it.
+The engine reads `needs_context` from each handler's decorator metadata (`_step_meta`) and only passes context when declared.
 
 ## Conventions
 

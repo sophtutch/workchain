@@ -8,7 +8,19 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import GreetConfig, GreetResult, SubmitResult
+from tests.conftest import (
+    GreetConfig,
+    GreetResult,
+    SubmitResult,
+    _check_complete_impl,
+    async_submit_handler,
+    check_complete_always_done,
+    fail_handler,
+    flaky_handler,
+    greet_handler,
+    noop_handler,
+    verify_done,
+)
 from workchain.decorators import _STEP_REGISTRY
 from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
 from workchain.models import (
@@ -139,7 +151,7 @@ class TestSyncExecution:
     async def test_single_sync_step(self, store, engine):
         wf = Workflow(
             name="single_sync",
-            steps=[Step(name="noop", handler="tests.noop")],
+            steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])],
         )
         await store.insert(wf)
 
@@ -155,8 +167,8 @@ class TestSyncExecution:
         wf = Workflow(
             name="multi_sync",
             steps=[
-                Step(name="greet", handler="tests.greet", config=GreetConfig(name="Test")),
-                Step(name="noop", handler="tests.noop"),
+                Step(name="greet", handler=greet_handler._step_meta["handler"], config=GreetConfig(name="Test")),
+                Step(name="noop", handler=noop_handler._step_meta["handler"]),
             ],
         )
         await store.insert(wf)
@@ -173,7 +185,7 @@ class TestSyncExecution:
         wf = Workflow(
             name="result_test",
             steps=[
-                Step(name="greet", handler="tests.greet", config=GreetConfig(name="World")),
+                Step(name="greet", handler=greet_handler._step_meta["handler"], config=GreetConfig(name="World")),
             ],
         )
         await store.insert(wf)
@@ -191,8 +203,8 @@ class TestSyncExecution:
         wf = Workflow(
             name="advance_test",
             steps=[
-                Step(name="s1", handler="tests.noop"),
-                Step(name="s2", handler="tests.noop"),
+                Step(name="s1", handler=noop_handler._step_meta["handler"]),
+                Step(name="s2", handler=noop_handler._step_meta["handler"]),
             ],
         )
         await store.insert(wf)
@@ -203,6 +215,33 @@ class TestSyncExecution:
 
         loaded = await store.get(wf.id)
         assert loaded.current_step_index == 2
+
+    async def test_sync_handler_works(self, store):
+        """A plain sync (non-async) handler registered via _STEP_REGISTRY completes without TypeError."""
+
+        def sync_handler(_config, _results):
+            return StepResult()
+
+        sync_handler._step_meta = {"needs_context": False}
+        _STEP_REGISTRY["tests.test_engine.sync_handler"] = sync_handler
+
+        engine = WorkflowEngine(
+            store, instance_id="sync-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+        )
+        wf = Workflow(
+            name="sync_handler_test",
+            steps=[Step(name="sync_step", handler="tests.test_engine.sync_handler")],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert loaded.steps[0].status == StepStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +256,7 @@ class TestRetryExecution:
             steps=[
                 Step(
                     name="flaky",
-                    handler="tests.flaky",
+                    handler=flaky_handler._step_meta["handler"],
                     retry_policy=RetryPolicy(max_attempts=3, wait_seconds=0.01, wait_multiplier=0.01),
                 ),
             ],
@@ -238,7 +277,7 @@ class TestRetryExecution:
             steps=[
                 Step(
                     name="fail",
-                    handler="tests.fail_always",
+                    handler=fail_handler._step_meta["handler"],
                     retry_policy=RetryPolicy(max_attempts=2, wait_seconds=0.01, wait_multiplier=0.01),
                 ),
             ],
@@ -268,9 +307,9 @@ class TestAsyncExecution:
             steps=[
                 Step(
                     name="async_step",
-                    handler="tests.async_submit",
+                    handler=async_submit_handler._step_meta["handler"],
                     is_async=True,
-                    completeness_check="tests.check_complete",
+                    completeness_check=_check_complete_impl._step_meta["handler"],
                     poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
                 ),
             ],
@@ -294,9 +333,9 @@ class TestAsyncExecution:
             steps=[
                 Step(
                     name="async_step",
-                    handler="tests.async_submit",
+                    handler=async_submit_handler._step_meta["handler"],
                     is_async=True,
-                    completeness_check="tests.check_complete",
+                    completeness_check=_check_complete_impl._step_meta["handler"],
                     poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
                 ),
             ],
@@ -317,6 +356,7 @@ class TestAsyncExecution:
         async def async_no_check(_config, _results):
             return SubmitResult(job_id="j1")
 
+        async_no_check._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.async_no_check"] = async_no_check
 
         wf = Workflow(
@@ -351,6 +391,7 @@ class TestPollLimits:
         async def never_complete(_config, _results, _result):
             return PollHint(complete=False, progress=0.1)
 
+        never_complete._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.never_complete"] = never_complete
 
         wf = Workflow(
@@ -358,7 +399,7 @@ class TestPollLimits:
             steps=[
                 Step(
                     name="timeout_step",
-                    handler="tests.async_submit",
+                    handler=async_submit_handler._step_meta["handler"],
                     is_async=True,
                     completeness_check="tests.never_complete",
                     poll_policy=PollPolicy(interval=0.05, timeout=0.2, max_polls=0),
@@ -379,6 +420,7 @@ class TestPollLimits:
         async def never_complete(_config, _results, _result):
             return PollHint(complete=False)
 
+        never_complete._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.never_complete_max"] = never_complete
 
         wf = Workflow(
@@ -386,7 +428,7 @@ class TestPollLimits:
             steps=[
                 Step(
                     name="max_poll_step",
-                    handler="tests.async_submit",
+                    handler=async_submit_handler._step_meta["handler"],
                     is_async=True,
                     completeness_check="tests.never_complete_max",
                     poll_policy=PollPolicy(interval=0.05, timeout=0, max_polls=2),
@@ -419,7 +461,7 @@ class TestRecovery:
             steps=[
                 Step(
                     name="noop",
-                    handler="tests.noop",
+                    handler=noop_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
                     idempotent=True,
                 ),
@@ -446,7 +488,7 @@ class TestRecovery:
             steps=[
                 Step(
                     name="danger",
-                    handler="tests.noop",
+                    handler=noop_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
                     idempotent=False,
                 ),
@@ -469,9 +511,9 @@ class TestRecovery:
             steps=[
                 Step(
                     name="verified",
-                    handler="tests.noop",
+                    handler=noop_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
-                    verify_completion="tests.verify_done",
+                    verify_completion=verify_done._step_meta["handler"],
                     idempotent=False,
                 ),
             ],
@@ -494,10 +536,10 @@ class TestRecovery:
             steps=[
                 Step(
                     name="async_step",
-                    handler="tests.async_submit",
+                    handler=async_submit_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
                     is_async=True,
-                    completeness_check="tests.check_always_done",
+                    completeness_check=check_complete_always_done._step_meta["handler"],
                     result=SubmitResult(job_id="existing_job"),
                     idempotent=False,
                 ),
@@ -518,6 +560,7 @@ class TestRecovery:
         async def check_returns_poll_hint(_config, _results, _result):
             return PollHint(complete=True, progress=1.0)
 
+        check_returns_poll_hint._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.check_poll_hint_done"] = check_returns_poll_hint
 
         wf = Workflow(
@@ -527,7 +570,7 @@ class TestRecovery:
             steps=[
                 Step(
                     name="async_step",
-                    handler="tests.async_submit",
+                    handler=async_submit_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
                     is_async=True,
                     completeness_check="tests.check_poll_hint_done",
@@ -562,7 +605,7 @@ class TestSweepLoop:
             updated_at=datetime.now(UTC) - timedelta(seconds=600),
             fence_token=1,
             steps=[
-                Step(name="s1", handler="tests.noop", status=StepStatus.SUBMITTED),
+                Step(name="s1", handler=noop_handler._step_meta["handler"], status=StepStatus.SUBMITTED),
             ],
         )
         await store.insert(wf)
@@ -591,7 +634,7 @@ class TestContextInjection:
             claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
             context={"db": "fake_db"},
         )
-        wf = Workflow(name="ctx_compat", steps=[Step(name="noop", handler="tests.noop")])
+        wf = Workflow(name="ctx_compat", steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])])
         await store.insert(wf)
 
         await engine.start()
@@ -609,6 +652,7 @@ class TestContextInjection:
             received_ctx.update(ctx)
             return StepResult()
 
+        ctx_handler._step_meta = {"needs_context": True}
         _STEP_REGISTRY["tests.ctx_handler"] = ctx_handler
 
         engine = WorkflowEngine(
@@ -639,6 +683,8 @@ class TestContextInjection:
             check_ctx.update(ctx)
             return PollHint(complete=True, progress=1.0)
 
+        async_submit._step_meta = {"needs_context": False}
+        check_with_ctx._step_meta = {"needs_context": True}
         _STEP_REGISTRY["tests.async_submit_ctx"] = async_submit
         _STEP_REGISTRY["tests.check_with_ctx"] = check_with_ctx
 
@@ -673,7 +719,7 @@ class TestContextInjection:
             store, instance_id="no-ctx",
             claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
         )
-        wf = Workflow(name="no_ctx", steps=[Step(name="noop", handler="tests.noop")])
+        wf = Workflow(name="no_ctx", steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])])
         await store.insert(wf)
 
         await engine.start()

@@ -115,11 +115,7 @@ CSS = """\
   }
 
   /* flow timeline */
-  .flow-timeline { position: relative; padding-left: 28px; }
-  .flow-timeline::before {
-    content: ''; position: absolute; left: 13px; top: 0; bottom: 0;
-    width: 2px; background: #1f2937;
-  }
+  .flow-timeline { position: relative; }
 
   /* step nodes */
   .step-node {
@@ -127,23 +123,12 @@ CSS = """\
     background: #111827; border: 1px solid #1f2937; border-radius: 8px;
     animation: fadeIn 0.4s ease-out both;
   }
-  .step-node::before {
-    content: ''; position: absolute; left: -19px; top: 1.1rem;
-    width: 10px; height: 10px; border-radius: 50%;
-    border: 2px solid #1f2937; background: #0a0e17;
-  }
   .step-node.theme-submit  { border-left: 3px solid #34d399; }
-  .step-node.theme-submit::before  { border-color: #34d399; background: #065f46; }
   .step-node.theme-sync    { border-left: 3px solid #a5b4fc; }
-  .step-node.theme-sync::before    { border-color: #a5b4fc; background: #312e81; }
   .step-node.theme-async   { border-left: 3px solid #fbbf24; }
-  .step-node.theme-async::before   { border-color: #fbbf24; background: #451a03; }
   .step-node.theme-complete { border-left: 3px solid #34d399; background: #064e3b22; }
-  .step-node.theme-complete::before { border-color: #34d399; background: #34d399; }
   .step-node.theme-fail    { border-left: 3px solid #f87171; }
-  .step-node.theme-fail::before    { border-color: #f87171; background: #7f1d1d; }
   .step-node.theme-engine  { border-left: 3px solid #6366f1; }
-  .step-node.theme-engine::before  { border-color: #6366f1; background: #312e81; }
 
   .node-header {
     display: flex; align-items: center; gap: 0.5rem;

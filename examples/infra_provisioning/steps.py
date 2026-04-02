@@ -22,6 +22,7 @@ from workchain import (
     StepConfig,
     StepResult,
     async_step,
+    completeness_check,
     step,
 )
 
@@ -98,7 +99,7 @@ class HealthCheckResult(StepResult):
 # ---------------------------------------------------------------------------
 
 
-@step(name="create_vpc")
+@step()
 async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcResult:
     """Create a VPC with public and private subnets."""
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
@@ -116,6 +117,7 @@ async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcR
 # ---------------------------------------------------------------------------
 
 
+@completeness_check()
 async def check_database(
     _config: DatabaseConfig,
     _results: dict[str, StepResult],
@@ -139,7 +141,6 @@ async def check_database(
 
 
 @async_step(
-    name="provision_database",
     completeness_check=check_database,
     poll=PollPolicy(interval=5.0, backoff_multiplier=1.5, max_interval=30.0, timeout=600.0, max_polls=15),
 )
@@ -167,6 +168,7 @@ async def provision_database(
 # ---------------------------------------------------------------------------
 
 
+@completeness_check()
 async def check_deployment(
     config: DeployConfig,
     _results: dict[str, StepResult],
@@ -196,7 +198,6 @@ async def check_deployment(
 
 
 @async_step(
-    name="deploy_application",
     completeness_check=check_deployment,
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=300.0, max_polls=10),
 )
@@ -219,7 +220,7 @@ async def deploy_application(
 # ---------------------------------------------------------------------------
 
 
-@step(name="configure_dns")
+@step()
 async def configure_dns(
     config: DnsConfig,
     results: dict[str, StepResult],
@@ -240,6 +241,7 @@ async def configure_dns(
 # ---------------------------------------------------------------------------
 
 
+@completeness_check()
 async def check_tls_cert(
     config: TlsConfig,
     _results: dict[str, StepResult],
@@ -258,7 +260,6 @@ async def check_tls_cert(
 
 
 @async_step(
-    name="issue_tls_cert",
     completeness_check=check_tls_cert,
     poll=PollPolicy(interval=10.0, backoff_multiplier=1.0, timeout=900.0, max_polls=20),
 )
@@ -281,7 +282,7 @@ async def issue_tls_cert(
 # ---------------------------------------------------------------------------
 
 
-@step(name="health_check")
+@step()
 async def health_check(
     config: HealthCheckConfig,
     results: dict[str, StepResult],

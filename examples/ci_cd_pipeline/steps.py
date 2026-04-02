@@ -21,6 +21,7 @@ from workchain import (
     StepConfig,
     StepResult,
     async_step,
+    completeness_check,
     step,
 )
 
@@ -91,7 +92,7 @@ class SmokeTestResult(StepResult):
 # Step 1: lint_code
 # ---------------------------------------------------------------------------
 
-@step(name="lint_code")
+@step()
 async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
     """Run static analysis / linting on source files."""
     files_checked = _rng.randint(40, 120)
@@ -105,7 +106,6 @@ async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> Lint
 # ---------------------------------------------------------------------------
 
 @step(
-    name="run_tests",
     retry=RetryPolicy(max_attempts=3, wait_seconds=1.0, wait_multiplier=2.0),
 )
 async def run_tests(config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
@@ -123,6 +123,7 @@ async def run_tests(config: TestConfig, _results: dict[str, StepResult]) -> Test
 # Step 3: build_artifact (async step -- polls for build completion)
 # ---------------------------------------------------------------------------
 
+@completeness_check()
 async def check_build(
     _config: BuildConfig,
     _results: dict[str, StepResult],
@@ -149,7 +150,6 @@ async def check_build(
 
 
 @async_step(
-    name="build_artifact",
     completeness_check=check_build,
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=120.0, max_polls=10),
 )
@@ -165,7 +165,7 @@ async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -
 # Step 4: push_to_registry
 # ---------------------------------------------------------------------------
 
-@step(name="push_to_registry")
+@step()
 async def push_to_registry(
     config: RegistryConfig,
     results: dict[str, StepResult],
@@ -182,6 +182,7 @@ async def push_to_registry(
 # Step 5: deploy_staging (async step -- polls for healthy deployment)
 # ---------------------------------------------------------------------------
 
+@completeness_check()
 async def check_deployment(
     _config: DeployConfig,
     _results: dict[str, StepResult],
@@ -201,7 +202,6 @@ async def check_deployment(
 
 
 @async_step(
-    name="deploy_staging",
     completeness_check=check_deployment,
     poll=PollPolicy(interval=5.0, backoff_multiplier=1.0, timeout=300.0, max_polls=10),
 )
@@ -223,7 +223,7 @@ async def deploy_staging(
 # Step 6: run_smoke_tests
 # ---------------------------------------------------------------------------
 
-@step(name="run_smoke_tests")
+@step()
 async def run_smoke_tests(
     config: SmokeTestConfig,
     results: dict[str, StepResult],

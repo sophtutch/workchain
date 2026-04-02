@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
-from workchain.decorators import _STEP_REGISTRY, async_step, step
+from workchain.decorators import async_step, completeness_check, step
 from workchain.engine import WorkflowEngine
 from workchain.models import (
     PollHint,
@@ -40,24 +40,25 @@ class SubmitResult(StepResult):
 # ---------------------------------------------------------------------------
 
 _FLAKY_COUNTER: dict[str, int] = {}
+_POLL_COUNTER: dict[str, int] = {}
 
 
-@step(name="tests.greet")
+@step()
 async def greet_handler(config: GreetConfig, _results: dict[str, StepResult]) -> GreetResult:
     return GreetResult(greeting=f"Hello, {config.name}!")
 
 
-@step(name="tests.noop")
+@step()
 async def noop_handler(_config: StepConfig, _results: dict[str, StepResult]) -> StepResult:
     return StepResult()
 
 
-@step(name="tests.fail_always")
+@step()
 async def fail_handler(_config: StepConfig, _results: dict[str, StepResult]) -> StepResult:
     raise RuntimeError("intentional failure")
 
 
-@step(name="tests.flaky", retry=RetryPolicy(max_attempts=3, wait_seconds=0.01, wait_multiplier=1.0))
+@step(retry=RetryPolicy(max_attempts=3, wait_seconds=0.01, wait_multiplier=1.0))
 async def flaky_handler(_config: StepConfig, _results: dict[str, StepResult]) -> StepResult:
     """Fails on first call, succeeds on second."""
     key = "flaky"
@@ -68,18 +69,7 @@ async def flaky_handler(_config: StepConfig, _results: dict[str, StepResult]) ->
     return StepResult()
 
 
-@async_step(
-    name="tests.async_submit",
-    completeness_check="tests.check_complete",
-    poll=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
-)
-async def async_submit_handler(_config: StepConfig, _results: dict[str, StepResult]) -> SubmitResult:
-    return SubmitResult(job_id="job_123")
-
-
-_POLL_COUNTER: dict[str, int] = {}
-
-
+@completeness_check()
 async def _check_complete_impl(
     _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
 ) -> PollHint:
@@ -91,35 +81,33 @@ async def _check_complete_impl(
     return PollHint(complete=False, progress=0.5, message="in progress")
 
 
-# Register the completeness check manually
-_STEP_REGISTRY["tests.check_complete"] = _check_complete_impl
+@async_step(
+    completeness_check=_check_complete_impl._step_meta["handler"],
+    poll=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+)
+async def async_submit_handler(_config: StepConfig, _results: dict[str, StepResult]) -> SubmitResult:
+    return SubmitResult(job_id="job_123")
 
 
+@completeness_check()
 async def check_complete_always_done(
     _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
 ) -> bool:
     return True
 
 
-_STEP_REGISTRY["tests.check_always_done"] = check_complete_always_done
-
-
+@completeness_check()
 async def verify_done(
     _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
 ) -> bool:
     return True
 
 
-_STEP_REGISTRY["tests.verify_done"] = verify_done
-
-
+@completeness_check()
 async def verify_not_done(
     _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
 ) -> bool:
     return False
-
-
-_STEP_REGISTRY["tests.verify_not_done"] = verify_not_done
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +115,7 @@ _STEP_REGISTRY["tests.verify_not_done"] = verify_not_done
 # ---------------------------------------------------------------------------
 
 
-@step(name="tests.greet_ctx")
+@step(needs_context=True)
 async def greet_ctx_handler(
     config: GreetConfig, _results: dict[str, StepResult], ctx: dict[str, object]
 ) -> GreetResult:
@@ -136,6 +124,7 @@ async def greet_ctx_handler(
     return GreetResult(greeting=f"{prefix}, {config.name}!")
 
 
+@completeness_check(needs_context=True)
 async def check_complete_ctx(
     _config: StepConfig,
     _results: dict[str, StepResult],
@@ -150,9 +139,6 @@ async def check_complete_ctx(
     if _POLL_COUNTER[key] >= threshold:
         return PollHint(complete=True, progress=1.0)
     return PollHint(complete=False, progress=0.5)
-
-
-_STEP_REGISTRY["tests.check_complete_ctx"] = check_complete_ctx
 
 
 # ---------------------------------------------------------------------------
@@ -192,12 +178,12 @@ def sample_workflow():
         steps=[
             Step(
                 name="greet",
-                handler="tests.greet",
+                handler=greet_handler._step_meta["handler"],
                 config=GreetConfig(name="World"),
             ),
             Step(
                 name="noop",
-                handler="tests.noop",
+                handler=noop_handler._step_meta["handler"],
             ),
         ],
     )
@@ -211,13 +197,13 @@ def async_workflow():
         steps=[
             Step(
                 name="noop",
-                handler="tests.noop",
+                handler=noop_handler._step_meta["handler"],
             ),
             Step(
                 name="async_submit",
-                handler="tests.async_submit",
+                handler=async_submit_handler._step_meta["handler"],
                 is_async=True,
-                completeness_check="tests.check_complete",
+                completeness_check=_check_complete_impl._step_meta["handler"],
                 poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
             ),
         ],
