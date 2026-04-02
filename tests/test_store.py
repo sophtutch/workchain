@@ -574,3 +574,25 @@ class TestFindNeedsReview:
     async def test_empty_when_none(self, store):
         ids = await store.find_needs_review()
         assert ids == []
+
+
+# ---------------------------------------------------------------------------
+# Collection name configuration
+# ---------------------------------------------------------------------------
+
+
+class TestCollectionName:
+    async def test_custom_collection_name(self, mongo_db):
+        store = MongoWorkflowStore(mongo_db, collection_name="my_workflows")
+        assert store._col.name == "my_workflows"
+
+        wf = Workflow(name="custom_col_test")
+        await store.insert(wf)
+
+        loaded = await store.get(wf.id)
+        assert loaded is not None
+        assert loaded.name == "custom_col_test"
+
+    async def test_default_collection_name(self, mongo_db):
+        store = MongoWorkflowStore(mongo_db)
+        assert store._col.name == "workflows"

@@ -171,8 +171,8 @@ class NullAuditLogger:
 class MongoAuditLogger:
     """Writes audit events to a MongoDB collection with fire-and-forget semantics."""
 
-    def __init__(self, db: AsyncIOMotorDatabase) -> None:
-        self._col = db[AUDIT_COLLECTION]
+    def __init__(self, db: AsyncIOMotorDatabase, collection_name: str = AUDIT_COLLECTION) -> None:
+        self._col = db[collection_name]
         self._pending: set[asyncio.Task] = set()
         self._sequences: dict[str, int] = {}
 
