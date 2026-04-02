@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from workchain.audit import AuditEvent, AuditEventType, AuditLogger, NullAuditLogger
 from workchain.decorators import get_handler
+from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
     PollHint,
     Step,
@@ -48,7 +49,7 @@ def _wrap_handler_return(result_data: Any) -> tuple[StepResult, str | None]:
     Otherwise wrap a plain dict in a base StepResult (for backwards compat).
     """
     if not isinstance(result_data, StepResult):
-        raise TypeError(
+        raise HandlerError(
             f"Step handler must return a StepResult subclass, got {type(result_data).__name__}"
         )
 
@@ -981,7 +982,7 @@ class WorkflowEngine:
                     },
                 )
                 if wf is None:
-                    raise RuntimeError(
+                    raise FenceRejectedError(
                         f"Fence rejected during retry (attempt {attempt_num})"
                     )
 
@@ -1002,7 +1003,7 @@ class WorkflowEngine:
                 return await self._call_handler(handler, step.config, _build_results(wf, idx))
 
         # Unreachable with reraise=True, but satisfies type checker / RET503
-        raise RuntimeError(f"Step {step.name} exhausted all retry attempts")
+        raise RetryExhaustedError(f"Step {step.name} exhausted all retry attempts")
 
     # ------------------------------------------------------------------
     # Helpers

@@ -23,6 +23,7 @@ from tests.conftest import (
 )
 from workchain.decorators import _STEP_REGISTRY
 from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
+from workchain.exceptions import HandlerError
 from workchain.models import (
     PollHint,
     PollPolicy,
@@ -101,7 +102,7 @@ class TestWrapHandlerReturn:
         assert result_type is None
 
     def test_non_step_result_raises(self):
-        with pytest.raises(TypeError, match="StepResult subclass"):
+        with pytest.raises(HandlerError, match="StepResult subclass"):
             _wrap_handler_return({"key": "value"})
 
     def test_sets_completed_at_if_missing(self):
