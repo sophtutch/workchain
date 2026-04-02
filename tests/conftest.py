@@ -123,6 +123,39 @@ _STEP_REGISTRY["tests.verify_not_done"] = verify_not_done
 
 
 # ---------------------------------------------------------------------------
+# Context-aware sample handlers (3-arg step, 4-arg completeness check)
+# ---------------------------------------------------------------------------
+
+
+@step(name="tests.greet_ctx")
+async def greet_ctx_handler(
+    config: GreetConfig, _results: dict[str, StepResult], ctx: dict[str, object]
+) -> GreetResult:
+    """Step handler that uses engine context."""
+    prefix = ctx.get("greeting_prefix", "Hello")
+    return GreetResult(greeting=f"{prefix}, {config.name}!")
+
+
+async def check_complete_ctx(
+    _config: StepConfig,
+    _results: dict[str, StepResult],
+    _result: StepResult,
+    ctx: dict[str, object],
+) -> PollHint:
+    """Completeness check that uses engine context."""
+    threshold = ctx.get("complete_threshold", 2)
+    key = "poll_ctx"
+    _POLL_COUNTER.setdefault(key, 0)
+    _POLL_COUNTER[key] += 1
+    if _POLL_COUNTER[key] >= threshold:
+        return PollHint(complete=True, progress=1.0)
+    return PollHint(complete=False, progress=0.5)
+
+
+_STEP_REGISTRY["tests.check_complete_ctx"] = check_complete_ctx
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 

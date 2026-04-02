@@ -120,6 +120,7 @@ async def lifespan(application: FastAPI):  # noqa: ARG001
         step_stuck_seconds=30.0,
         max_concurrent=10,
         audit_logger=audit_logger,
+        context={"db": _db, "store": store, "audit_logger": audit_logger},
     )
     await engine.start()
     app.state.engine = engine

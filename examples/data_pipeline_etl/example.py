@@ -15,7 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # Import steps so decorators register handlers
 from examples.data_pipeline_etl import steps as _steps  # noqa: F401
 from examples.data_pipeline_etl.workflow import build_workflow
-from workchain import MongoWorkflowStore, WorkflowEngine
+from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +32,7 @@ async def main() -> None:
     )
     db = mongo_client["etl_demo"]
     store = MongoWorkflowStore(db, lock_ttl_seconds=15)
+    audit = MongoAuditLogger(db)
 
     # ---- Build and insert workflow ----
     workflow = build_workflow(
@@ -44,7 +45,8 @@ async def main() -> None:
     logger.info("Inserted workflow %s (%s)", workflow.name, workflow.id)
 
     # ---- Run engine until workflow completes ----
-    engine = WorkflowEngine(store)
+    # Context dict makes db and store available to step handlers
+    engine = WorkflowEngine(store, audit_logger=audit, context={"db": db, "store": store})
     await engine.start()
 
     # Poll until the workflow reaches a terminal state

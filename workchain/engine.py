@@ -84,6 +84,7 @@ class WorkflowEngine:
         max_concurrent: int = 5,
         audit_logger: AuditLogger | None = None,
         log_heartbeats: bool = False,
+        context: dict[str, Any] | None = None,
     ):
         self._store = store
         self._instance_id = instance_id or f"{platform.node()}-{uuid.uuid4().hex[:8]}"
@@ -95,11 +96,36 @@ class WorkflowEngine:
         self._audit: AuditLogger = audit_logger or NullAuditLogger()
         self._log_heartbeats = log_heartbeats
         self._audit_tasks: set[asyncio.Task] = set()
+        self._context: dict[str, Any] = context or {}
 
         # Active workflows this instance is processing: wf_id -> (Workflow, task)
         self._active: dict[str, tuple[Workflow, asyncio.Task]] = {}
         self._shutdown_event = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
+
+    # ------------------------------------------------------------------
+    # Handler calling — context injection
+    # ------------------------------------------------------------------
+
+    async def _call_handler(self, handler: Callable[..., Any], *args: Any) -> Any:
+        """Call a handler, appending engine context if the handler accepts it.
+
+        Inspects the handler's parameter count:
+        - Step handlers: (config, results) → 2 params, no context
+                         (config, results, ctx) → 3 params, context injected
+        - Completeness checks: (config, results, result) → 3 params, no context
+                               (config, results, result, ctx) → 4 params, context injected
+
+        The caller passes the base args; this method decides whether to
+        append self._context based on how many params the handler declares.
+        """
+        import inspect
+
+        sig = inspect.signature(handler)
+        n_params = len(sig.parameters)
+        if n_params > len(args):
+            return await handler(*args, self._context)
+        return await handler(*args)
 
     # ------------------------------------------------------------------
     # Audit helpers
@@ -577,8 +603,8 @@ class WorkflowEngine:
         if step.verify_completion:
             try:
                 checker = get_handler(step.verify_completion)
-                is_done = await checker(
-                    step.config, _build_results(wf, idx), step.result or StepResult()
+                is_done = await self._call_handler(
+                    checker, step.config, _build_results(wf, idx), step.result or StepResult()
                 )
                 if is_done:
                     logger.info(
@@ -607,7 +633,7 @@ class WorkflowEngine:
         if step.is_async and step.completeness_check and step.result:
             try:
                 checker = get_handler(step.completeness_check)
-                raw = await checker(step.config, _build_results(wf, idx), step.result)
+                raw = await self._call_handler(checker, step.config, _build_results(wf, idx), step.result)
                 # If the check doesn't throw, the submission went through.
                 # Transition to BLOCKED so we poll instead of re-submitting.
                 is_complete = raw is True or (
@@ -807,7 +833,7 @@ class WorkflowEngine:
         hint: PollHint | None = None
         is_complete = False
         try:
-            raw = await checker(step.config, _build_results(wf, idx), step_result)
+            raw = await self._call_handler(checker, step.config, _build_results(wf, idx), step_result)
 
             if isinstance(raw, bool):
                 is_complete = raw
@@ -962,7 +988,7 @@ class WorkflowEngine:
                     attempt_num,
                     step.retry_policy.max_attempts,
                 )
-                return await handler(step.config, _build_results(wf, idx))
+                return await self._call_handler(handler, step.config, _build_results(wf, idx))
 
         # Unreachable with reraise=True, but satisfies type checker / RET503
         raise RuntimeError(f"Step {step.name} exhausted all retry attempts")

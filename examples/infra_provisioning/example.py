@@ -29,7 +29,7 @@ from examples.infra_provisioning.steps import (  # noqa: F401
     provision_database,
 )
 from examples.infra_provisioning.workflow import build_workflow
-from workchain import MongoWorkflowStore, WorkflowEngine
+from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +43,7 @@ async def main() -> None:
     client = AsyncMongoMockClient()
     db = client["infra_provisioning_demo"]
     store = MongoWorkflowStore(db, lock_ttl_seconds=30)
+    audit = MongoAuditLogger(db)
     await store.ensure_indexes()
 
     # --- Build and insert the workflow ---
@@ -60,7 +61,8 @@ async def main() -> None:
     print(f"{'='*60}\n")
 
     # --- Run the engine until the workflow completes ---
-    engine = WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0)
+    # Context dict makes db and store available to step handlers
+    engine = WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0, audit_logger=audit, context={"db": db, "store": store})
     await engine.start()
 
     # Poll until the workflow reaches a terminal state

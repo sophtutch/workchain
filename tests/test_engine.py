@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
 from tests.conftest import GreetConfig, GreetResult, SubmitResult
 from workchain.decorators import _STEP_REGISTRY
-from workchain.engine import _build_results, _wrap_handler_return
+from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
 from workchain.models import (
     PollHint,
     PollPolicy,
@@ -542,3 +543,109 @@ class TestSweepLoop:
 
         loaded = await store.get(wf.id)
         assert loaded.locked_by is None
+
+
+# ---------------------------------------------------------------------------
+# Context injection
+# ---------------------------------------------------------------------------
+
+
+class TestContextInjection:
+    async def test_handler_without_context_still_works(self, store):
+        """Existing 2-arg handlers work when engine has context."""
+        engine = WorkflowEngine(
+            store, instance_id="ctx-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+            context={"db": "fake_db"},
+        )
+        wf = Workflow(name="ctx_compat", steps=[Step(name="noop", handler="tests.noop")])
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+
+    async def test_handler_receives_context(self, store):
+        """A 3-arg handler receives the engine's context dict."""
+        received_ctx = {}
+
+        async def ctx_handler(_config, _results, ctx: dict[str, Any]):
+            received_ctx.update(ctx)
+            return StepResult()
+
+        _STEP_REGISTRY["tests.ctx_handler"] = ctx_handler
+
+        engine = WorkflowEngine(
+            store, instance_id="ctx-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+            context={"db": "my_db", "api_key": "secret123"},
+        )
+        wf = Workflow(name="ctx_inject", steps=[Step(name="ctx_step", handler="tests.ctx_handler")])
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert received_ctx["db"] == "my_db"
+        assert received_ctx["api_key"] == "secret123"
+
+    async def test_completeness_check_receives_context(self, store):
+        """A 4-arg completeness check receives the engine's context dict."""
+        check_ctx = {}
+
+        async def async_submit(_config, _results):
+            return SubmitResult(job_id="j1")
+
+        async def check_with_ctx(_config, _results, _result, ctx: dict[str, Any]):
+            check_ctx.update(ctx)
+            return PollHint(complete=True, progress=1.0)
+
+        _STEP_REGISTRY["tests.async_submit_ctx"] = async_submit
+        _STEP_REGISTRY["tests.check_with_ctx"] = check_with_ctx
+
+        engine = WorkflowEngine(
+            store, instance_id="ctx-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+            context={"service": "my_service"},
+        )
+        wf = Workflow(
+            name="ctx_poll",
+            steps=[Step(
+                name="async_ctx",
+                handler="tests.async_submit_ctx",
+                is_async=True,
+                completeness_check="tests.check_with_ctx",
+                poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+            )],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(1.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert check_ctx["service"] == "my_service"
+
+    async def test_no_context_by_default(self, store):
+        """Engine without context param uses empty dict (backward compat)."""
+        engine = WorkflowEngine(
+            store, instance_id="no-ctx",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+        )
+        wf = Workflow(name="no_ctx", steps=[Step(name="noop", handler="tests.noop")])
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED

@@ -125,6 +125,33 @@ await engine.start()   # runs claim loop, heartbeat, sweep
 await engine.stop()    # graceful shutdown, releases all locks
 ```
 
+## Engine context (dependency injection)
+
+The engine accepts an optional `context: dict[str, Any]` for injecting external resources (DB clients, HTTP sessions, services) into step handlers without module-level globals or framework coupling.
+
+```python
+engine = WorkflowEngine(store, context={"db": db, "http_client": client})
+```
+
+Handlers opt in by accepting a third argument. Existing 2-arg handlers are unaffected:
+
+```python
+@step(name="my_step")
+async def my_step(config: MyConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> MyResult:
+    db = ctx["db"]
+    ...
+```
+
+Completeness checks can accept a fourth argument:
+
+```python
+async def check(config, results, result, ctx: dict[str, Any]):
+    client = ctx["http_client"]
+    ...
+```
+
+The engine inspects each handler's parameter count and only passes context if the handler declares it.
+
 ## Conventions
 
 - Step result and config fields must be JSON-serializable.

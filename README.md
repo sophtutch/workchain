@@ -11,6 +11,7 @@ Programmatic construction and execution of persistent, multi-step workflows.
 - **Crash recovery** -- write-ahead logging, verify hooks, and idempotent re-run strategies
 - **Retry policies** -- per-step exponential backoff via tenacity
 - **Audit logging** -- structured event log for every state change, enough to reconstruct execution history
+- **Engine context** -- optional dependency injection dict forwarded to handlers (DB clients, HTTP sessions, services) without framework coupling
 
 ## Installation
 
@@ -79,6 +80,30 @@ await engine.start()   # runs claim loop, heartbeat, sweep
 # ...
 await engine.stop()    # graceful shutdown, releases all locks
 ```
+
+## Engine Context (Dependency Injection)
+
+Pass external resources to step handlers without globals or framework coupling:
+
+```python
+# Wire up at engine creation
+engine = WorkflowEngine(store, context={"db": db_client, "http": http_session})
+
+# Handlers opt in by accepting a 3rd argument
+@step(name="fetch_user")
+async def fetch_user(config: UserConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> UserResult:
+    db = ctx["db"]
+    user = await db.users.find_one({"id": config.user_id})
+    return UserResult(name=user["name"])
+
+# Completeness checks opt in via 4th argument
+async def check_deploy(config, results, result: DeployResult, ctx: dict[str, Any]) -> PollHint:
+    http = ctx["http"]
+    resp = await http.get(f"/deployments/{result.job_id}")
+    return PollHint(complete=resp.json()["status"] == "ready")
+```
+
+Existing 2-arg handlers and 3-arg completeness checks continue to work unchanged -- the engine inspects each handler's parameter count and only passes context if the handler declares it.
 
 ## Step Types
 

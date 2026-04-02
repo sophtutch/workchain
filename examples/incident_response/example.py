@@ -13,7 +13,7 @@ import logging
 from mongomock_motor import AsyncMongoMockClient
 
 from examples.incident_response.workflow import build_workflow
-from workchain import MongoWorkflowStore, WorkflowEngine
+from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +28,7 @@ async def main() -> None:
     db = client["workchain_demo"]
 
     store = MongoWorkflowStore(db, lock_ttl_seconds=30)
+    audit = MongoAuditLogger(db)
 
     # Build and persist the workflow.
     wf = build_workflow(
@@ -39,11 +40,14 @@ async def main() -> None:
     logger.info("Inserted workflow id=%s", wf.id)
 
     # Start the engine with aggressive intervals for the demo.
+    # Context dict makes db and store available to step handlers
     engine = WorkflowEngine(
         store,
         claim_interval=1.0,
         heartbeat_interval=5.0,
         max_concurrent=3,
+        audit_logger=audit,
+        context={"db": db, "store": store},
     )
     await engine.start()
 
