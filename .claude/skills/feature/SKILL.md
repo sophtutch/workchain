@@ -90,6 +90,8 @@ audit-refactor       completed     5/5        2026-04-02
 
 If no features exist, say "No features found. Use `/feature plan <name>` to create one."
 
+After displaying the table, use `AskUserQuestion` to let the user select a feature to work on. List all non-completed features as options with their description as the option description. Include a "None — just browsing" option. If the user selects a feature, proceed to `next` for that feature.
+
 ### status
 
 `/feature status <name>`
