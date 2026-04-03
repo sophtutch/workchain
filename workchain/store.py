@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
-from workchain.models import StepStatus, Workflow, WorkflowStatus
+from workchain.audit import AuditEvent, AuditEventType, NullAuditLogger
+from workchain.models import Step, StepStatus, Workflow, WorkflowStatus
+
+if TYPE_CHECKING:
+    from workchain.audit import AuditLogger
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +48,67 @@ class MongoWorkflowStore:
         db: AsyncIOMotorDatabase,
         lock_ttl_seconds: int = 30,
         collection_name: str = COLLECTION,
+        audit_logger: AuditLogger | None = None,
+        instance_id: str | None = None,
     ):
         self._db = db
         self._col = db[collection_name]
         self._lock_ttl = lock_ttl_seconds
+        self._audit: AuditLogger = audit_logger or NullAuditLogger()
+        self._instance_id = instance_id
+        self._audit_tasks: set[asyncio.Task] = set()
+
+    # ------------------------------------------------------------------
+    # Audit helpers
+    # ------------------------------------------------------------------
+
+    def _emit(
+        self,
+        event_type: AuditEventType,
+        wf: Workflow,
+        *,
+        step: Step | None = None,
+        idx: int | None = None,
+        step_status_before: str | None = None,
+        workflow_status_before: str | None = None,
+        fence_token_before: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Construct and fire-and-forget an audit event."""
+        event = AuditEvent(
+            workflow_id=wf.id,
+            workflow_name=wf.name,
+            event_type=event_type,
+            instance_id=self._instance_id,
+            fence_token=wf.fence_token,
+            fence_token_before=fence_token_before,
+            workflow_status=wf.status.value,
+            workflow_status_before=workflow_status_before,
+            step_index=idx,
+            step_name=step.name if step else None,
+            step_handler=step.handler if step else None,
+            step_status=step.status.value if step else None,
+            step_status_before=step_status_before,
+            is_async=step.is_async if step else None,
+            idempotent=step.idempotent if step else None,
+            **kwargs,
+        )
+        task = asyncio.ensure_future(self._audit.emit(event))
+        self._audit_tasks.add(task)
+        task.add_done_callback(self._audit_tasks.discard)
+
+    async def emit(self, event: AuditEvent) -> None:
+        """Public passthrough for events the engine needs to emit directly (e.g. STEP_TIMEOUT, RECOVERY_STARTED)."""
+        task = asyncio.ensure_future(self._audit.emit(event))
+        self._audit_tasks.add(task)
+        task.add_done_callback(self._audit_tasks.discard)
+
+    async def drain_audit_tasks(self, timeout: float = 5.0) -> None:
+        """Wait for pending audit writes with a timeout. Called during shutdown."""
+        if self._audit_tasks:
+            _done, pending = await asyncio.wait(self._audit_tasks, timeout=timeout)
+            if pending:
+                logger.warning("Timed out waiting for %d audit tasks", len(pending))
 
     # ------------------------------------------------------------------
     # Setup
@@ -85,6 +148,7 @@ class MongoWorkflowStore:
         doc = workflow.model_dump(mode="python", serialize_as_any=True)
         doc["_id"] = doc.pop("id")
         await self._col.insert_one(doc)
+        self._emit(AuditEventType.WORKFLOW_CREATED, workflow)
         return workflow.id
 
     async def get(self, workflow_id: str) -> Workflow | None:
@@ -132,10 +196,17 @@ class MongoWorkflowStore:
         attempt: int,
     ) -> Workflow | None:
         """Mark a PENDING step as SUBMITTED with the given attempt number."""
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token,
             {"status": StepStatus.SUBMITTED.value, "attempt": attempt},
         )
+        if wf is not None:
+            self._emit(
+                AuditEventType.STEP_SUBMITTED, wf,
+                step=wf.steps[step_index], idx=step_index,
+                step_status_before=StepStatus.PENDING.value,
+            )
+        return wf
 
     async def mark_step_running(
         self,
@@ -143,12 +214,23 @@ class MongoWorkflowStore:
         step_index: int,
         fence_token: int,
         attempt: int,
+        *,
+        max_attempts: int | None = None,
     ) -> Workflow | None:
         """Transition a SUBMITTED step to RUNNING for the given attempt number."""
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token,
             {"status": StepStatus.RUNNING.value, "attempt": attempt},
         )
+        if wf is not None:
+            self._emit(
+                AuditEventType.STEP_RUNNING, wf,
+                step=wf.steps[step_index], idx=step_index,
+                step_status_before=StepStatus.SUBMITTED.value,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+        return wf
 
     async def complete_step(
         self,
@@ -161,6 +243,12 @@ class MongoWorkflowStore:
         last_poll_at: datetime | None = None,
         last_poll_progress: float | None = None,
         last_poll_message: str | None = None,
+        # Audit context
+        audit_event_type: AuditEventType | None = None,
+        step_status_before: str = StepStatus.RUNNING.value,
+        result_summary: dict | None = None,
+        recovery_action: str | None = None,
+        **audit_kwargs: Any,
     ) -> Workflow | None:
         """Mark a step as COMPLETED with its result."""
         updates: dict = {"status": StepStatus.COMPLETED.value}
@@ -176,9 +264,23 @@ class MongoWorkflowStore:
             updates["last_poll_progress"] = last_poll_progress
         if last_poll_message is not None:
             updates["last_poll_message"] = last_poll_message
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token, updates,
         )
+        if wf is not None:
+            evt = audit_event_type or AuditEventType.STEP_COMPLETED
+            self._emit(
+                evt, wf,
+                step=wf.steps[step_index], idx=step_index,
+                step_status_before=step_status_before,
+                result_summary=result_summary,
+                recovery_action=recovery_action,
+                poll_count=poll_count,
+                poll_progress=last_poll_progress,
+                poll_message=last_poll_message,
+                **audit_kwargs,
+            )
+        return wf
 
     async def fail_step(
         self,
@@ -186,9 +288,17 @@ class MongoWorkflowStore:
         step_index: int,
         fence_token: int,
         result: dict,
+        # Audit context
+        audit_event_type: AuditEventType | None = None,
+        step_status_before: str = StepStatus.RUNNING.value,
+        error: str | None = None,
+        error_traceback: str | None = None,
+        poll_count: int | None = None,
+        poll_elapsed_seconds: float | None = None,
+        **audit_kwargs: Any,
     ) -> Workflow | None:
         """Mark a step as FAILED with an error result."""
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token,
             {
                 "status": StepStatus.FAILED.value,
@@ -196,6 +306,19 @@ class MongoWorkflowStore:
                 "result_type": None,
             },
         )
+        if wf is not None:
+            evt = audit_event_type or AuditEventType.STEP_FAILED
+            self._emit(
+                evt, wf,
+                step=wf.steps[step_index], idx=step_index,
+                step_status_before=step_status_before,
+                error=error,
+                error_traceback=error_traceback,
+                poll_count=poll_count,
+                poll_elapsed_seconds=poll_elapsed_seconds,
+                **audit_kwargs,
+            )
+        return wf
 
     async def block_step(
         self,
@@ -208,6 +331,11 @@ class MongoWorkflowStore:
         next_poll_at: datetime,
         current_poll_interval: float,
         poll_count: int = 0,
+        # Audit context
+        audit_event_type: AuditEventType | None = None,
+        result_summary: dict | None = None,
+        recovery_action: str | None = None,
+        **audit_kwargs: Any,
     ) -> Workflow | None:
         """Transition a step to BLOCKED and initialise poll scheduling."""
         updates: dict = {
@@ -220,9 +348,22 @@ class MongoWorkflowStore:
         }
         if result_type is not None:
             updates["result_type"] = result_type
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token, updates,
         )
+        if wf is not None:
+            evt = audit_event_type or AuditEventType.STEP_BLOCKED
+            self._emit(
+                evt, wf,
+                step=wf.steps[step_index], idx=step_index,
+                step_status_before=StepStatus.RUNNING.value,
+                result_summary=result_summary,
+                recovery_action=recovery_action,
+                next_poll_at=next_poll_at,
+                current_poll_interval=current_poll_interval,
+                **audit_kwargs,
+            )
+        return wf
 
     async def schedule_next_poll(
         self,
@@ -247,9 +388,20 @@ class MongoWorkflowStore:
             updates["last_poll_progress"] = last_poll_progress
         if last_poll_message is not None:
             updates["last_poll_message"] = last_poll_message
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token, updates,
         )
+        if wf is not None:
+            self._emit(
+                AuditEventType.POLL_CHECKED, wf,
+                step=wf.steps[step_index], idx=step_index,
+                poll_count=poll_count,
+                poll_progress=last_poll_progress,
+                poll_message=last_poll_message,
+                next_poll_at=next_poll_at,
+                current_poll_interval=current_poll_interval,
+            )
+        return wf
 
     async def reset_step(
         self,
@@ -259,10 +411,17 @@ class MongoWorkflowStore:
         status: StepStatus = StepStatus.PENDING,
     ) -> Workflow | None:
         """Reset a step to the given status (used in recovery)."""
-        return await self._fenced_step_update(
+        wf = await self._fenced_step_update(
             workflow_id, step_index, fence_token,
             {"status": status.value},
         )
+        if wf is not None:
+            self._emit(
+                AuditEventType.RECOVERY_RESET, wf,
+                step=wf.steps[step_index], idx=step_index,
+                recovery_action="reset",
+            )
+        return wf
 
     async def advance_step(
         self,
@@ -270,6 +429,9 @@ class MongoWorkflowStore:
         fence_token: int,
         new_step_index: int,
         workflow_status: WorkflowStatus | None = None,
+        # Audit context
+        workflow_status_before: str | None = None,
+        recovery_action: str | None = None,
     ) -> Workflow | None:
         """Move to the next step (or mark workflow complete/failed)."""
         set_fields: dict = {
@@ -286,7 +448,35 @@ class MongoWorkflowStore:
         )
         if doc is None:
             return None
-        return self._doc_to_workflow(doc)
+        wf = self._doc_to_workflow(doc)
+
+        # Emit STEP_ADVANCED for normal advances
+        if workflow_status is None:
+            idx = new_step_index - 1 if new_step_index > 0 else 0
+            step = wf.steps[idx] if idx < len(wf.steps) else None
+            self._emit(
+                AuditEventType.STEP_ADVANCED, wf,
+                step=step, idx=idx,
+            )
+        elif workflow_status == WorkflowStatus.COMPLETED:
+            self._emit(
+                AuditEventType.WORKFLOW_COMPLETED, wf,
+                workflow_status_before=workflow_status_before or WorkflowStatus.RUNNING.value,
+            )
+        elif workflow_status == WorkflowStatus.FAILED:
+            self._emit(
+                AuditEventType.WORKFLOW_FAILED, wf,
+                workflow_status_before=workflow_status_before or WorkflowStatus.RUNNING.value,
+            )
+        elif workflow_status == WorkflowStatus.NEEDS_REVIEW:
+            idx = new_step_index
+            step = wf.steps[idx] if idx < len(wf.steps) else None
+            self._emit(
+                AuditEventType.RECOVERY_NEEDS_REVIEW, wf,
+                step=step, idx=idx,
+                recovery_action=recovery_action or "needs_review",
+            )
+        return wf
 
     # ------------------------------------------------------------------
     # Distributed locking
@@ -327,7 +517,13 @@ class MongoWorkflowStore:
         if doc is None:
             return None
         logger.info("Claimed workflow=%s instance=%s fence=%s", workflow_id, instance_id, doc["fence_token"])
-        return self._doc_to_workflow(doc)
+        wf = self._doc_to_workflow(doc)
+        self._emit(
+            AuditEventType.WORKFLOW_CLAIMED, wf,
+            fence_token_before=wf.fence_token - 1,
+            locked_by=instance_id,
+        )
+        return wf
 
     async def heartbeat(
         self,
@@ -527,7 +723,10 @@ class MongoWorkflowStore:
 
         return results
 
-    async def force_release_lock(self, workflow_id: str) -> bool:
+    async def force_release_lock(
+        self,
+        workflow_id: str,
+    ) -> bool:
         """
         Unconditionally release a lock — used by the slow sweep to unstick
         workflows with stale locks. Ignores fence token so the next fast
@@ -580,7 +779,9 @@ class MongoWorkflowStore:
         if doc is None:
             return None
         logger.info("Cancelled workflow=%s", workflow_id)
-        return self._doc_to_workflow(doc)
+        wf = self._doc_to_workflow(doc)
+        self._emit(AuditEventType.WORKFLOW_CANCELLED, wf)
+        return wf
 
     # ------------------------------------------------------------------
     # Query API

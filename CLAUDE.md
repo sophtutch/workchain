@@ -89,11 +89,16 @@ workchain/
 
 ## Audit logging
 
-The engine emits structured `AuditEvent` objects for every MongoDB write that changes workflow or step state. Events capture enough context to reconstruct flow diagrams from the log alone.
+The **store** emits structured `AuditEvent` objects for every MongoDB write that changes workflow or step state. Events capture enough context to reconstruct flow diagrams from the log alone.
 
+- **`AuditLogger` is configured on `MongoWorkflowStore`**, not on the engine — pass `audit_logger=` and `instance_id=` to the store constructor
+- **`WORKFLOW_CREATED` is emitted automatically** on `store.insert()` — no caller action needed
 - **`AuditLogger` protocol** — pluggable backend with `emit(event)` and `get_events(workflow_id)`
 - **`MongoAuditLogger`** — fire-and-forget writes to `workflow_audit_log` collection. Failures log a warning but never block workflow execution.
 - **`NullAuditLogger`** — no-op default when no logger is passed
+- **`store.emit(event)`** — public passthrough for the few events the engine emits directly (RECOVERY_STARTED, STEP_TIMEOUT, SWEEP_ANOMALY, HEARTBEAT, LOCK_RELEASED)
+- **`store.drain_audit_tasks(timeout)`** — called by engine during shutdown to drain pending writes
+- Store methods accept optional audit context kwargs (`audit_event_type`, `result_summary`, `error`, `error_traceback`, `recovery_action`, etc.) to customize the emitted event
 - **25 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `POLL_CHECK_ERRORS_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
 - Events ordered by per-workflow `sequence` number (in-memory counter, causal within single instance)
 - `generate_audit_report(events)` produces self-contained HTML execution reports
