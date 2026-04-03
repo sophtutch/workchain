@@ -35,7 +35,7 @@ class TestImportClass:
             _import_class("nonexistent_module.SomeClass")
 
     def test_bad_class_raises(self):
-        with pytest.raises(AttributeError):
+        with pytest.raises(ImportError, match="Cannot find 'DoesNotExist'"):
             _import_class("workchain.models.DoesNotExist")
 
 
