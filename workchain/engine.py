@@ -473,9 +473,8 @@ class WorkflowEngine:
                 # Store emits STEP_COMPLETED
                 wf = await self._store.complete_step(
                     wf_id, idx, fence,
-                    result=result.model_dump(mode="python", serialize_as_any=True),
+                    result=result,
                     result_type=result_type,
-                    result_summary=result.model_dump(exclude_none=True),
                 )
                 if wf is None:
                     return
@@ -810,7 +809,7 @@ class WorkflowEngine:
             # to the audit event with correct AuditEvent field names by the store
             wf = await self._store.complete_step(
                 wf.id, idx, fence,
-                result=completed_result.model_dump(mode="python", serialize_as_any=True),
+                result=completed_result,
                 poll_count=new_poll_count,
                 last_poll_at=now,
                 last_poll_progress=poll_progress,
