@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from workchain.audit import AuditEvent, AuditEventType, AuditLogger, NullAuditLogger
+from workchain.audit import AuditEvent, AuditEventType
 from workchain.decorators import get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
@@ -84,7 +84,6 @@ class WorkflowEngine:
         sweep_interval: float = 60.0,
         step_stuck_seconds: float = 300.0,
         max_concurrent: int = 5,
-        audit_logger: AuditLogger | None = None,
         log_heartbeats: bool = False,
         context: dict[str, Any] | None = None,
     ):
@@ -95,9 +94,7 @@ class WorkflowEngine:
         self._sweep_interval = sweep_interval
         self._step_stuck_seconds = step_stuck_seconds
         self._max_concurrent = max_concurrent
-        self._audit: AuditLogger = audit_logger or NullAuditLogger()
         self._log_heartbeats = log_heartbeats
-        self._audit_tasks: set[asyncio.Task] = set()
         self._context: dict[str, Any] = context or {}
 
         # Active workflows this instance is processing: wf_id -> (Workflow, task)
@@ -127,45 +124,35 @@ class WorkflowEngine:
         return result
 
     # ------------------------------------------------------------------
-    # Audit helpers
+    # Engine-side audit helper
     # ------------------------------------------------------------------
 
-    def _emit(
+    async def _emit_event(
         self,
         event_type: AuditEventType,
         wf: Workflow,
         *,
         step: Step | None = None,
         idx: int | None = None,
-        step_status_before: str | None = None,
-        workflow_status_before: str | None = None,
-        fence_token_before: int | None = None,
-        fields_changed: dict | None = None,
         **kwargs: Any,
     ) -> None:
-        """Construct and emit an audit event with common fields pre-populated."""
+        """Construct and emit an audit event via the store for events without store writes."""
         event = AuditEvent(
             workflow_id=wf.id,
             workflow_name=wf.name,
             event_type=event_type,
             instance_id=self._instance_id,
             fence_token=wf.fence_token,
-            fence_token_before=fence_token_before,
             workflow_status=wf.status.value,
-            workflow_status_before=workflow_status_before,
             step_index=idx,
             step_name=step.name if step else None,
             step_handler=step.handler if step else None,
             step_status=step.status.value if step else None,
-            step_status_before=step_status_before,
             is_async=step.is_async if step else None,
             idempotent=step.idempotent if step else None,
-            fields_changed=fields_changed,
             **kwargs,
         )
-        task = asyncio.ensure_future(self._audit.emit(event))
-        self._audit_tasks.add(task)
-        task.add_done_callback(self._audit_tasks.discard)
+        await self._store.emit(event)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -211,13 +198,8 @@ class WorkflowEngine:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
-        # Drain pending audit writes with a timeout — use asyncio.wait
-        # (not wait_for) so timed-out tasks continue in the background
-        # rather than being cancelled
-        if self._audit_tasks:
-            _done, pending = await asyncio.wait(self._audit_tasks, timeout=5.0)
-            if pending:
-                logger.warning("Timed out waiting for %d audit tasks during shutdown", len(pending))
+        # Drain pending audit writes via the store
+        await self._store.drain_audit_tasks()
         logger.info("Shutdown complete.")
 
     # ------------------------------------------------------------------
@@ -236,11 +218,7 @@ class WorkflowEngine:
                             continue
                         wf = await self._store.try_claim(wf_id, self._instance_id)
                         if wf is not None:
-                            self._emit(
-                                AuditEventType.WORKFLOW_CLAIMED, wf,
-                                fence_token_before=wf.fence_token - 1,
-                                locked_by=self._instance_id,
-                            )
+                            # Store emits WORKFLOW_CLAIMED
                             task = asyncio.create_task(
                                 self._run_workflow(wf),
                                 name=f"workflow-{wf_id}",
@@ -263,7 +241,7 @@ class WorkflowEngine:
                         wf_id, self._instance_id, wf.fence_token
                     )
                     if ok and self._log_heartbeats:
-                        self._emit(AuditEventType.HEARTBEAT, wf)
+                        await self._emit_event(AuditEventType.HEARTBEAT, wf)
                     if not ok:
                         # Lock was stolen — abort this workflow's task
                         logger.warning("Lost lock on workflow=%s, cancelling", wf_id)
@@ -311,11 +289,11 @@ class WorkflowEngine:
                     # Emit audit events for the anomaly
                     sweep_wf = await self._store.get(wf_id)
                     if sweep_wf:
-                        self._emit(
+                        await self._emit_event(
                             AuditEventType.SWEEP_ANOMALY, sweep_wf,
                             anomaly_type=anomaly,
                         )
-                        self._emit(
+                        await self._emit_event(
                             AuditEventType.LOCK_FORCE_RELEASED, sweep_wf,
                             anomaly_type=anomaly, lock_released=True,
                         )
@@ -361,7 +339,8 @@ class WorkflowEngine:
                 wf = await self._store.get(wf_id)
                 if wf is None or wf.status == WorkflowStatus.CANCELLED:
                     if wf:
-                        self._emit(AuditEventType.WORKFLOW_CANCELLED, wf)
+                        # Store already emitted WORKFLOW_CANCELLED when cancel_workflow was called
+                        pass
                     logger.info("Workflow %s cancelled.", wf_id)
                     return
 
@@ -392,24 +371,19 @@ class WorkflowEngine:
                         return
 
                 if step.status == StepStatus.COMPLETED:
-                    # Advance to next step
+                    # Advance to next step — store emits STEP_ADVANCED
                     wf = await self._advance(wf, fence)
                     if wf is None:
                         return
                     continue
 
                 # --- Normal execution: PENDING step ---
-                # Mark step as SUBMITTED (crash-safe write-ahead)
+                # Mark step as SUBMITTED (crash-safe write-ahead) — store emits STEP_SUBMITTED
                 wf = await self._store.submit_step(wf_id, idx, fence, attempt=step.attempt + 1)
                 if wf is None:
                     return  # fence rejected
 
                 step = wf.steps[idx]
-                self._emit(
-                    AuditEventType.STEP_SUBMITTED, wf,
-                    step=step, idx=idx,
-                    step_status_before=StepStatus.PENDING.value,
-                )
 
                 # Execute the step handler with retries
                 try:
@@ -439,32 +413,23 @@ class WorkflowEngine:
                         error=traceback.format_exc(),
                         completed_at=datetime.now(UTC),
                     )
+                    error_lines = (fail_result.error or "").strip().splitlines()
+                    brief_error = error_lines[-1] if error_lines else ""
+                    # Store emits STEP_FAILED
                     wf = await self._store.fail_step(
                         wf_id, idx, fence,
                         result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                        error=brief_error,
+                        error_traceback=fail_result.error,
                     )
-                    if wf:
-                        error_lines = (fail_result.error or "").strip().splitlines()
-                        brief_error = error_lines[-1] if error_lines else ""
-                        self._emit(
-                            AuditEventType.STEP_FAILED, wf,
-                            step=wf.steps[idx], idx=idx,
-                            step_status_before=StepStatus.RUNNING.value,
-                            error=brief_error,
-                            error_traceback=fail_result.error,
-                        )
+                    # Store emits WORKFLOW_FAILED via advance_step
                     await self._store.advance_step(
                         wf_id,
                         fence,
                         idx,
                         workflow_status=WorkflowStatus.FAILED,
+                        workflow_status_before=WorkflowStatus.RUNNING.value,
                     )
-                    wf = await self._store.get(wf_id)
-                    if wf:
-                        self._emit(
-                            AuditEventType.WORKFLOW_FAILED, wf,
-                            workflow_status_before=WorkflowStatus.RUNNING.value,
-                        )
                     self._active.pop(wf_id, None)
                     return
 
@@ -474,6 +439,7 @@ class WorkflowEngine:
                     policy = step.poll_policy
                     next_poll = now + timedelta(seconds=policy.interval)
 
+                    # Store emits STEP_BLOCKED
                     wf = await self._store.block_step(
                         wf_id, idx, fence,
                         result=result.model_dump(mode="python", serialize_as_any=True),
@@ -481,18 +447,10 @@ class WorkflowEngine:
                         poll_started_at=now,
                         next_poll_at=next_poll,
                         current_poll_interval=policy.interval,
+                        result_summary=result.model_dump(exclude_none=True),
                     )
                     if wf is None:
                         return
-
-                    self._emit(
-                        AuditEventType.STEP_BLOCKED, wf,
-                        step=wf.steps[idx], idx=idx,
-                        step_status_before=StepStatus.RUNNING.value,
-                        result_summary=result.model_dump(exclude_none=True),
-                        next_poll_at=next_poll,
-                        current_poll_interval=policy.interval,
-                    )
 
                     # Remove from active BEFORE releasing lock to prevent
                     # the heartbeat loop from heartbeating a released workflow
@@ -500,7 +458,7 @@ class WorkflowEngine:
 
                     # RELEASE LOCK — any instance can pick up the next poll
                     await self._store.release_lock(wf_id, self._instance_id, fence)
-                    self._emit(
+                    await self._emit_event(
                         AuditEventType.LOCK_RELEASED, wf,
                         lock_released=True,
                     )
@@ -512,44 +470,34 @@ class WorkflowEngine:
                     return  # exit cleanly, fast sweep will reclaim when due
 
                 # --- Sync step: mark completed, advance ---
+                # Store emits STEP_COMPLETED
                 wf = await self._store.complete_step(
                     wf_id, idx, fence,
                     result=result.model_dump(mode="python", serialize_as_any=True),
                     result_type=result_type,
+                    result_summary=result.model_dump(exclude_none=True),
                 )
                 if wf is None:
                     return
 
-                self._emit(
-                    AuditEventType.STEP_COMPLETED, wf,
-                    step=wf.steps[idx], idx=idx,
-                    step_status_before=StepStatus.RUNNING.value,
-                    result_summary=result.model_dump(exclude_none=True),
-                )
-
+                # Store emits STEP_ADVANCED
                 wf = await self._advance(wf, fence)
                 if wf is None:
                     return
-                self._emit(
-                    AuditEventType.STEP_ADVANCED, wf,
-                    step=wf.steps[idx], idx=idx,
-                )
 
-            # All steps done
+            # All steps done — store emits WORKFLOW_COMPLETED via advance_step
             await self._store.advance_step(
                 wf_id,
                 fence,
                 wf.current_step_index,
                 workflow_status=WorkflowStatus.COMPLETED,
+                workflow_status_before=WorkflowStatus.RUNNING.value,
             )
             await self._store.release_lock(wf_id, self._instance_id, fence)
-            wf = await self._store.get(wf_id)
-            if wf:
-                self._emit(
-                    AuditEventType.WORKFLOW_COMPLETED, wf,
-                    workflow_status_before=WorkflowStatus.RUNNING.value,
-                    lock_released=True,
-                )
+            await self._emit_event(
+                AuditEventType.LOCK_RELEASED, wf,
+                lock_released=True,
+            )
             logger.info("Workflow %s completed.", wf_id)
 
         except asyncio.CancelledError:
@@ -591,7 +539,7 @@ class WorkflowEngine:
             step.status,
             wf.id,
         )
-        self._emit(
+        await self._emit_event(
             AuditEventType.RECOVERY_STARTED, wf,
             step=step, idx=idx,
         )
@@ -607,13 +555,12 @@ class WorkflowEngine:
                     logger.info(
                         "Step %s verified as completed after recovery.", step.name
                     )
-                    wf = await self._store.complete_step(wf.id, idx, fence)
-                    if wf:
-                        self._emit(
-                            AuditEventType.RECOVERY_VERIFIED, wf,
-                            step=wf.steps[idx], idx=idx,
-                            recovery_action="verified",
-                        )
+                    # Store emits RECOVERY_VERIFIED via audit_event_type override
+                    wf = await self._store.complete_step(
+                        wf.id, idx, fence,
+                        audit_event_type=AuditEventType.RECOVERY_VERIFIED,
+                        recovery_action="verified",
+                    )
                     return wf.steps[idx] if wf else None
             except Exception:
                 logger.exception("verify_completion failed for step %s", step.name)
@@ -637,19 +584,19 @@ class WorkflowEngine:
                     is_complete = bool(raw)
                 if is_complete:
                     logger.info("Step %s already complete after recovery.", step.name)
-                    wf = await self._store.complete_step(wf.id, idx, fence)
-                    if wf:
-                        self._emit(
-                            AuditEventType.RECOVERY_VERIFIED, wf,
-                            step=wf.steps[idx], idx=idx,
-                            recovery_action="verified",
-                        )
+                    # Store emits RECOVERY_VERIFIED via audit_event_type override
+                    wf = await self._store.complete_step(
+                        wf.id, idx, fence,
+                        audit_event_type=AuditEventType.RECOVERY_VERIFIED,
+                        recovery_action="verified",
+                    )
                     return wf.steps[idx] if wf else None
                 logger.info(
                     "Step %s submission confirmed, transitioning to BLOCKED.", step.name
                 )
                 now = datetime.now(UTC)
                 policy = step.poll_policy
+                # Store emits RECOVERY_BLOCKED via audit_event_type override
                 wf = await self._store.block_step(
                     wf.id, idx, fence,
                     result=step.result.model_dump(mode="python", serialize_as_any=True) if step.result else {},
@@ -658,13 +605,9 @@ class WorkflowEngine:
                     next_poll_at=now + timedelta(seconds=policy.interval),
                     current_poll_interval=policy.interval,
                     poll_count=0,
+                    audit_event_type=AuditEventType.RECOVERY_BLOCKED,
+                    recovery_action="blocked",
                 )
-                if wf:
-                    self._emit(
-                        AuditEventType.RECOVERY_BLOCKED, wf,
-                        step=wf.steps[idx], idx=idx,
-                        recovery_action="blocked",
-                    )
                 return wf.steps[idx] if wf else None
             except Exception:
                 logger.warning(
@@ -676,16 +619,11 @@ class WorkflowEngine:
 
         if step.idempotent:
             logger.info("Re-running idempotent step %s", step.name)
+            # Store emits RECOVERY_RESET
             wf = await self._store.reset_step(wf.id, idx, fence)
             if wf is None:
                 logger.warning("Fence rejected during idempotent reset for step %s", step.name)
                 return None
-            if wf:
-                self._emit(
-                    AuditEventType.RECOVERY_RESET, wf,
-                    step=wf.steps[idx], idx=idx,
-                    recovery_action="reset",
-                )
             return wf.steps[idx] if wf else None
 
         # Non-idempotent, no verify hook — can't safely re-run
@@ -693,22 +631,18 @@ class WorkflowEngine:
             "Step %s is non-idempotent with no verify hook. Marking NEEDS_REVIEW.",
             step.name,
         )
+        # Store emits RECOVERY_NEEDS_REVIEW via advance_step
         wf_updated = await self._store.advance_step(
             wf.id,
             fence,
             idx,
             workflow_status=WorkflowStatus.NEEDS_REVIEW,
+            recovery_action="needs_review",
         )
         if wf_updated is None:
             logger.warning("Fence rejected marking NEEDS_REVIEW for step %s", step.name)
             self._active.pop(wf.id, None)
             return None
-        if wf_updated:
-            self._emit(
-                AuditEventType.RECOVERY_NEEDS_REVIEW, wf_updated,
-                step=step, idx=idx,
-                recovery_action="needs_review",
-            )
         self._active.pop(wf.id, None)
         return None
 
@@ -757,22 +691,22 @@ class WorkflowEngine:
                     error=f"Poll timeout after {elapsed:.1f}s",
                     completed_at=now,
                 )
+                # Store emits POLL_TIMEOUT via audit_event_type override
                 wf = await self._store.fail_step(
                     wf.id, idx, fence,
                     result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                    audit_event_type=AuditEventType.POLL_TIMEOUT,
+                    poll_elapsed_seconds=elapsed,
+                    error=fail_result.error,
                 )
                 if wf:
-                    self._emit(
-                        AuditEventType.POLL_TIMEOUT, wf,
-                        step=wf.steps[idx], idx=idx,
-                        poll_elapsed_seconds=elapsed,
-                        error=fail_result.error,
-                    )
+                    # Store emits WORKFLOW_FAILED via advance_step
                     await self._store.advance_step(
                         wf.id,
                         fence,
                         idx,
                         workflow_status=WorkflowStatus.FAILED,
+                        workflow_status_before=WorkflowStatus.RUNNING.value,
                     )
                 return "failed"
 
@@ -783,22 +717,22 @@ class WorkflowEngine:
                 error=f"Exceeded max poll count ({policy.max_polls})",
                 completed_at=now,
             )
+            # Store emits POLL_MAX_EXCEEDED via audit_event_type override
             wf = await self._store.fail_step(
                 wf.id, idx, fence,
                 result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                audit_event_type=AuditEventType.POLL_MAX_EXCEEDED,
+                poll_count=step.poll_count,
+                error=fail_result.error,
             )
             if wf:
-                self._emit(
-                    AuditEventType.POLL_MAX_EXCEEDED, wf,
-                    step=wf.steps[idx], idx=idx,
-                    poll_count=step.poll_count,
-                    error=fail_result.error,
-                )
+                # Store emits WORKFLOW_FAILED via advance_step
                 await self._store.advance_step(
                     wf.id,
                     fence,
                     idx,
                     workflow_status=WorkflowStatus.FAILED,
+                    workflow_status_before=WorkflowStatus.RUNNING.value,
                 )
             return "failed"
 
@@ -827,22 +761,22 @@ class WorkflowEngine:
                 error=traceback.format_exc(),
                 completed_at=now,
             )
+            # Store emits POLL_CHECK_ERRORS_EXCEEDED via audit_event_type override
             wf = await self._store.fail_step(
                 wf_id, idx, fence,
                 result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                audit_event_type=AuditEventType.POLL_CHECK_ERRORS_EXCEEDED,
+                poll_count=step.poll_count,
+                error=fail_result.error,
             )
             if wf:
-                self._emit(
-                    AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, wf,
-                    step=wf.steps[idx], idx=idx,
-                    poll_count=step.poll_count,
-                    error=fail_result.error,
-                )
+                # Store emits WORKFLOW_FAILED via advance_step
                 await self._store.advance_step(
                     wf_id,
                     fence,
                     idx,
                     workflow_status=WorkflowStatus.FAILED,
+                    workflow_status_before=WorkflowStatus.RUNNING.value,
                 )
             self._active.pop(wf_id, None)
             return "failed"
@@ -868,6 +802,7 @@ class WorkflowEngine:
         # --- Complete: mark step done, keep lock for advance ---
         if is_complete:
             completed_result = step_result.model_copy(update={"completed_at": now})
+            # Store emits POLL_CHECKED via audit_event_type override
             wf = await self._store.complete_step(
                 wf.id, idx, fence,
                 result=completed_result.model_dump(mode="python", serialize_as_any=True),
@@ -875,17 +810,14 @@ class WorkflowEngine:
                 last_poll_at=now,
                 last_poll_progress=poll_progress,
                 last_poll_message=poll_message,
+                audit_event_type=AuditEventType.POLL_CHECKED,
+                poll_count_audit=new_poll_count,
+                poll_progress_audit=poll_progress,
+                poll_message_audit=poll_message,
             )
             if wf is None:
                 return "lost_lock"
 
-            self._emit(
-                AuditEventType.POLL_CHECKED, wf,
-                step=wf.steps[idx], idx=idx,
-                poll_count=new_poll_count,
-                poll_progress=poll_progress,
-                poll_message=poll_message,
-            )
             logger.info(
                 "Step %s completeness check passed (polls=%d)",
                 step.name,
@@ -908,6 +840,7 @@ class WorkflowEngine:
             )
 
         next_poll_at = now + timedelta(seconds=next_wait)
+        # Store emits POLL_CHECKED via schedule_next_poll
         wf = await self._store.schedule_next_poll(
             wf.id, idx, fence,
             poll_count=new_poll_count,
@@ -920,22 +853,12 @@ class WorkflowEngine:
         if wf is None:
             return "lost_lock"
 
-        self._emit(
-            AuditEventType.POLL_CHECKED, wf,
-            step=wf.steps[idx], idx=idx,
-            poll_count=step.poll_count + 1,
-            poll_progress=hint.progress if hint else None,
-            poll_message=hint.message if hint else None,
-            next_poll_at=next_poll_at,
-            current_poll_interval=current_interval,
-        )
-
         # Remove from active BEFORE releasing lock to prevent heartbeat race
         self._active.pop(wf.id, None)
 
         # Release lock — fast sweep will reclaim when next_poll_at passes
         await self._store.release_lock(wf.id, self._instance_id, fence)
-        self._emit(AuditEventType.LOCK_RELEASED, wf, lock_released=True)
+        await self._emit_event(AuditEventType.LOCK_RELEASED, wf, lock_released=True)
 
         logger.debug(
             "Step %s poll %d: not complete, next poll in %.1fs%s. Lock released.",
@@ -973,22 +896,15 @@ class WorkflowEngine:
             with attempt:
                 attempt_num += 1
 
-                # Persist attempt number before execution
+                # Persist attempt number before execution — store emits STEP_RUNNING
                 wf = await self._store.mark_step_running(
                     wf_id, idx, fence, attempt=attempt_num,
+                    max_attempts=step.retry_policy.max_attempts,
                 )
                 if wf is None:
                     raise FenceRejectedError(
                         f"Fence rejected during retry (attempt {attempt_num})"
                     )
-
-                self._emit(
-                    AuditEventType.STEP_RUNNING, wf,
-                    step=wf.steps[idx], idx=idx,
-                    step_status_before=StepStatus.SUBMITTED.value,
-                    attempt=attempt_num,
-                    max_attempts=step.retry_policy.max_attempts,
-                )
 
                 logger.info(
                     "Executing step %s attempt %d/%d",
@@ -1001,7 +917,7 @@ class WorkflowEngine:
                     try:
                         return await asyncio.wait_for(coro, timeout=step.step_timeout)
                     except TimeoutError:
-                        self._emit(
+                        await self._emit_event(
                             AuditEventType.STEP_TIMEOUT, wf,
                             step=wf.steps[idx], idx=idx,
                             attempt=attempt_num,

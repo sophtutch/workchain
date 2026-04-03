@@ -208,11 +208,16 @@ class TestEngineAuditIntegration:
         return MongoAuditLogger(audit_db)
 
     @pytest.fixture
-    def store(self, audit_db):
-        return MongoWorkflowStore(audit_db, lock_ttl_seconds=5)
+    def store(self, audit_db, audit_logger):
+        return MongoWorkflowStore(
+            audit_db,
+            lock_ttl_seconds=5,
+            audit_logger=audit_logger,
+            instance_id="test-audit-001",
+        )
 
     @pytest.fixture
-    def engine(self, store, audit_logger):
+    def engine(self, store):
         return WorkflowEngine(
             store,
             instance_id="test-audit-001",
@@ -220,11 +225,10 @@ class TestEngineAuditIntegration:
             heartbeat_interval=0.05,
             sweep_interval=10,
             max_concurrent=5,
-            audit_logger=audit_logger,
         )
 
     async def test_sync_workflow_emits_events(self, store, engine, audit_logger):
-        """A simple sync workflow should emit: CLAIMED, SUBMITTED, RUNNING, COMPLETED, ADVANCED, WORKFLOW_COMPLETED."""
+        """A simple sync workflow should emit: CREATED, CLAIMED, SUBMITTED, RUNNING, COMPLETED, ADVANCED, WORKFLOW_COMPLETED."""
         wf = Workflow(
             name="audit_sync",
             steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])],
@@ -239,6 +243,7 @@ class TestEngineAuditIntegration:
         events = await audit_logger.get_events(wf.id)
         event_types = [e.event_type for e in events]
 
+        assert AuditEventType.WORKFLOW_CREATED in event_types
         assert AuditEventType.WORKFLOW_CLAIMED in event_types
         assert AuditEventType.STEP_SUBMITTED in event_types
         assert AuditEventType.STEP_RUNNING in event_types
@@ -351,8 +356,10 @@ class TestEngineAuditIntegration:
         assert seqs == sorted(seqs)
         assert len(set(seqs)) == len(seqs)  # all unique
 
-    async def test_no_audit_by_default(self, store):
-        """Engine without audit_logger should still work (NullAuditLogger)."""
+    async def test_no_audit_by_default(self):
+        """Engine without audit_logger should still work (NullAuditLogger on store)."""
+        db = AsyncMongoMockClient()["test_no_audit"]
+        store = MongoWorkflowStore(db, lock_ttl_seconds=5)
         engine = WorkflowEngine(
             store,
             instance_id="no-audit",
