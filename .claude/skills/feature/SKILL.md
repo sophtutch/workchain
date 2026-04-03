@@ -17,7 +17,7 @@ First argument is the subcommand. Remaining arguments depend on the subcommand.
 | `list` | `/feature list` | Show open features and progress |
 | `completed` | `/feature completed` | Show completed features |
 | `status` | `/feature status <name>` | Show a feature's tasks with status |
-| `next` | `/feature next <name>` | Ship the next pending task |
+| `next` | `/feature next [name]` | Ship the next pending task, or suggest one |
 
 If no arguments are provided, show this help table and ask what the user wants to do.
 
@@ -137,7 +137,31 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
 
 ### next
 
-`/feature next <name>`
+`/feature next [name]`
+
+**If no name is provided:**
+
+1. Read all open features from `.claude/features/`
+2. If there are open features, prioritise them:
+   - Features with a task already `[-]` (in progress) come first — resume interrupted work
+   - Then features with fewer remaining tasks (closer to completion)
+   - Then features by created date (oldest first)
+3. Present the suggested feature and its next task to the user. Use `AskUserQuestion` to confirm or let them pick a different one.
+4. Proceed with the selected feature as if the name had been provided.
+
+**If there are no open features:**
+
+1. Proactively review the codebase for opportunities. Use an Explore agent to scan for:
+   - Bugs, logic errors, or race conditions
+   - Missing or incomplete test coverage
+   - Missing or outdated documentation
+   - Tech debt (e.g. untyped parameters, inconsistent patterns, TODO comments)
+   - Missing examples or incomplete examples
+   - Gaps in error handling or validation
+2. Present findings to the user as potential features
+3. If the user selects one, proceed to `/feature plan` for it
+
+**If a name is provided:**
 
 1. Read `.claude/features/<name>.md`
 2. Find the first pending task (`[ ]`)
