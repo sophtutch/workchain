@@ -61,19 +61,23 @@ Task format:
 `/feature plan [name]`
 
 1. Ask the user to describe the feature and its goals
-2. If no name was provided, derive a short kebab-case name from the feature description (e.g. "Replace dict params with StepResult" becomes `store-typed-params`)
-3. Explore the codebase to understand what files and systems are involved
-3. Break the feature into sequenced tasks — each task should be one PR's worth of work
-4. Write `.claude/features/<name>.md` with all tasks marked `[ ]`
-5. Present the task list to the user for review
-6. Adjust tasks based on user feedback (add, remove, reorder, split, merge)
+2. Explore the codebase to understand what files and systems are involved
+3. Assess scope — if the work naturally splits into independent areas (e.g. separate models, separate subsystems, separate concerns), create multiple feature files rather than one large one. Each feature should be a cohesive unit that can be planned, tracked, and completed independently.
+4. For each feature:
+   a. If no name was provided (or multiple features are being created), derive a short kebab-case name from the feature description
+   b. Break the feature into sequenced tasks — each task should be one PR's worth of work
+   c. Write `.claude/features/<name>.md` with all tasks marked `[ ]`
+5. Present all feature(s) and their tasks to the user for review
+6. Adjust based on user feedback (add, remove, reorder, split, merge features or tasks)
 7. Set feature status to `in_progress` once the user approves
 
-Guidelines for task breakdown:
+Guidelines for decomposition:
+- A single feature should have 1-5 tasks. If you have more, consider splitting into multiple features.
 - Each task should be independently shippable (tests pass after each)
 - Order tasks so later ones build on earlier ones
 - Prefer small, focused tasks over large ones
 - Name tasks with a short kebab-case identifier (used as branch name suffix)
+- Features can depend on each other — note dependencies in the description if so
 
 ### list
 
