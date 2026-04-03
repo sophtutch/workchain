@@ -274,6 +274,9 @@ class MongoWorkflowStore:
                 step_status_before=StepStatus.RUNNING.value,
                 result_summary=result_summary,
                 recovery_action=recovery_action,
+                poll_count=poll_count,
+                poll_progress=last_poll_progress,
+                poll_message=last_poll_message,
                 **audit_kwargs,
             )
         return wf

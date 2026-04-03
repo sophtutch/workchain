@@ -803,6 +803,8 @@ class WorkflowEngine:
         if is_complete:
             completed_result = step_result.model_copy(update={"completed_at": now})
             # Store emits POLL_CHECKED via audit_event_type override
+            # poll_count, last_poll_progress, last_poll_message are forwarded
+            # to the audit event with correct AuditEvent field names by the store
             wf = await self._store.complete_step(
                 wf.id, idx, fence,
                 result=completed_result.model_dump(mode="python", serialize_as_any=True),
@@ -811,9 +813,6 @@ class WorkflowEngine:
                 last_poll_progress=poll_progress,
                 last_poll_message=poll_message,
                 audit_event_type=AuditEventType.POLL_CHECKED,
-                poll_count_audit=new_poll_count,
-                poll_progress_audit=poll_progress,
-                poll_message_audit=poll_message,
             )
             if wf is None:
                 return "lost_lock"
