@@ -1,7 +1,8 @@
 ---
 name: typed-result-complete-step
 created: 2026-04-04
-status: in_progress
+completed: 2026-04-04
+status: completed
 ---
 
 # Accept StepResult in complete_step
@@ -12,4 +13,9 @@ status: in_progress
 
 ## Tasks
 
-- [-] refactor-complete-step: Change complete_step signature from result: dict to result: StepResult, remove result_summary param, serialize internally, update 4 engine call sites and test
+- [x] refactor-complete-step: Change complete_step signature from result: dict to result: StepResult, remove result_summary param, serialize internally, update 4 engine call sites and test
+  - branch: `typed-result-complete-step/refactor-complete-step`
+  - pr: #26
+
+## PRs
+- #26: Accept StepResult in complete_step instead of dict
