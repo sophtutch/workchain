@@ -209,6 +209,16 @@ class WorkflowEngine:
         for t in self._tasks:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+
+        # Drain pending audit writes with a timeout
+        if self._audit_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._audit_tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                logger.warning("Timed out waiting for %d audit tasks during shutdown", len(self._audit_tasks))
         logger.info("Shutdown complete.")
 
     # ------------------------------------------------------------------
