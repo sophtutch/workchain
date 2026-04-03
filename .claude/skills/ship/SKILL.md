@@ -1,11 +1,19 @@
 ---
-name: feature-workflow
-description: Complete feature branch workflow — branch, implement, validate, PR, address Devin review, merge.
+name: ship
+description: Ship a feature — branch, implement, validate, PR, address Devin review, merge.
 ---
 
 # Feature Workflow
 
 Implement a feature from branch creation through to merged PR and clean main HEAD.
+
+## Prerequisites
+
+The following CLI tools must be installed and authenticated:
+
+- **git** — version control
+- **gh** — GitHub CLI, authenticated via `gh auth login`
+- **hatch** — Python project manager (runs `hatch fmt` and `hatch test`)
 
 ## Arguments
 
@@ -16,6 +24,14 @@ The user may provide a branch name or feature description as arguments. If not p
 Follow these steps in order. Use the todo list to track progress. Ask the user before proceeding at gates marked **[GATE]**.
 
 ### 1. Create feature branch
+
+Derive the repo owner/name for later use:
+
+```
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+```
+
+Create the branch:
 
 ```
 git checkout main && git pull origin main
@@ -38,6 +54,8 @@ hatch test
 ```
 
 Fix any issues until both pass clean. **Do not proceed until tests pass.**
+
+Skip this step if only non-Python files changed (e.g. docs, CLAUDE.md, README.md).
 
 ### 4. Commit and push
 
@@ -78,55 +96,37 @@ Note the PR number from the output — it is needed for all subsequent steps.
 
 ### 6. Poll for Devin review
 
-After creating the PR, use CronCreate to set up a recurring poll that checks for Devin review comments every ~5 minutes. The cron job fires while the session is idle and notifies you when comments arrive.
+Set up a recurring poll using CronCreate. See [Devin polling pattern](#devin-polling-pattern) below for the poll prompt template.
 
-Create the cron job:
 - Cron expression: `*/5 * * * *` (every 5 minutes)
-- Prompt should check for Devin comments on the PR and report findings
+- Set `BASELINE_COMMENT_COUNT=0` (no Devin comments yet)
 
-The poll prompt should run these checks:
-
-```
-gh api repos/{owner}/{repo}/pulls/{N}/comments --jq '[.[] | select(.body | test("devin-review-comment"))] | length'
-```
-
-If the count is greater than 0, fetch the full comments:
-
-```
-gh api repos/{owner}/{repo}/pulls/{N}/comments --jq '.[] | select(.body | test("devin-review-comment")) | {id: .id, path: .path, body: .body[0:200]}'
-```
-
-Also check the review summary:
-
-```
-gh pr view {N} --json reviews --jq '.reviews[] | {body: .body[0:200], state: .state}'
-```
-
-When comments are found, report them to the user with a summary of each finding and whether it's actionable.
-
-When no comments are found yet, report "No Devin review yet on PR #N."
+When the poll detects new Devin comments, proceed to step 7.
 
 ### 7. Address Devin feedback
 
 When Devin comments arrive (detected by the cron poll or reported by the user):
 
-1. **Delete the polling cron job** using CronDelete — it's no longer needed for this phase
+1. **Delete the polling cron job** using CronDelete
 2. Read each Devin comment in full to understand the issue
 3. Implement the fix
-4. Let hooks run (fmt + test)
-5. Commit with a message referencing Devin's finding
+4. Run `hatch fmt` and `hatch test` explicitly to verify the fix (hooks may not trigger for all edit patterns)
+5. Commit with a message referencing Devin's finding using HEREDOC format
 6. Push to the branch
-7. Reply to the Devin comment explaining what was fixed:
+7. Reply to the Devin comment. **Use single quotes** for the body to avoid bash backtick interpretation:
 
 ```
-gh api repos/{owner}/{repo}/pulls/{N}/comments/{comment_id}/replies -f body="<response>"
+gh api repos/$REPO/pulls/{N}/comments/{comment_id}/replies \
+  -f body='Fixed — description of what was changed.'
 ```
+
+If a reply needs backticks, use `gh pr comment {N} --body '...'` instead.
 
 If a comment is about code that doesn't belong in this PR (e.g. leaked changes), explain that in the reply.
 
 ### 8. Poll for Devin re-scan
 
-After pushing fixes, create a new CronCreate poll (same pattern as step 6) to wait for Devin's re-scan. Look for **new** comments that appeared after the fix push.
+After pushing fixes, note the current Devin comment count and create a new CronCreate poll. See [Devin polling pattern](#devin-polling-pattern) below — set `BASELINE_COMMENT_COUNT` to the current count so only **new** comments trigger an alert.
 
 When the re-scan arrives:
 - If new actionable issues: delete the cron, go back to step 7
@@ -134,7 +134,9 @@ When the re-scan arrives:
 
 ### 9. **[GATE]** Merge and cleanup
 
-Ask the user to confirm merge, then:
+Ask the user: "PR #N is clean. Squash-merge?"
+
+On confirmation:
 
 ```
 gh pr merge {N} --squash --delete-branch
@@ -144,6 +146,26 @@ git pull
 ```
 
 Confirm clean state with `git status`.
+
+---
+
+## Devin polling pattern
+
+Reusable poll prompt template for CronCreate. Replace `{N}` with the PR number, `$REPO` with the repo name, and `{BASELINE}` with the Devin comment count before this poll phase started (0 for initial, or the count after addressing feedback).
+
+```
+Check for Devin review comments on PR #{N} in $REPO.
+
+Run: gh api repos/$REPO/pulls/{N}/comments --jq '[.[] | select(.body | test("devin-review-comment"))] | length'
+
+If the count is greater than {BASELINE}, fetch the new comments:
+gh api repos/$REPO/pulls/{N}/comments --jq '.[] | select(.body | test("devin-review-comment")) | {id: .id, path: .path, body: .body[0:200]}'
+
+Also check: gh pr view {N} --json reviews --jq '.reviews[] | {body: .body[0:200], state: .state}'
+
+If count > {BASELINE}, report the new findings with a summary of each.
+If count == {BASELINE}, say "No new Devin findings on PR #{N}."
+```
 
 ## Error handling
 
