@@ -205,6 +205,7 @@ CSS = """\
   .s-failed    { background: rgba(248,113,113,0.1);  color: #f87171; border: 1px solid rgba(248,113,113,0.2); }
   .s-completed { background: rgba(52,211,153,0.1);   color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
   .s-review    { background: rgba(251,191,36,0.1);   color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+  .s-cancelled { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }
 
   /* fade-in */
   @keyframes fadeIn {
@@ -754,6 +755,28 @@ def _render_completion(wf_events: list[AuditEvent]) -> str:
             f"        </div>\n"
             f'        <div class="node-desc">'
             f"Failed at {_fmt_ts(failed.timestamp)}</div>\n"
+            f"      </div>\n"
+            f"    </div>\n"
+            f"  </div>\n"
+            f"</div>\n"
+        )
+
+    cancelled = next(
+        (e for e in wf_events if e.event_type == AuditEventType.WORKFLOW_CANCELLED), None
+    )
+    if cancelled:
+        return (
+            '<div class="full-section">\n'
+            '  <div class="step-flow-panel">\n'
+            '    <div class="section-label">Cancelled</div>\n'
+            '    <div class="flow-timeline">\n'
+            '      <div class="step-node theme-neutral">\n'
+            '        <div class="node-header">\n'
+            '          <span class="node-title">Workflow Cancelled</span>\n'
+            f'          {_badge("lock-release", "lock released")}\n'
+            f"        </div>\n"
+            f'        <div class="node-desc">'
+            f"Cancelled at {_fmt_ts(cancelled.timestamp)}</div>\n"
             f"      </div>\n"
             f"    </div>\n"
             f"  </div>\n"
