@@ -449,11 +449,13 @@ class WorkflowEngine:
                         },
                     )
                     if wf:
+                        error_lines = (fail_result.error or "").strip().splitlines()
+                        brief_error = error_lines[-1] if error_lines else ""
                         self._emit(
                             AuditEventType.STEP_FAILED, wf,
                             step=wf.steps[idx], idx=idx,
                             step_status_before=StepStatus.RUNNING.value,
-                            error=fail_result.error,
+                            error=brief_error,
                             error_traceback=fail_result.error,
                         )
                     await self._store.advance_step(
