@@ -58,10 +58,11 @@ Task format:
 
 ### plan
 
-`/feature plan <name>`
+`/feature plan [name]`
 
 1. Ask the user to describe the feature and its goals
-2. Explore the codebase to understand what files and systems are involved
+2. If no name was provided, derive a short kebab-case name from the feature description (e.g. "Replace dict params with StepResult" becomes `store-typed-params`)
+3. Explore the codebase to understand what files and systems are involved
 3. Break the feature into sequenced tasks — each task should be one PR's worth of work
 4. Write `.claude/features/<name>.md` with all tasks marked `[ ]`
 5. Present the task list to the user for review
