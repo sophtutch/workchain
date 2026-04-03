@@ -696,6 +696,7 @@ class WorkflowEngine:
                     wf.id, idx, fence,
                     result=fail_result.model_dump(mode="python", serialize_as_any=True),
                     audit_event_type=AuditEventType.POLL_TIMEOUT,
+                    step_status_before=StepStatus.BLOCKED.value,
                     poll_elapsed_seconds=elapsed,
                     error=fail_result.error,
                 )
@@ -722,6 +723,7 @@ class WorkflowEngine:
                 wf.id, idx, fence,
                 result=fail_result.model_dump(mode="python", serialize_as_any=True),
                 audit_event_type=AuditEventType.POLL_MAX_EXCEEDED,
+                step_status_before=StepStatus.BLOCKED.value,
                 poll_count=step.poll_count,
                 error=fail_result.error,
             )
@@ -766,6 +768,7 @@ class WorkflowEngine:
                 wf_id, idx, fence,
                 result=fail_result.model_dump(mode="python", serialize_as_any=True),
                 audit_event_type=AuditEventType.POLL_CHECK_ERRORS_EXCEEDED,
+                step_status_before=StepStatus.BLOCKED.value,
                 poll_count=step.poll_count,
                 error=fail_result.error,
             )
@@ -813,6 +816,7 @@ class WorkflowEngine:
                 last_poll_progress=poll_progress,
                 last_poll_message=poll_message,
                 audit_event_type=AuditEventType.POLL_CHECKED,
+                step_status_before=StepStatus.BLOCKED.value,
             )
             if wf is None:
                 return "lost_lock"

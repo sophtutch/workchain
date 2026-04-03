@@ -245,6 +245,7 @@ class MongoWorkflowStore:
         last_poll_message: str | None = None,
         # Audit context
         audit_event_type: AuditEventType | None = None,
+        step_status_before: str = StepStatus.RUNNING.value,
         result_summary: dict | None = None,
         recovery_action: str | None = None,
         **audit_kwargs: Any,
@@ -271,7 +272,7 @@ class MongoWorkflowStore:
             self._emit(
                 evt, wf,
                 step=wf.steps[step_index], idx=step_index,
-                step_status_before=StepStatus.RUNNING.value,
+                step_status_before=step_status_before,
                 result_summary=result_summary,
                 recovery_action=recovery_action,
                 poll_count=poll_count,
@@ -289,6 +290,7 @@ class MongoWorkflowStore:
         result: dict,
         # Audit context
         audit_event_type: AuditEventType | None = None,
+        step_status_before: str = StepStatus.RUNNING.value,
         error: str | None = None,
         error_traceback: str | None = None,
         poll_count: int | None = None,
@@ -309,7 +311,7 @@ class MongoWorkflowStore:
             self._emit(
                 evt, wf,
                 step=wf.steps[step_index], idx=step_index,
-                step_status_before=StepStatus.RUNNING.value,
+                step_status_before=step_status_before,
                 error=error,
                 error_traceback=error_traceback,
                 poll_count=poll_count,
