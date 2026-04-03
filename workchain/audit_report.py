@@ -129,6 +129,7 @@ CSS = """\
   .step-node.theme-complete { border-left: 3px solid #34d399; background: #064e3b22; }
   .step-node.theme-fail    { border-left: 3px solid #f87171; }
   .step-node.theme-engine  { border-left: 3px solid #6366f1; }
+  .step-node.theme-neutral { border-left: 3px solid #9ca3af; }
 
   .node-header {
     display: flex; align-items: center; gap: 0.5rem;
