@@ -682,6 +682,7 @@ class WorkflowEngine:
                         "poll_started_at": now,
                         "next_poll_at": now + timedelta(seconds=policy.interval),
                         "current_poll_interval": policy.interval,
+                        "poll_count": 0,
                     },
                 )
                 if wf:
