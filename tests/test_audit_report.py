@@ -208,6 +208,43 @@ def _make_async_workflow_events() -> list[AuditEvent]:
 # ---------------------------------------------------------------------------
 
 
+def _make_cancelled_workflow_events() -> list[AuditEvent]:
+    """Build events for a cancelled workflow."""
+    return [
+        AuditEvent(
+            workflow_id="wf_cancel", workflow_name="test_cancel",
+            event_type=AuditEventType.WORKFLOW_CLAIMED,
+            instance_id="inst_a1", fence_token=1, fence_token_before=0,
+            workflow_status="running", workflow_status_before="pending",
+            timestamp=_ts(0), sequence=1,
+        ),
+        AuditEvent(
+            workflow_id="wf_cancel", workflow_name="test_cancel",
+            event_type=AuditEventType.STEP_SUBMITTED,
+            instance_id="inst_a1", fence_token=1,
+            step_index=0, step_name="setup", step_handler="tests.setup",
+            step_status="submitted", step_status_before="pending",
+            timestamp=_ts(0.1), sequence=2,
+        ),
+        AuditEvent(
+            workflow_id="wf_cancel", workflow_name="test_cancel",
+            event_type=AuditEventType.WORKFLOW_CANCELLED,
+            instance_id="inst_a1", fence_token=1,
+            workflow_status="cancelled", workflow_status_before="running",
+            timestamp=_ts(0.5), sequence=3,
+        ),
+    ]
+
+
+class TestCancelledWorkflowReport:
+    def test_cancelled_workflow_report(self):
+        events = _make_cancelled_workflow_events()
+        html = generate_audit_report(events)
+        assert html, "Report should not be empty"
+        assert "cancelled" in html.lower()
+        assert "test_cancel" in html
+
+
 class TestGenerateAuditReport:
     def test_empty_events(self):
         html = generate_audit_report([])

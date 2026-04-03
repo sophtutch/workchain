@@ -106,6 +106,14 @@ class Step(BaseModel):
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     step_timeout: float = 0  # per-attempt timeout in seconds (0 = no timeout)
     attempt: int = 0
+
+    @field_validator("step_timeout")
+    @classmethod
+    def _validate_timeout(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("step_timeout must not be negative")
+        return v
+
     is_async: bool = False                # if True, engine polls completeness_check
     completeness_check: str | None = None  # dotted path to async callable -> bool
     verify_completion: str | None = None   # used on crash recovery

@@ -237,6 +237,18 @@ class TestStep:
         s = Step(name="s1", handler="mod.func")
         assert s.retry_policy.max_attempts == 3
 
+    def test_negative_timeout_raises(self):
+        with pytest.raises(ValidationError, match="step_timeout must not be negative"):
+            Step(name="s1", handler="mod.func", step_timeout=-1.0)
+
+    def test_zero_timeout_valid(self):
+        s = Step(name="s1", handler="mod.func", step_timeout=0)
+        assert s.step_timeout == 0
+
+    def test_positive_timeout_valid(self):
+        s = Step(name="s1", handler="mod.func", step_timeout=30.0)
+        assert s.step_timeout == 30.0
+
     def test_poll_policy_default(self):
         s = Step(name="s1", handler="mod.func")
         assert s.poll_policy.interval == 5.0

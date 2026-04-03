@@ -371,6 +371,10 @@ def _render_summary(events: list[AuditEvent], wf_name: str) -> str:
             final_status = "needs_review"
             status_cls = "review"
             break
+        if e.event_type == AuditEventType.WORKFLOW_CANCELLED:
+            final_status = "cancelled"
+            status_cls = "neutral"
+            break
 
     # Collect stats
     instances = sorted({e.instance_id for e in events if e.instance_id})
