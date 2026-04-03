@@ -316,6 +316,7 @@ _WORKFLOW_EVENTS = frozenset({
     AuditEventType.WORKFLOW_CLAIMED,
     AuditEventType.WORKFLOW_COMPLETED,
     AuditEventType.WORKFLOW_FAILED,
+    AuditEventType.WORKFLOW_CANCELLED,
     AuditEventType.SWEEP_ANOMALY,
 })
 
