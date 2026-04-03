@@ -26,7 +26,7 @@ pip install -e ".[dev]"
 Use `@step` for synchronous handlers, `@async_step` for handlers that submit external work, and `@completeness_check` for poll functions. Handler names are auto-generated from module + qualname:
 
 ```python
-from workchain import StepConfig, StepResult, step, async_step, completeness_check, PollPolicy
+from workchain import StepConfig, StepResult, step, async_step, completeness_check, PollPolicy, PollHint
 
 class ValidateConfig(StepConfig):
     email: str
@@ -44,8 +44,8 @@ class ProvisionResult(StepResult):
     job_id: str
 
 @completeness_check()
-async def check_provisioning(config, results, result: ProvisionResult) -> dict:
-    return {"complete": False, "progress": 0.5}
+async def check_provisioning(config, results, result: ProvisionResult) -> PollHint:
+    return PollHint(complete=False, progress=0.5)
 
 @async_step(
     completeness_check=check_provisioning,
