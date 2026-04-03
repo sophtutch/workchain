@@ -81,7 +81,7 @@ workchain/
 
 ## Files to modify with care
 
-- `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures
+- `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures. The explicit step-state methods (`submit_step`, `complete_step`, `fail_step`, `block_step`, `schedule_next_poll`, `mark_step_running`, `reset_step`) all delegate to `_fenced_step_update` — the generic method is private and should not be called directly from the engine
 - `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios and all completeness_check return types; understand all paths before changing
 - `engine.py` `_call_handler()` — uses `_step_meta["needs_context"]` and `iscoroutine` safety net; do not reintroduce `inspect.signature`
 - `models.py` — changing field names affects all persisted MongoDB documents; `Step._set_type_paths` auto-populates `config_type`/`result_type`

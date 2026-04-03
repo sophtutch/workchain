@@ -400,15 +400,7 @@ class WorkflowEngine:
 
                 # --- Normal execution: PENDING step ---
                 # Mark step as SUBMITTED (crash-safe write-ahead)
-                wf = await self._store.update_step(
-                    wf_id,
-                    idx,
-                    fence,
-                    {
-                        "status": StepStatus.SUBMITTED.value,
-                        "attempt": step.attempt + 1,
-                    },
-                )
+                wf = await self._store.submit_step(wf_id, idx, fence)
                 if wf is None:
                     return  # fence rejected
 
@@ -447,15 +439,9 @@ class WorkflowEngine:
                         error=traceback.format_exc(),
                         completed_at=datetime.now(UTC),
                     )
-                    wf = await self._store.update_step(
-                        wf_id,
-                        idx,
-                        fence,
-                        {
-                            "status": StepStatus.FAILED.value,
-                            "result": fail_result.model_dump(mode="python", serialize_as_any=True),
-                            "result_type": None,
-                        },
+                    wf = await self._store.fail_step(
+                        wf_id, idx, fence,
+                        result=fail_result.model_dump(mode="python", serialize_as_any=True),
                     )
                     if wf:
                         error_lines = (fail_result.error or "").strip().splitlines()
@@ -488,17 +474,14 @@ class WorkflowEngine:
                     policy = step.poll_policy
                     next_poll = now + timedelta(seconds=policy.interval)
 
-                    step_updates: dict[str, Any] = {
-                        "status": StepStatus.BLOCKED.value,
-                        "result": result.model_dump(mode="python", serialize_as_any=True),
-                        "poll_started_at": now,
-                        "next_poll_at": next_poll,
-                        "current_poll_interval": policy.interval,
-                    }
-                    if result_type:
-                        step_updates["result_type"] = result_type
-
-                    wf = await self._store.update_step(wf_id, idx, fence, step_updates)
+                    wf = await self._store.block_step(
+                        wf_id, idx, fence,
+                        result=result.model_dump(mode="python", serialize_as_any=True),
+                        result_type=result_type,
+                        poll_started_at=now,
+                        next_poll_at=next_poll,
+                        current_poll_interval=policy.interval,
+                    )
                     if wf is None:
                         return
 
@@ -529,14 +512,11 @@ class WorkflowEngine:
                     return  # exit cleanly, fast sweep will reclaim when due
 
                 # --- Sync step: mark completed, advance ---
-                step_updates = {
-                    "status": StepStatus.COMPLETED.value,
-                    "result": result.model_dump(mode="python", serialize_as_any=True),
-                }
-                if result_type:
-                    step_updates["result_type"] = result_type
-
-                wf = await self._store.update_step(wf_id, idx, fence, step_updates)
+                wf = await self._store.complete_step(
+                    wf_id, idx, fence,
+                    result=result.model_dump(mode="python", serialize_as_any=True),
+                    result_type=result_type,
+                )
                 if wf is None:
                     return
 
@@ -627,14 +607,7 @@ class WorkflowEngine:
                     logger.info(
                         "Step %s verified as completed after recovery.", step.name
                     )
-                    wf = await self._store.update_step(
-                        wf.id,
-                        idx,
-                        fence,
-                        {
-                            "status": StepStatus.COMPLETED.value,
-                        },
-                    )
+                    wf = await self._store.complete_step(wf.id, idx, fence)
                     if wf:
                         self._emit(
                             AuditEventType.RECOVERY_VERIFIED, wf,
@@ -664,14 +637,7 @@ class WorkflowEngine:
                     is_complete = bool(raw)
                 if is_complete:
                     logger.info("Step %s already complete after recovery.", step.name)
-                    wf = await self._store.update_step(
-                        wf.id,
-                        idx,
-                        fence,
-                        {
-                            "status": StepStatus.COMPLETED.value,
-                        },
-                    )
+                    wf = await self._store.complete_step(wf.id, idx, fence)
                     if wf:
                         self._emit(
                             AuditEventType.RECOVERY_VERIFIED, wf,
@@ -684,17 +650,14 @@ class WorkflowEngine:
                 )
                 now = datetime.now(UTC)
                 policy = step.poll_policy
-                wf = await self._store.update_step(
-                    wf.id,
-                    idx,
-                    fence,
-                    {
-                        "status": StepStatus.BLOCKED.value,
-                        "poll_started_at": now,
-                        "next_poll_at": now + timedelta(seconds=policy.interval),
-                        "current_poll_interval": policy.interval,
-                        "poll_count": 0,
-                    },
+                wf = await self._store.block_step(
+                    wf.id, idx, fence,
+                    result=step.result.model_dump(mode="python", serialize_as_any=True) if step.result else {},
+                    result_type=step.result_type,
+                    poll_started_at=now,
+                    next_poll_at=now + timedelta(seconds=policy.interval),
+                    current_poll_interval=policy.interval,
+                    poll_count=0,
                 )
                 if wf:
                     self._emit(
@@ -713,14 +676,7 @@ class WorkflowEngine:
 
         if step.idempotent:
             logger.info("Re-running idempotent step %s", step.name)
-            wf = await self._store.update_step(
-                wf.id,
-                idx,
-                fence,
-                {
-                    "status": StepStatus.PENDING.value,
-                },
-            )
+            wf = await self._store.reset_step(wf.id, idx, fence)
             if wf is None:
                 logger.warning("Fence rejected during idempotent reset for step %s", step.name)
                 return None
@@ -801,15 +757,9 @@ class WorkflowEngine:
                     error=f"Poll timeout after {elapsed:.1f}s",
                     completed_at=now,
                 )
-                wf = await self._store.update_step(
-                    wf.id,
-                    idx,
-                    fence,
-                    {
-                        "status": StepStatus.FAILED.value,
-                        "result": fail_result.model_dump(mode="python", serialize_as_any=True),
-                        "result_type": None,
-                    },
+                wf = await self._store.fail_step(
+                    wf.id, idx, fence,
+                    result=fail_result.model_dump(mode="python", serialize_as_any=True),
                 )
                 if wf:
                     self._emit(
@@ -833,15 +783,9 @@ class WorkflowEngine:
                 error=f"Exceeded max poll count ({policy.max_polls})",
                 completed_at=now,
             )
-            wf = await self._store.update_step(
-                wf.id,
-                idx,
-                fence,
-                {
-                    "status": StepStatus.FAILED.value,
-                    "result": fail_result.model_dump(mode="python", serialize_as_any=True),
-                    "result_type": None,
-                },
+            wf = await self._store.fail_step(
+                wf.id, idx, fence,
+                result=fail_result.model_dump(mode="python", serialize_as_any=True),
             )
             if wf:
                 self._emit(
@@ -883,15 +827,9 @@ class WorkflowEngine:
                 error=traceback.format_exc(),
                 completed_at=now,
             )
-            wf = await self._store.update_step(
-                wf_id,
-                idx,
-                fence,
-                {
-                    "status": StepStatus.FAILED.value,
-                    "result": fail_result.model_dump(mode="python", serialize_as_any=True),
-                    "result_type": None,
-                },
+            wf = await self._store.fail_step(
+                wf_id, idx, fence,
+                result=fail_result.model_dump(mode="python", serialize_as_any=True),
             )
             if wf:
                 self._emit(
@@ -923,37 +861,34 @@ class WorkflowEngine:
 
         # --- Persist poll state ---
         current_interval = step.current_poll_interval or policy.interval
-        poll_updates: dict = {
-            "poll_count": step.poll_count + 1,
-            "last_poll_at": now,
-        }
-        if hint and hint.progress is not None:
-            poll_updates["last_poll_progress"] = hint.progress
-        if hint and hint.message is not None:
-            poll_updates["last_poll_message"] = hint.message
+        new_poll_count = step.poll_count + 1
+        poll_progress = hint.progress if hint else None
+        poll_message = hint.message if hint else None
 
         # --- Complete: mark step done, keep lock for advance ---
         if is_complete:
-            poll_updates["status"] = StepStatus.COMPLETED.value
-            # Keep the existing result (with result_type) and just set completed_at
             completed_result = step_result.model_copy(update={"completed_at": now})
-            poll_updates["result"] = completed_result.model_dump(mode="python", serialize_as_any=True)
-
-            wf = await self._store.update_step(wf.id, idx, fence, poll_updates)
+            wf = await self._store.complete_step(
+                wf.id, idx, fence,
+                result=completed_result.model_dump(mode="python", serialize_as_any=True),
+                poll_count=new_poll_count,
+                last_poll_progress=poll_progress,
+                last_poll_message=poll_message,
+            )
             if wf is None:
                 return "lost_lock"
 
             self._emit(
                 AuditEventType.POLL_CHECKED, wf,
                 step=wf.steps[idx], idx=idx,
-                poll_count=step.poll_count + 1,
-                poll_progress=hint.progress if hint else None,
-                poll_message=hint.message if hint else None,
+                poll_count=new_poll_count,
+                poll_progress=poll_progress,
+                poll_message=poll_message,
             )
             logger.info(
                 "Step %s completeness check passed (polls=%d)",
                 step.name,
-                step.poll_count + 1,
+                new_poll_count,
             )
             return "complete"
 
@@ -972,10 +907,15 @@ class WorkflowEngine:
             )
 
         next_poll_at = now + timedelta(seconds=next_wait)
-        poll_updates["next_poll_at"] = next_poll_at
-        poll_updates["current_poll_interval"] = current_interval
-
-        wf = await self._store.update_step(wf.id, idx, fence, poll_updates)
+        wf = await self._store.schedule_next_poll(
+            wf.id, idx, fence,
+            poll_count=new_poll_count,
+            last_poll_at=now,
+            next_poll_at=next_poll_at,
+            current_poll_interval=current_interval,
+            last_poll_progress=poll_progress,
+            last_poll_message=poll_message,
+        )
         if wf is None:
             return "lost_lock"
 
@@ -1033,14 +973,8 @@ class WorkflowEngine:
                 attempt_num += 1
 
                 # Persist attempt number before execution
-                wf = await self._store.update_step(
-                    wf_id,
-                    idx,
-                    fence,
-                    {
-                        "status": StepStatus.RUNNING.value,
-                        "attempt": attempt_num,
-                    },
+                wf = await self._store.mark_step_running(
+                    wf_id, idx, fence, attempt=attempt_num,
                 )
                 if wf is None:
                     raise FenceRejectedError(
