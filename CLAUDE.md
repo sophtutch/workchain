@@ -95,6 +95,7 @@ The engine emits structured `AuditEvent` objects for every MongoDB write that ch
 - **`NullAuditLogger`** — no-op default when no logger is passed
 - **24 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
 - Events ordered by per-workflow `sequence` number (in-memory counter, causal within single instance)
+- **`WORKFLOW_CREATED` is not emitted by the engine** — workflows are created via `store.insert()` which has no audit logger. Callers should emit this event themselves if they need it in the audit trail.
 - `generate_audit_report(events)` produces self-contained HTML execution reports
 
 ## Flow diagram generation
