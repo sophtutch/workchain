@@ -726,16 +726,19 @@ class WorkflowEngine:
             "Step %s is non-idempotent with no verify hook. Marking NEEDS_REVIEW.",
             step.name,
         )
-        await self._store.advance_step(
+        wf_updated = await self._store.advance_step(
             wf.id,
             fence,
             idx,
             workflow_status=WorkflowStatus.NEEDS_REVIEW,
         )
-        wf = await self._store.get(wf.id)
-        if wf:
+        if wf_updated is None:
+            logger.warning("Fence rejected marking NEEDS_REVIEW for step %s", step.name)
+            self._active.pop(wf.id, None)
+            return None
+        if wf_updated:
             self._emit(
-                AuditEventType.RECOVERY_NEEDS_REVIEW, wf,
+                AuditEventType.RECOVERY_NEEDS_REVIEW, wf_updated,
                 step=step, idx=idx,
                 recovery_action="needs_review",
             )
