@@ -78,7 +78,7 @@ Guidelines for task breakdown:
 
 `/feature list`
 
-1. Read all `.md` files in `.claude/features/`
+1. Read all `.md` files in `.claude/features/` and `.claude/features/completed/`
 2. Parse the frontmatter and task checkboxes from each
 3. Display a table:
 
@@ -94,7 +94,7 @@ If no features exist, say "No features found. Use `/feature plan <name>` to crea
 
 `/feature status <name>`
 
-1. Read `.claude/features/<name>.md`
+1. Read `.claude/features/<name>.md` (or `.claude/features/completed/<name>.md`)
 2. Display the description and all tasks with their status:
 
 ```
@@ -126,15 +126,20 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
    - Read the feature file again (it may have been modified)
    - Mark the task as `[x]`
    - Add branch and PR metadata below the task
-   - If all tasks are now complete, set feature status to `completed`
-   - Save the file
-   - Report progress: "Task 3/5 complete. Next: `/feature next <name>`"
+   - If all tasks are now complete:
+     - Set feature status to `completed` in frontmatter
+     - Add `completed: <ISO date>` to frontmatter
+     - Add a `## PRs` section listing all task PRs
+     - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<name>.md`
+     - Report: "Feature <name> complete! Moved to completed/"
+   - Otherwise save the file and report progress: "Task 3/5 complete. Next: `/feature next <name>`"
 
 If `/ship` is interrupted or fails, leave the task as `[-]` so the user can resume with `/feature next <name>` (it will pick up the same task).
 
 ## Error handling
 
 - If `.claude/features/` doesn't exist, create it
+- If `.claude/features/completed/` doesn't exist, create it when first needed
 - If a feature file doesn't exist for `status` or `next`, report and suggest `plan`
-- If `next` is called on a completed feature, report that all tasks are done
+- If `next` is called on a completed feature, check `.claude/features/completed/<name>.md` and report that all tasks are done
 - If a task is already `[-]` (in progress), `next` picks it up (resume, don't skip)
