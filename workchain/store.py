@@ -93,7 +93,7 @@ class MongoWorkflowStore:
             return None
         return self._doc_to_workflow(doc)
 
-    async def update_step(
+    async def _fenced_step_update(
         self,
         workflow_id: str,
         step_index: int,
@@ -101,8 +101,8 @@ class MongoWorkflowStore:
         updates: dict,
     ) -> Workflow | None:
         """
-        Update a step's fields atomically, guarded by the fence token.
-        Rejects stale writes from instances whose lock has been stolen.
+        Low-level: update a step's fields atomically, guarded by the fence token.
+        Prefer the explicit methods (submit_step, complete_step, etc.) over this.
         """
         set_fields = {f"steps.{step_index}.{k}": v for k, v in updates.items()}
         set_fields["updated_at"] = datetime.now(UTC)
@@ -119,6 +119,150 @@ class MongoWorkflowStore:
             )
             return None
         return self._doc_to_workflow(doc)
+
+    # ------------------------------------------------------------------
+    # Explicit step-state transitions
+    # ------------------------------------------------------------------
+
+    async def submit_step(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        attempt: int,
+    ) -> Workflow | None:
+        """Mark a PENDING step as SUBMITTED with the given attempt number."""
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token,
+            {"status": StepStatus.SUBMITTED.value, "attempt": attempt},
+        )
+
+    async def mark_step_running(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        attempt: int,
+    ) -> Workflow | None:
+        """Transition a SUBMITTED step to RUNNING for the given attempt number."""
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token,
+            {"status": StepStatus.RUNNING.value, "attempt": attempt},
+        )
+
+    async def complete_step(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        result: dict | None = None,
+        result_type: str | None = None,
+        poll_count: int | None = None,
+        last_poll_at: datetime | None = None,
+        last_poll_progress: float | None = None,
+        last_poll_message: str | None = None,
+    ) -> Workflow | None:
+        """Mark a step as COMPLETED with its result."""
+        updates: dict = {"status": StepStatus.COMPLETED.value}
+        if result is not None:
+            updates["result"] = result
+        if result_type is not None:
+            updates["result_type"] = result_type
+        if poll_count is not None:
+            updates["poll_count"] = poll_count
+        if last_poll_at is not None:
+            updates["last_poll_at"] = last_poll_at
+        if last_poll_progress is not None:
+            updates["last_poll_progress"] = last_poll_progress
+        if last_poll_message is not None:
+            updates["last_poll_message"] = last_poll_message
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token, updates,
+        )
+
+    async def fail_step(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        result: dict,
+    ) -> Workflow | None:
+        """Mark a step as FAILED with an error result."""
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token,
+            {
+                "status": StepStatus.FAILED.value,
+                "result": result,
+                "result_type": None,
+            },
+        )
+
+    async def block_step(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        result: dict,
+        result_type: str | None,
+        poll_started_at: datetime,
+        next_poll_at: datetime,
+        current_poll_interval: float,
+        poll_count: int = 0,
+    ) -> Workflow | None:
+        """Transition a step to BLOCKED and initialise poll scheduling."""
+        updates: dict = {
+            "status": StepStatus.BLOCKED.value,
+            "result": result,
+            "poll_started_at": poll_started_at,
+            "next_poll_at": next_poll_at,
+            "current_poll_interval": current_poll_interval,
+            "poll_count": poll_count,
+        }
+        if result_type is not None:
+            updates["result_type"] = result_type
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token, updates,
+        )
+
+    async def schedule_next_poll(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        poll_count: int,
+        last_poll_at: datetime,
+        next_poll_at: datetime,
+        current_poll_interval: float,
+        last_poll_progress: float | None = None,
+        last_poll_message: str | None = None,
+    ) -> Workflow | None:
+        """Update poll scheduling for a BLOCKED step (not yet complete)."""
+        updates: dict = {
+            "poll_count": poll_count,
+            "last_poll_at": last_poll_at,
+            "next_poll_at": next_poll_at,
+            "current_poll_interval": current_poll_interval,
+        }
+        if last_poll_progress is not None:
+            updates["last_poll_progress"] = last_poll_progress
+        if last_poll_message is not None:
+            updates["last_poll_message"] = last_poll_message
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token, updates,
+        )
+
+    async def reset_step(
+        self,
+        workflow_id: str,
+        step_index: int,
+        fence_token: int,
+        status: StepStatus = StepStatus.PENDING,
+    ) -> Workflow | None:
+        """Reset a step to the given status (used in recovery)."""
+        return await self._fenced_step_update(
+            workflow_id, step_index, fence_token,
+            {"status": status.value},
+        )
 
     async def advance_step(
         self,

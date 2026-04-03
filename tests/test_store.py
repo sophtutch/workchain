@@ -192,34 +192,129 @@ class TestCrud:
 
 
 # ---------------------------------------------------------------------------
-# update_step
+# Explicit step-state transitions
 # ---------------------------------------------------------------------------
 
 
-class TestUpdateStep:
-    async def test_update_succeeds_with_correct_fence(self, store):
-        wf = Workflow(name="update_test", fence_token=1)
+class TestSubmitStep:
+    async def test_submit_step(self, store):
+        wf = Workflow(name="submit_test", fence_token=1)
         wf.steps = [Step(name="s1", handler="mod.func")]
         await store.insert(wf)
 
-        result = await store.update_step(wf.id, 0, 1, {"status": "submitted"})
+        result = await store.submit_step(wf.id, 0, 1, attempt=1)
         assert result is not None
         assert result.steps[0].status == StepStatus.SUBMITTED
+        assert result.steps[0].attempt == 1
 
-    async def test_update_rejected_with_wrong_fence(self, store):
+    async def test_submit_rejected_with_wrong_fence(self, store):
         wf = Workflow(name="fence_test", fence_token=1)
         wf.steps = [Step(name="s1", handler="mod.func")]
         await store.insert(wf)
 
-        result = await store.update_step(wf.id, 0, 999, {"status": "submitted"})
+        result = await store.submit_step(wf.id, 0, 999, attempt=1)
         assert result is None
 
-    async def test_update_changes_updated_at(self, store):
+
+class TestMarkStepRunning:
+    async def test_mark_running(self, store):
+        wf = Workflow(name="running_test", fence_token=1)
+        wf.steps = [Step(name="s1", handler="mod.func")]
+        await store.insert(wf)
+
+        result = await store.mark_step_running(wf.id, 0, 1, attempt=1)
+        assert result is not None
+        assert result.steps[0].status == StepStatus.RUNNING
+        assert result.steps[0].attempt == 1
+
+
+class TestCompleteStep:
+    async def test_complete_step(self, store):
+        wf = Workflow(name="complete_test", fence_token=1)
+        wf.steps = [Step(name="s1", handler="mod.func")]
+        await store.insert(wf)
+
+        result = await store.complete_step(
+            wf.id, 0, 1,
+            result={"error": None, "completed_at": None},
+        )
+        assert result is not None
+        assert result.steps[0].status == StepStatus.COMPLETED
+
+
+class TestFailStep:
+    async def test_fail_step(self, store):
+        wf = Workflow(name="fail_test", fence_token=1)
+        wf.steps = [Step(name="s1", handler="mod.func")]
+        await store.insert(wf)
+
+        result = await store.fail_step(
+            wf.id, 0, 1,
+            result={"error": "boom", "completed_at": None},
+        )
+        assert result is not None
+        assert result.steps[0].status == StepStatus.FAILED
+        assert result.steps[0].result_type is None
+
+
+class TestBlockStep:
+    async def test_block_step(self, store):
+        from datetime import UTC, datetime
+        wf = Workflow(name="block_test", fence_token=1)
+        wf.steps = [Step(name="s1", handler="mod.func")]
+        await store.insert(wf)
+        now = datetime.now(UTC)
+
+        result = await store.block_step(
+            wf.id, 0, 1,
+            result={"error": None, "completed_at": None},
+            result_type=None,
+            poll_started_at=now,
+            next_poll_at=now,
+            current_poll_interval=5.0,
+        )
+        assert result is not None
+        assert result.steps[0].status == StepStatus.BLOCKED
+        assert result.steps[0].poll_count == 0
+
+
+class TestScheduleNextPoll:
+    async def test_schedule_next_poll(self, store):
+        from datetime import UTC, datetime
+        wf = Workflow(name="poll_test", fence_token=1)
+        wf.steps = [Step(name="s1", handler="mod.func", status=StepStatus.BLOCKED)]
+        await store.insert(wf)
+        now = datetime.now(UTC)
+
+        result = await store.schedule_next_poll(
+            wf.id, 0, 1,
+            poll_count=1,
+            last_poll_at=now,
+            next_poll_at=now,
+            current_poll_interval=10.0,
+        )
+        assert result is not None
+        assert result.steps[0].poll_count == 1
+
+
+class TestResetStep:
+    async def test_reset_step(self, store):
+        wf = Workflow(name="reset_test", fence_token=1)
+        wf.steps = [Step(name="s1", handler="mod.func", status=StepStatus.SUBMITTED)]
+        await store.insert(wf)
+
+        result = await store.reset_step(wf.id, 0, 1)
+        assert result is not None
+        assert result.steps[0].status == StepStatus.PENDING
+
+
+class TestFencedStepUpdate:
+    async def test_changes_updated_at(self, store):
         wf = Workflow(name="ts_test", fence_token=1)
         wf.steps = [Step(name="s1", handler="mod.func")]
         await store.insert(wf)
 
-        result = await store.update_step(wf.id, 0, 1, {"status": "submitted"})
+        result = await store._fenced_step_update(wf.id, 0, 1, {"status": "submitted"})
         assert result.updated_at is not None
 
 
