@@ -141,6 +141,14 @@ class Workflow(BaseModel):
     steps: list[Step] = Field(default_factory=list)
     current_step_index: int = 0
 
+    @model_validator(mode="after")
+    def _validate_unique_step_names(self) -> Workflow:
+        names = [s.name for s in self.steps]
+        if len(names) != len(set(names)):
+            dupes = [n for n in names if names.count(n) > 1]
+            raise ValueError(f"Step names must be unique, found duplicates: {sorted(set(dupes))}")
+        return self
+
     # Distributed locking (MongoDB-managed)
     locked_by: str | None = None
     lock_expires_at: datetime | None = None
