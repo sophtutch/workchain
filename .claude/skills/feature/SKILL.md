@@ -13,8 +13,9 @@ First argument is the subcommand. Remaining arguments depend on the subcommand.
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `plan` | `/feature plan <name>` | Create a new feature and break into tasks |
-| `list` | `/feature list` | Show all features and progress |
+| `plan` | `/feature plan [name]` | Create a new feature and break into tasks |
+| `list` | `/feature list` | Show open features and progress |
+| `completed` | `/feature completed` | Show completed features |
 | `status` | `/feature status <name>` | Show a feature's tasks with status |
 | `next` | `/feature next <name>` | Ship the next pending task |
 
@@ -83,19 +84,34 @@ Guidelines for decomposition:
 
 `/feature list`
 
-1. Read all `.md` files in `.claude/features/` and `.claude/features/completed/`
+1. Read all `.md` files in `.claude/features/` (open features only, not completed/)
 2. Parse the frontmatter and task checkboxes from each
 3. Display a table:
 
 ```
-Feature              Status        Progress   Created
-store-typed-params   in_progress   2/5        2026-04-03
-audit-refactor       completed     5/5        2026-04-02
+Feature                      Status        Progress   Created
+typed-result-complete-step   in_progress   0/1        2026-04-04
+typed-result-fail-step       in_progress   0/1        2026-04-04
 ```
 
-If no features exist, say "No features found. Use `/feature plan <name>` to create one."
+If no open features exist, say "No open features. Use `/feature plan` to create one, or `/feature completed` to see completed features."
 
-After displaying the table, use `AskUserQuestion` to let the user select a feature to work on. List all non-completed features as options with their description as the option description. Include a "None — just browsing" option. If the user selects a feature, proceed to `next` for that feature.
+After displaying the table, use `AskUserQuestion` to let the user select a feature to work on. List all features as options with their description as the option description. If the user selects a feature, proceed to `next` for that feature.
+
+### completed
+
+`/feature completed`
+
+1. Read all `.md` files in `.claude/features/completed/`
+2. Parse the frontmatter from each
+3. Display a table:
+
+```
+Feature          Progress   Created      Completed
+audit-refactor   5/5        2026-04-02   2026-04-03
+```
+
+If no completed features exist, say "No completed features yet."
 
 ### status
 
