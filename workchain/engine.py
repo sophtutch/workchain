@@ -701,7 +701,7 @@ class WorkflowEngine:
 
         if step.idempotent:
             logger.info("Re-running idempotent step %s", step.name)
-            await self._store.update_step(
+            wf = await self._store.update_step(
                 wf.id,
                 idx,
                 fence,
@@ -709,7 +709,9 @@ class WorkflowEngine:
                     "status": StepStatus.PENDING.value,
                 },
             )
-            wf = await self._store.get(wf.id)
+            if wf is None:
+                logger.warning("Fence rejected during idempotent reset for step %s", step.name)
+                return None
             if wf:
                 self._emit(
                     AuditEventType.RECOVERY_RESET, wf,
