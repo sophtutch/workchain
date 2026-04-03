@@ -12,4 +12,4 @@ status: in_progress
 
 ## Tasks
 
-- [ ] refactor-complete-step: Change complete_step signature from result: dict to result: StepResult, remove result_summary param, serialize internally, update 4 engine call sites and test
+- [-] refactor-complete-step: Change complete_step signature from result: dict to result: StepResult, remove result_summary param, serialize internally, update 4 engine call sites and test

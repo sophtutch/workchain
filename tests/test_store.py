@@ -10,6 +10,7 @@ from tests.conftest import GreetConfig, GreetResult
 from workchain.models import (
     Step,
     StepConfig,
+    StepResult,
     StepStatus,
     Workflow,
     WorkflowStatus,
@@ -236,7 +237,7 @@ class TestCompleteStep:
 
         result = await store.complete_step(
             wf.id, 0, 1,
-            result={"error": None, "completed_at": None},
+            result=StepResult(),
         )
         assert result is not None
         assert result.steps[0].status == StepStatus.COMPLETED

@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
 from workchain.audit import AuditEvent, AuditEventType, NullAuditLogger
-from workchain.models import Step, StepStatus, Workflow, WorkflowStatus
+from workchain.models import Step, StepResult, StepStatus, Workflow, WorkflowStatus
 
 if TYPE_CHECKING:
     from workchain.audit import AuditLogger
@@ -237,7 +237,7 @@ class MongoWorkflowStore:
         workflow_id: str,
         step_index: int,
         fence_token: int,
-        result: dict | None = None,
+        result: StepResult | None = None,
         result_type: str | None = None,
         poll_count: int | None = None,
         last_poll_at: datetime | None = None,
@@ -246,14 +246,13 @@ class MongoWorkflowStore:
         # Audit context
         audit_event_type: AuditEventType | None = None,
         step_status_before: str = StepStatus.RUNNING.value,
-        result_summary: dict | None = None,
         recovery_action: str | None = None,
         **audit_kwargs: Any,
     ) -> Workflow | None:
         """Mark a step as COMPLETED with its result."""
         updates: dict = {"status": StepStatus.COMPLETED.value}
         if result is not None:
-            updates["result"] = result
+            updates["result"] = result.model_dump(mode="python", serialize_as_any=True)
         if result_type is not None:
             updates["result_type"] = result_type
         if poll_count is not None:
@@ -273,7 +272,7 @@ class MongoWorkflowStore:
                 evt, wf,
                 step=wf.steps[step_index], idx=step_index,
                 step_status_before=step_status_before,
-                result_summary=result_summary,
+                result_summary=result.model_dump(exclude_none=True) if result else None,
                 recovery_action=recovery_action,
                 poll_count=poll_count,
                 poll_progress=last_poll_progress,
