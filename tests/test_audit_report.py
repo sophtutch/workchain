@@ -243,6 +243,7 @@ class TestCancelledWorkflowReport:
         assert html, "Report should not be empty"
         assert "cancelled" in html.lower()
         assert "test_cancel" in html
+        assert "Workflow Cancelled" in html
 
 
 class TestGenerateAuditReport:
