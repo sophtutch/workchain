@@ -850,3 +850,173 @@ class TestStepTimeout:
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.COMPLETED
         assert loaded.steps[0].status == StepStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Completeness check retries
+# ---------------------------------------------------------------------------
+
+
+class TestCompletenessCheckRetries:
+    async def test_check_retries_on_error_then_succeeds(self, store, engine):
+        """Check raises once then returns True — step completes."""
+        call_count = 0
+
+        async def flaky_check(_config, _results, _result):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                raise RuntimeError("transient error")
+            return PollHint(complete=True)
+
+        flaky_check._step_meta = {
+            "needs_context": False,
+            "retry": RetryPolicy(max_attempts=3, wait_seconds=0.01, wait_multiplier=1.0),
+        }
+        _STEP_REGISTRY["tests.flaky_check"] = flaky_check
+
+        wf = Workflow(
+            name="check_retry_test",
+            steps=[
+                Step(
+                    name="async_step",
+                    handler=async_submit_handler._step_meta["handler"],
+                    is_async=True,
+                    completeness_check="tests.flaky_check",
+                    poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(2.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert loaded.steps[0].status == StepStatus.COMPLETED
+        assert call_count == 2  # 1 failure + 1 success
+
+    async def test_check_retry_exhaustion_fails_step(self, store, engine):
+        """Check always raises — step fails after retries exhausted."""
+        call_count = 0
+
+        async def always_fail_check(_config, _results, _result):
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("persistent error")
+
+        always_fail_check._step_meta = {
+            "needs_context": False,
+            "retry": RetryPolicy(max_attempts=2, wait_seconds=0.01, wait_multiplier=1.0),
+        }
+        _STEP_REGISTRY["tests.always_fail_check"] = always_fail_check
+
+        wf = Workflow(
+            name="check_exhaust_test",
+            steps=[
+                Step(
+                    name="async_step",
+                    handler=async_submit_handler._step_meta["handler"],
+                    is_async=True,
+                    completeness_check="tests.always_fail_check",
+                    poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(2.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.steps[0].status == StepStatus.FAILED
+        assert "persistent error" in (loaded.steps[0].result.error or "")
+        # Should have been called exactly max_attempts times in one poll cycle
+        assert call_count == 2
+
+    async def test_check_no_retry_on_false_return(self, store, engine):
+        """Check returns False (not complete) — no retry, schedules next poll."""
+        call_count = 0
+
+        async def slow_check(_config, _results, _result):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                return PollHint(complete=True)
+            return PollHint(complete=False)
+
+        slow_check._step_meta = {
+            "needs_context": False,
+            "retry": RetryPolicy(max_attempts=3, wait_seconds=0.01, wait_multiplier=1.0),
+        }
+        _STEP_REGISTRY["tests.slow_check"] = slow_check
+
+        wf = Workflow(
+            name="no_retry_false_test",
+            steps=[
+                Step(
+                    name="async_step",
+                    handler=async_submit_handler._step_meta["handler"],
+                    is_async=True,
+                    completeness_check="tests.slow_check",
+                    poll_policy=PollPolicy(interval=0.05, timeout=5.0, max_polls=10),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(1.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        # Each call returns immediately (no retry on False), so 3 poll cycles
+        assert call_count == 3
+
+    async def test_check_default_retry_policy_fails_after_max_attempts(self, store, engine):
+        """Check with no explicit retry uses default RetryPolicy (max_attempts=3).
+
+        We verify the default policy is applied by making the check always
+        fail.  The step should fail after 3 attempts (default max_attempts).
+        """
+        call_count = 0
+
+        async def always_fail_default(_config, _results, _result):
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("always fails")
+
+        # No retry in _step_meta — engine falls back to RetryPolicy()
+        always_fail_default._step_meta = {"needs_context": False}
+        _STEP_REGISTRY["tests.always_fail_default"] = always_fail_default
+
+        wf = Workflow(
+            name="default_retry_test",
+            steps=[
+                Step(
+                    name="async_step",
+                    handler=async_submit_handler._step_meta["handler"],
+                    is_async=True,
+                    completeness_check="tests.always_fail_default",
+                    poll_policy=PollPolicy(interval=0.05, timeout=30.0, max_polls=10),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(8.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        # Default RetryPolicy has max_attempts=3, step should fail
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.steps[0].status == StepStatus.FAILED
+        assert "always fails" in (loaded.steps[0].result.error or "")
+        # Default max_attempts=3: called 3 times then exhausted
+        assert call_count == 3

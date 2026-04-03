@@ -24,6 +24,7 @@ from workchain.decorators import get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
     PollHint,
+    RetryPolicy,
     Step,
     StepResult,
     StepStatus,
@@ -857,24 +858,68 @@ class WorkflowEngine:
                 )
             return "failed"
 
-        # --- Execute completeness check ---
+        # --- Execute completeness check (with retries) ---
+        check_meta = getattr(checker, "_step_meta", {})
+        check_retry_policy = check_meta.get("retry", RetryPolicy())
+
         hint: PollHint | None = None
         is_complete = False
         try:
-            raw = await self._call_handler(checker, step.config, _build_results(wf, idx), step_result)
-
-            if isinstance(raw, bool):
-                is_complete = raw
-            elif isinstance(raw, dict):
-                hint = PollHint.model_validate(raw)
-                is_complete = hint.complete
-            elif isinstance(raw, PollHint):
-                hint = raw
-                is_complete = hint.complete
-            else:
-                is_complete = bool(raw)
+            retrying = retrying_from_policy(check_retry_policy)
+            async for attempt in retrying:
+                with attempt:
+                    raw = await self._call_handler(
+                        checker, step.config, _build_results(wf, idx), step_result
+                    )
         except Exception:
-            logger.exception("completeness_check error for step %s", step.name)
+            # All retries exhausted — fail the step (terminal)
+            logger.exception(
+                "completeness_check failed after %d attempts for step %s",
+                check_retry_policy.max_attempts,
+                step.name,
+            )
+            wf_id = wf.id
+            fail_result = StepResult(
+                error=traceback.format_exc(),
+                completed_at=now,
+            )
+            wf = await self._store.update_step(
+                wf_id,
+                idx,
+                fence,
+                {
+                    "status": StepStatus.FAILED.value,
+                    "result": fail_result.model_dump(mode="python", serialize_as_any=True),
+                    "result_type": None,
+                },
+            )
+            if wf:
+                self._emit(
+                    AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, wf,
+                    step=wf.steps[idx], idx=idx,
+                    poll_count=step.poll_count,
+                    error=fail_result.error,
+                )
+                await self._store.advance_step(
+                    wf_id,
+                    fence,
+                    idx,
+                    workflow_status=WorkflowStatus.FAILED,
+                )
+            self._active.pop(wf_id, None)
+            return "failed"
+
+        # --- Parse check result (outside retry block to avoid masking) ---
+        if isinstance(raw, bool):
+            is_complete = raw
+        elif isinstance(raw, dict):
+            hint = PollHint.model_validate(raw)
+            is_complete = hint.complete
+        elif isinstance(raw, PollHint):
+            hint = raw
+            is_complete = hint.complete
+        else:
+            is_complete = bool(raw)
 
         # --- Persist poll state ---
         current_interval = step.current_poll_interval or policy.interval

@@ -116,6 +116,7 @@ def async_step(
 
 def completeness_check(
     needs_context: bool = False,
+    retry: RetryPolicy | None = None,
 ):
     """
     Decorator to register a completeness check function for async steps.
@@ -128,6 +129,11 @@ def completeness_check(
 
     Set ``needs_context=True`` to receive the engine context dict as the
     fourth argument.  The handler name is auto-generated from module + qualname.
+
+    Set ``retry`` to configure retry behavior when the check throws an
+    exception.  Defaults to ``RetryPolicy()`` (3 attempts, exponential
+    backoff).  If all retries are exhausted within a single poll cycle,
+    the step fails immediately.
     """
     def decorator(fn: Callable) -> Callable:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
@@ -135,6 +141,7 @@ def completeness_check(
             "handler": handler_name,
             "is_completeness_check": True,
             "needs_context": needs_context,
+            "retry": retry or RetryPolicy(),
         }
         _STEP_REGISTRY[handler_name] = fn
         return fn

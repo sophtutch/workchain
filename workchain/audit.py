@@ -47,6 +47,7 @@ class AuditEventType(str, Enum):
     POLL_CHECKED = "poll_checked"
     POLL_TIMEOUT = "poll_timeout"
     POLL_MAX_EXCEEDED = "poll_max_exceeded"
+    POLL_CHECK_ERRORS_EXCEEDED = "poll_check_errors_exceeded"
 
     # Locking
     LOCK_RELEASED = "lock_released"
