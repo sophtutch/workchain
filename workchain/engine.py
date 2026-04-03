@@ -871,17 +871,6 @@ class WorkflowEngine:
                     raw = await self._call_handler(
                         checker, step.config, _build_results(wf, idx), step_result
                     )
-
-            if isinstance(raw, bool):
-                is_complete = raw
-            elif isinstance(raw, dict):
-                hint = PollHint.model_validate(raw)
-                is_complete = hint.complete
-            elif isinstance(raw, PollHint):
-                hint = raw
-                is_complete = hint.complete
-            else:
-                is_complete = bool(raw)
         except Exception:
             # All retries exhausted — fail the step (terminal)
             logger.exception(
@@ -919,6 +908,18 @@ class WorkflowEngine:
                 )
             self._active.pop(wf_id, None)
             return "failed"
+
+        # --- Parse check result (outside retry block to avoid masking) ---
+        if isinstance(raw, bool):
+            is_complete = raw
+        elif isinstance(raw, dict):
+            hint = PollHint.model_validate(raw)
+            is_complete = hint.complete
+        elif isinstance(raw, PollHint):
+            hint = raw
+            is_complete = hint.complete
+        else:
+            is_complete = bool(raw)
 
         # --- Persist poll state ---
         current_interval = step.current_poll_interval or policy.interval
