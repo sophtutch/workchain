@@ -60,6 +60,7 @@ workchain/
 2. Fast sweep rediscovers workflow when `next_poll_at` passes
 3. Claim, run one `completeness_check`, if not done → schedule next poll, release lock
 4. Repeat until complete or timeout/max_polls exceeded
+5. If `completeness_check` throws, the engine retries using the check's `RetryPolicy` (configured via `@completeness_check(retry=...)`). If all retries are exhausted within a single poll cycle, the step fails immediately.
 
 **Engine context (dependency injection)**
 - `WorkflowEngine(store, context={"db": db})` passes a dict to handlers that declare `needs_context=True`
@@ -93,7 +94,7 @@ The engine emits structured `AuditEvent` objects for every MongoDB write that ch
 - **`AuditLogger` protocol** — pluggable backend with `emit(event)` and `get_events(workflow_id)`
 - **`MongoAuditLogger`** — fire-and-forget writes to `workflow_audit_log` collection. Failures log a warning but never block workflow execution.
 - **`NullAuditLogger`** — no-op default when no logger is passed
-- **24 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
+- **25 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `POLL_CHECK_ERRORS_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
 - Events ordered by per-workflow `sequence` number (in-memory counter, causal within single instance)
 - `generate_audit_report(events)` produces self-contained HTML execution reports
 
