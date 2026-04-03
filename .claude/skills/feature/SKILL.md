@@ -159,7 +159,8 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
    - Missing examples or incomplete examples
    - Gaps in error handling or validation
 2. Present findings to the user as potential features
-3. If the user selects one, proceed to `/feature plan` for it
+3. Use `AskUserQuestion` to let the user select a finding to plan. Each finding becomes an option with a short description. Include a "None — nothing to do right now" option.
+4. If the user selects a finding, proceed to `/feature plan` with the finding as context
 
 **If a name is provided:**
 
