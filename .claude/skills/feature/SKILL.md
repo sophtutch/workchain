@@ -28,8 +28,8 @@ Features are stored as markdown files in `.claude/features/<name>.md`, git-track
 ```markdown
 ---
 name: <feature-name>
-created: <ISO date>
-status: planning | in_progress | completed
+created: <ISO 8601 datetime>
+status: planned | in_progress | completed
 ---
 
 # <Feature Title>
@@ -70,7 +70,7 @@ Task format:
    c. Write `.claude/features/<name>.md` with all tasks marked `[ ]`
 5. Present all feature(s) and their tasks to the user for review
 6. Adjust based on user feedback (add, remove, reorder, split, merge features or tasks)
-7. Set feature status to `in_progress` once the user approves
+7. Set feature status to `planned` once the user approves. Status transitions to `in_progress` when the first task is started via `/feature next`.
 
 Guidelines for decomposition:
 - A single feature should have 1-5 tasks. If you have more, consider splitting into multiple features.
@@ -167,7 +167,8 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
 1. Read `.claude/features/<name>.md`
 2. Find the first pending task (`[ ]`)
 3. If no pending tasks remain, mark the feature as `completed` and report
-4. Mark the task as in progress (`[-]`) and save the file
+4. If the feature status is `planned`, transition it to `in_progress`
+5. Mark the task as in progress (`[-]`) and save the file
 5. Derive a branch name: `<feature-name>/<task-id>` (e.g. `store-typed-params/replace-complete-step-dict`)
 6. Tell the user what task is being shipped and invoke `/ship <branch-name>`
 7. After `/ship` completes (PR merged and on clean main):
@@ -176,7 +177,7 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
    - Add branch and PR metadata below the task
    - If all tasks are now complete:
      - Set feature status to `completed` in frontmatter
-     - Add `completed: <ISO date>` to frontmatter
+     - Add `completed: <ISO 8601 datetime>` to frontmatter
      - Add a `## PRs` section listing all task PRs
      - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<name>.md`
      - Report: "Feature <name> complete! Moved to completed/"

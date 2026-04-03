@@ -1,7 +1,7 @@
 ---
 name: typed-result-complete-step
-created: 2026-04-04
-completed: 2026-04-04
+created: 2026-04-04T10:00:00Z
+completed: 2026-04-04T20:30:00Z
 status: completed
 ---
 
