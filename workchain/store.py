@@ -22,7 +22,13 @@ def _import_class(dotted_path: str) -> type:
     if not module_path:
         raise ValueError(f"Invalid dotted path: {dotted_path}")
     mod = importlib.import_module(module_path)
-    return getattr(mod, class_name)
+    try:
+        return getattr(mod, class_name)
+    except AttributeError as e:
+        raise ImportError(
+            f"Cannot find '{class_name}' in module '{module_path}' "
+            f"(full path: {dotted_path})"
+        ) from e
 
 
 class MongoWorkflowStore:
