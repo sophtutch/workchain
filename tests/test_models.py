@@ -279,6 +279,26 @@ class TestWorkflow:
         w = Workflow(name="test", status=status)
         assert w.is_terminal() is expected
 
+    def test_duplicate_step_names_raises(self):
+        with pytest.raises(ValidationError, match="Step names must be unique"):
+            Workflow(
+                name="test",
+                steps=[
+                    Step(name="same", handler="mod.func"),
+                    Step(name="same", handler="mod.func2"),
+                ],
+            )
+
+    def test_unique_step_names_valid(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="s1", handler="mod.func"),
+                Step(name="s2", handler="mod.func2"),
+            ],
+        )
+        assert len(w.steps) == 2
+
     def test_with_steps(self):
         w = Workflow(
             name="test",
