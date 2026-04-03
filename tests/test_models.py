@@ -83,6 +83,18 @@ class TestPollHint:
         with pytest.raises(ValidationError):
             PollHint(progress=1.1)
 
+    def test_progress_nan_raises(self):
+        with pytest.raises(ValidationError, match="finite number"):
+            PollHint(progress=float("nan"))
+
+    def test_progress_inf_raises(self):
+        with pytest.raises(ValidationError, match="finite number"):
+            PollHint(progress=float("inf"))
+
+    def test_progress_neg_inf_raises(self):
+        with pytest.raises(ValidationError, match="finite number"):
+            PollHint(progress=float("-inf"))
+
     def test_progress_none_valid(self):
         h = PollHint(progress=None)
         assert h.progress is None

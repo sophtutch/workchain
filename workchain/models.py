@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
@@ -80,8 +81,11 @@ class PollHint(BaseModel):
     @field_validator("progress")
     @classmethod
     def _clamp_progress(cls, v: float | None) -> float | None:
-        if v is not None and not (0.0 <= v <= 1.0):
-            raise ValueError("progress must be between 0.0 and 1.0")
+        if v is not None:
+            if math.isnan(v) or math.isinf(v):
+                raise ValueError("progress must be a finite number")
+            if not (0.0 <= v <= 1.0):
+                raise ValueError("progress must be between 0.0 and 1.0")
         return v
 
 
