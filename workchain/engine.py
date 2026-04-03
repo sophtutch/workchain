@@ -400,7 +400,7 @@ class WorkflowEngine:
 
                 # --- Normal execution: PENDING step ---
                 # Mark step as SUBMITTED (crash-safe write-ahead)
-                wf = await self._store.submit_step(wf_id, idx, fence)
+                wf = await self._store.submit_step(wf_id, idx, fence, attempt=step.attempt + 1)
                 if wf is None:
                     return  # fence rejected
 
@@ -872,6 +872,7 @@ class WorkflowEngine:
                 wf.id, idx, fence,
                 result=completed_result.model_dump(mode="python", serialize_as_any=True),
                 poll_count=new_poll_count,
+                last_poll_at=now,
                 last_poll_progress=poll_progress,
                 last_poll_message=poll_message,
             )

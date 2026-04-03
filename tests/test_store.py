@@ -202,16 +202,17 @@ class TestSubmitStep:
         wf.steps = [Step(name="s1", handler="mod.func")]
         await store.insert(wf)
 
-        result = await store.submit_step(wf.id, 0, 1)
+        result = await store.submit_step(wf.id, 0, 1, attempt=1)
         assert result is not None
         assert result.steps[0].status == StepStatus.SUBMITTED
+        assert result.steps[0].attempt == 1
 
     async def test_submit_rejected_with_wrong_fence(self, store):
         wf = Workflow(name="fence_test", fence_token=1)
         wf.steps = [Step(name="s1", handler="mod.func")]
         await store.insert(wf)
 
-        result = await store.submit_step(wf.id, 0, 999)
+        result = await store.submit_step(wf.id, 0, 999, attempt=1)
         assert result is None
 
 

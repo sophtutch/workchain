@@ -129,11 +129,12 @@ class MongoWorkflowStore:
         workflow_id: str,
         step_index: int,
         fence_token: int,
+        attempt: int,
     ) -> Workflow | None:
-        """Mark a PENDING step as SUBMITTED and increment its attempt counter."""
+        """Mark a PENDING step as SUBMITTED with the given attempt number."""
         return await self._fenced_step_update(
             workflow_id, step_index, fence_token,
-            {"status": StepStatus.SUBMITTED.value},
+            {"status": StepStatus.SUBMITTED.value, "attempt": attempt},
         )
 
     async def mark_step_running(
@@ -157,6 +158,7 @@ class MongoWorkflowStore:
         result: dict | None = None,
         result_type: str | None = None,
         poll_count: int | None = None,
+        last_poll_at: datetime | None = None,
         last_poll_progress: float | None = None,
         last_poll_message: str | None = None,
     ) -> Workflow | None:
@@ -168,6 +170,8 @@ class MongoWorkflowStore:
             updates["result_type"] = result_type
         if poll_count is not None:
             updates["poll_count"] = poll_count
+        if last_poll_at is not None:
+            updates["last_poll_at"] = last_poll_at
         if last_poll_progress is not None:
             updates["last_poll_progress"] = last_poll_progress
         if last_poll_message is not None:
