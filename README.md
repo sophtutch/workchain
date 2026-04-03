@@ -44,8 +44,8 @@ class ProvisionResult(StepResult):
     job_id: str
 
 @completeness_check()
-async def check_provisioning(config, results, result: ProvisionResult) -> dict:
-    return {"complete": False, "progress": 0.5}
+async def check_provisioning(config, results, result: ProvisionResult) -> PollHint:
+    return PollHint(complete=False, progress=0.5)
 
 @async_step(
     completeness_check=check_provisioning,
