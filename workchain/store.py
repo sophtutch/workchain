@@ -286,12 +286,10 @@ class MongoWorkflowStore:
         workflow_id: str,
         step_index: int,
         fence_token: int,
-        result: dict,
+        result: StepResult,
         # Audit context
         audit_event_type: AuditEventType | None = None,
         step_status_before: str = StepStatus.RUNNING.value,
-        error: str | None = None,
-        error_traceback: str | None = None,
         poll_count: int | None = None,
         poll_elapsed_seconds: float | None = None,
         **audit_kwargs: Any,
@@ -301,18 +299,20 @@ class MongoWorkflowStore:
             workflow_id, step_index, fence_token,
             {
                 "status": StepStatus.FAILED.value,
-                "result": result,
+                "result": result.model_dump(mode="python", serialize_as_any=True),
                 "result_type": None,
             },
         )
         if wf is not None:
             evt = audit_event_type or AuditEventType.STEP_FAILED
+            error_lines = (result.error or "").strip().splitlines()
+            brief_error = error_lines[-1] if error_lines else None
             self._emit(
                 evt, wf,
                 step=wf.steps[step_index], idx=step_index,
                 step_status_before=step_status_before,
-                error=error,
-                error_traceback=error_traceback,
+                error=brief_error,
+                error_traceback=result.error,
                 poll_count=poll_count,
                 poll_elapsed_seconds=poll_elapsed_seconds,
                 **audit_kwargs,
