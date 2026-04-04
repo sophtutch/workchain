@@ -222,7 +222,7 @@ async def check_training(config, results, result: TrainResult) -> PollHint:
     if status == "initializing":
         return PollHint(complete=False, retry_after=5.0)   # poll again quickly
     if status == "running":
-        return PollHint(complete=False, retry_after=60.0, progress=status.percent)
+        return PollHint(complete=False, retry_after=60.0)  # poll less frequently
     return PollHint(complete=True)
 ```
 
@@ -271,7 +271,7 @@ async def charge_payment(config: PaymentConfig, results: dict[str, StepResult]) 
     receipt = await payment_gateway.charge(config.amount)
     return PaymentResult(receipt_id=receipt.id)
 
-@step()
+@completeness_check()
 async def verify_charge(config: PaymentConfig, results: dict[str, StepResult], result: PaymentResult) -> bool:
     """Check if the charge went through by querying the payment gateway."""
     return await payment_gateway.has_receipt(result.receipt_id)
