@@ -438,12 +438,11 @@ class WorkflowEngine:
                     # Store emits STEP_BLOCKED
                     wf = await self._store.block_step(
                         wf_id, idx, fence,
-                        result=result.model_dump(mode="python", serialize_as_any=True),
+                        result=result,
                         result_type=result_type,
                         poll_started_at=now,
                         next_poll_at=next_poll,
                         current_poll_interval=policy.interval,
-                        result_summary=result.model_dump(exclude_none=True),
                     )
                     if wf is None:
                         return
@@ -594,7 +593,7 @@ class WorkflowEngine:
                 # Store emits RECOVERY_BLOCKED via audit_event_type override
                 wf = await self._store.block_step(
                     wf.id, idx, fence,
-                    result=step.result.model_dump(mode="python", serialize_as_any=True) if step.result else {},
+                    result=step.result or StepResult(),
                     result_type=step.result_type,
                     poll_started_at=now,
                     next_poll_at=now + timedelta(seconds=policy.interval),
