@@ -255,6 +255,40 @@ engine = WorkflowEngine(
 )
 ```
 
+### FastAPI example
+
+Wire the engine into FastAPI's lifespan so timers start/stop with the app:
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from motor.motor_asyncio import AsyncIOMotorClient
+from workchain import MongoWorkflowStore, WorkflowEngine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["myapp"]
+    store = MongoWorkflowStore(db, lock_ttl_seconds=30)
+
+    async with WorkflowEngine(
+        store,
+        claim_interval=2.0,
+        sweep_interval=30.0,
+        step_stuck_seconds=120.0,
+        max_concurrent=10,
+        context={"db": db, "store": store},
+    ) as engine:
+        app.state.engine = engine
+        app.state.store = store
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+```
+
 ## Crash Recovery: verify_completion
 
 When the engine reclaims a workflow with a step stuck in SUBMITTED or RUNNING state (after a crash), it runs a recovery cascade:
