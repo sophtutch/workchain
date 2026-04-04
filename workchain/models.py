@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 
 def _utcnow() -> datetime:
@@ -57,6 +57,13 @@ class PollPolicy(BaseModel):
     max_interval: float = 60.0         # ceiling for backoff
     timeout: float = 3600.0            # max total seconds before poll failure (0 = no timeout)
     max_polls: int = 0                 # max poll attempts before failure (0 = unlimited)
+
+    @field_validator("interval", "backoff_multiplier", "max_interval", "timeout", "max_polls")
+    @classmethod
+    def _validate_non_negative(cls, v: float, info: ValidationInfo) -> float:
+        if v < 0:
+            raise ValueError(f"{info.field_name} must not be negative")
+        return v
 
 
 # ---------------------------------------------------------------------------
