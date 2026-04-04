@@ -19,6 +19,7 @@ from typing import cast
 from pydantic import Field
 
 from workchain import (
+    CheckResult,
     PollPolicy,
     StepConfig,
     StepResult,
@@ -124,22 +125,21 @@ async def check_database(
     _config: DatabaseConfig,
     _results: dict[str, StepResult],
     result: DatabaseResult,
-) -> dict:
+) -> CheckResult:
     """Completeness check: simulates database becoming available after 3 polls."""
     stages = [
         (0.3, "creating", "Creating DB instance"),
         (0.6, "configuring", "Configuring parameter groups"),
         (1.0, "available", "Database available"),
     ]
-    # Pick a stage based on random progress to simulate advancement
     progress = _rng.choice([s[0] for s in stages])
 
     if progress >= 1.0:
         logger.info("[db] Instance %s is available!", result.db_instance_id)
-        return {"complete": True, "progress": 1.0, "message": "Database available"}
+        return CheckResult(complete=True, progress=1.0, message="Database available")
     label = next(s[2] for s in stages if s[0] == progress)
     logger.info("[db] Instance %s -- %s (%.0f%%)", result.db_instance_id, label, progress * 100)
-    return {"complete": False, "progress": progress, "message": label}
+    return CheckResult(complete=False, progress=progress, message=label)
 
 
 @async_step(
@@ -175,7 +175,7 @@ async def check_deployment(
     config: DeployConfig,
     _results: dict[str, StepResult],
     result: DeployResult,
-) -> dict:
+) -> CheckResult:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
     if _rng.random() < 0.5:
         ready = max(1, config.replicas - 1)
@@ -183,20 +183,16 @@ async def check_deployment(
             "[deploy] Deployment %s -- %d/%d replicas ready",
             result.deployment_id, ready, config.replicas,
         )
-        return {
-            "complete": False,
-            "progress": ready / config.replicas,
-            "message": f"{ready}/{config.replicas} replicas ready",
-        }
+        return CheckResult(
+            complete=False,
+            progress=ready / config.replicas,
+            message=f"{ready}/{config.replicas} replicas ready",
+        )
     logger.info(
         "[deploy] Deployment %s -- %d/%d replicas healthy!",
         result.deployment_id, config.replicas, config.replicas,
     )
-    return {
-        "complete": True,
-        "progress": 1.0,
-        "message": "All replicas healthy",
-    }
+    return CheckResult(complete=True, progress=1.0, message="All replicas healthy")
 
 
 @async_step(
@@ -248,17 +244,13 @@ async def check_tls_cert(
     config: TlsConfig,
     _results: dict[str, StepResult],
     _result: TlsResult,
-) -> dict:
+) -> CheckResult:
     """Completeness check: simulates certificate issued after 2 polls."""
     if _rng.random() < 0.5:
         logger.info("[tls] Certificate for %s -- pending validation", config.domain)
-        return {
-            "complete": False,
-            "progress": 0.5,
-            "message": "Pending domain validation",
-        }
+        return CheckResult(complete=False, progress=0.5, message="Pending domain validation")
     logger.info("[tls] Certificate for %s -- issued!", config.domain)
-    return {"complete": True, "progress": 1.0, "message": "Certificate issued"}
+    return CheckResult(complete=True, progress=1.0, message="Certificate issued")
 
 
 @async_step(

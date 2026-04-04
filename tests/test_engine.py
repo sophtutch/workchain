@@ -21,7 +21,7 @@ from tests.conftest import (
     noop_handler,
     verify_done,
 )
-from workchain.decorators import _STEP_REGISTRY
+from workchain.decorators import _STEP_REGISTRY, _normalize_check_result
 from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
 from workchain.exceptions import HandlerError
 from workchain.models import (
@@ -116,6 +116,45 @@ class TestWrapHandlerReturn:
         result_data = StepResult(completed_at=ts)
         result, _ = _wrap_handler_return(result_data)
         assert result.completed_at == ts
+
+
+# ---------------------------------------------------------------------------
+# _normalize_check_result
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeCheckResult:
+    def test_check_result_passthrough(self):
+        cr = CheckResult(complete=True, progress=1.0)
+        assert _normalize_check_result(cr) is cr
+
+    def test_dict_to_check_result(self):
+        result = _normalize_check_result({"complete": True, "progress": 0.8, "message": "done"})
+        assert isinstance(result, CheckResult)
+        assert result.complete is True
+        assert result.progress == 0.8
+
+    def test_bool_true_to_check_result(self):
+        result = _normalize_check_result(True)
+        assert isinstance(result, CheckResult)
+        assert result.complete is True
+
+    def test_bool_false_to_check_result(self):
+        result = _normalize_check_result(False)
+        assert isinstance(result, CheckResult)
+        assert result.complete is False
+
+    def test_invalid_type_raises_type_error(self):
+        with pytest.raises(TypeError, match="got str"):
+            _normalize_check_result("done")
+
+    def test_invalid_int_raises_type_error(self):
+        with pytest.raises(TypeError, match="got int"):
+            _normalize_check_result(42)
+
+    def test_invalid_none_raises_type_error(self):
+        with pytest.raises(TypeError, match="got NoneType"):
+            _normalize_check_result(None)
 
 
 # ---------------------------------------------------------------------------

@@ -52,7 +52,7 @@ workchain/
 **Crash-safe state machine**
 - Before execution: step is marked SUBMITTED (write-ahead)
 - On recovery: `verify_completion` / `completeness_check` / idempotent re-run / NEEDS_REVIEW
-- Recovery handles all completeness_check return types: `bool`, `dict`, `CheckResult`, and truthy values
+- Recovery uses `CheckResult.complete` directly — the `@completeness_check` decorator normalizes all return types
 - Each retry attempt is persisted to MongoDB before execution
 
 **Claim-poll-release cycle (async steps)**
@@ -83,7 +83,7 @@ workchain/
 ## Files to modify with care
 
 - `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures. The explicit step-state methods (`submit_step`, `complete_step`, `fail_step`, `block_step`, `schedule_next_poll`, `mark_step_running`, `reset_step`) all delegate to `_fenced_step_update` — the generic method is private and should not be called directly from the engine
-- `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios and all completeness_check return types; understand all paths before changing
+- `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios; understand all paths before changing
 - `engine.py` `_call_handler()` — uses `_step_meta["needs_context"]` and `iscoroutine` safety net; do not reintroduce `inspect.signature`
 - `models.py` — changing field names affects all persisted MongoDB documents; `Step._set_type_paths` auto-populates `config_type`/`result_type`
 - `decorators.py` — `_step_meta` dict is the contract between decorators and engine; adding/removing keys affects both

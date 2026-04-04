@@ -23,7 +23,6 @@ from workchain.audit import AuditEvent, AuditEventType
 from workchain.decorators import get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
-    CheckResult,
     RetryPolicy,
     Step,
     StepResult,
@@ -564,18 +563,11 @@ class WorkflowEngine:
         if step.is_async and step.completeness_check and step.result:
             try:
                 checker = get_handler(step.completeness_check)
-                raw = await self._call_handler(checker, step.config, _build_results(wf, idx), step.result)
+                check_result = await self._call_handler(checker, step.config, _build_results(wf, idx), step.result)
                 # If the check doesn't throw, the submission went through.
                 # Transition to BLOCKED so we poll instead of re-submitting.
-                is_complete = False
-                if isinstance(raw, bool):
-                    is_complete = raw
-                elif isinstance(raw, dict):
-                    is_complete = raw.get("complete", False)
-                elif isinstance(raw, CheckResult):
-                    is_complete = raw.complete
-                else:
-                    is_complete = bool(raw)
+                # The @completeness_check decorator normalizes returns to CheckResult.
+                is_complete = check_result.complete
                 if is_complete:
                     logger.info("Step %s already complete after recovery.", step.name)
                     # Store emits RECOVERY_VERIFIED via audit_event_type override
@@ -734,13 +726,12 @@ class WorkflowEngine:
         check_meta = getattr(checker, "_step_meta", {})
         check_retry_policy = check_meta.get("retry", RetryPolicy())
 
-        hint: CheckResult | None = None
         is_complete = False
         try:
             retrying = retrying_from_policy(check_retry_policy)
             async for attempt in retrying:
                 with attempt:
-                    raw = await self._call_handler(
+                    check_result = await self._call_handler(
                         checker, step.config, _build_results(wf, idx), step_result
                     )
         except Exception:
@@ -776,22 +767,14 @@ class WorkflowEngine:
             return "failed"
 
         # --- Parse check result (outside retry block to avoid masking) ---
-        if isinstance(raw, bool):
-            is_complete = raw
-        elif isinstance(raw, dict):
-            hint = CheckResult.model_validate(raw)
-            is_complete = hint.complete
-        elif isinstance(raw, CheckResult):
-            hint = raw
-            is_complete = hint.complete
-        else:
-            is_complete = bool(raw)
+        # The @completeness_check decorator normalizes returns to CheckResult.
+        is_complete = check_result.complete
 
         # --- Persist poll state ---
         current_interval = step.current_poll_interval or policy.interval
         new_poll_count = step.poll_count + 1
-        poll_progress = hint.progress if hint else None
-        poll_message = hint.message if hint else None
+        poll_progress = check_result.progress
+        poll_message = check_result.message
 
         # --- Complete: mark step done, keep lock for advance ---
         if is_complete:
@@ -822,8 +805,8 @@ class WorkflowEngine:
         # --- Not complete: schedule next poll, release lock ---
 
         # Determine next interval
-        if hint and hint.retry_after is not None:
-            next_wait = hint.retry_after
+        if check_result.retry_after is not None:
+            next_wait = check_result.retry_after
             # Don't update current_poll_interval — retry_after is a one-shot override
         else:
             next_wait = current_interval
@@ -859,8 +842,8 @@ class WorkflowEngine:
             step.name,
             step.poll_count + 1,
             next_wait,
-            f" (progress={hint.progress:.0%})"
-            if hint and hint.progress is not None
+            f" (progress={check_result.progress:.0%})"
+            if check_result.progress is not None
             else "",
         )
         return "released"
