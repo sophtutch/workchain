@@ -42,8 +42,8 @@ async def main() -> None:
     # --- Setup ---
     client = AsyncMongoMockClient()
     db = client["infra_provisioning_demo"]
-    store = MongoWorkflowStore(db, lock_ttl_seconds=30)
     audit = MongoAuditLogger(db)
+    store = MongoWorkflowStore(db, lock_ttl_seconds=30, audit_logger=audit, instance_id="infra-demo")
     await store.ensure_indexes()
 
     # --- Build and insert the workflow ---
@@ -62,7 +62,7 @@ async def main() -> None:
 
     # --- Run the engine until the workflow completes ---
     # Context dict makes db and store available to step handlers
-    engine = WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0, audit_logger=audit, context={"db": db, "store": store})
+    engine = WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0, context={"db": db, "store": store})
     await engine.start()
 
     # Poll until the workflow reaches a terminal state

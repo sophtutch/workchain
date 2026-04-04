@@ -31,8 +31,8 @@ async def main() -> None:
         # mongomock-motor intercepts this when installed
     )
     db = mongo_client["etl_demo"]
-    store = MongoWorkflowStore(db, lock_ttl_seconds=15)
     audit = MongoAuditLogger(db)
+    store = MongoWorkflowStore(db, lock_ttl_seconds=15, audit_logger=audit, instance_id="etl-demo")
 
     # ---- Build and insert workflow ----
     workflow = build_workflow(
@@ -46,7 +46,7 @@ async def main() -> None:
 
     # ---- Run engine until workflow completes ----
     # Context dict makes db and store available to step handlers
-    engine = WorkflowEngine(store, audit_logger=audit, context={"db": db, "store": store})
+    engine = WorkflowEngine(store, context={"db": db, "store": store})
     await engine.start()
 
     # Poll until the workflow reaches a terminal state

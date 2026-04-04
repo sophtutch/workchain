@@ -27,8 +27,8 @@ async def main() -> None:
     client = AsyncMongoMockClient()
     db = client["workchain_demo"]
 
-    store = MongoWorkflowStore(db, lock_ttl_seconds=30)
     audit = MongoAuditLogger(db)
+    store = MongoWorkflowStore(db, lock_ttl_seconds=30, audit_logger=audit, instance_id="onboarding-demo")
 
     # Build and persist the workflow.
     wf = build_workflow("alice@example.com")
@@ -43,7 +43,6 @@ async def main() -> None:
         claim_interval=1.0,
         heartbeat_interval=5.0,
         max_concurrent=3,
-        audit_logger=audit,
         context={"db": db, "store": store},
     )
     await engine.start()

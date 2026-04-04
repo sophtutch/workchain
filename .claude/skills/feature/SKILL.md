@@ -34,8 +34,22 @@ status: planned | in_progress | completed
 
 # <Feature Title>
 
-## Description
-<What this feature does and why>
+## Problem
+<What's wrong and why it matters>
+
+## Solution
+<What will be done to fix it>
+
+## Acceptance criteria
+- [ ] First criterion
+- [ ] Second criterion
+
+## Scope
+**In scope:** ...
+**Out of scope:** ...
+
+## Files affected
+- `path/to/file.py`
 
 ## Tasks
 

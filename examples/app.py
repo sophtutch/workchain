@@ -103,8 +103,8 @@ EXAMPLES = {
 
 _client = AsyncMongoMockClient()
 _db = _client["workchain_harness"]
-store = MongoWorkflowStore(_db, lock_ttl_seconds=10)
 audit_logger = MongoAuditLogger(_db)
+store = MongoWorkflowStore(_db, lock_ttl_seconds=10, audit_logger=audit_logger, instance_id="harness-001")
 
 
 @asynccontextmanager
@@ -119,7 +119,6 @@ async def lifespan(application: FastAPI):  # noqa: ARG001
         sweep_interval=5.0,
         step_stuck_seconds=30.0,
         max_concurrent=10,
-        audit_logger=audit_logger,
         context={"db": _db, "store": store, "audit_logger": audit_logger},
     )
     await engine.start()
