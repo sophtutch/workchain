@@ -1,7 +1,8 @@
 ---
 name: fix-examples-audit-logger
 created: 2026-04-04T00:00:00Z
-status: in_progress
+completed: 2026-04-04T00:00:00Z
+status: completed
 ---
 
 # Fix examples audit logger wiring
@@ -16,10 +17,10 @@ Move `audit_logger=` from `WorkflowEngine(...)` to `MongoWorkflowStore(...)` in 
 
 ## Acceptance criteria
 
-- [ ] All 6 example files pass audit_logger and instance_id to MongoWorkflowStore
-- [ ] No example passes audit_logger to WorkflowEngine
-- [ ] FastAPI app starts without TypeError
-- [ ] All existing tests pass
+- [x] All 6 example files pass audit_logger and instance_id to MongoWorkflowStore
+- [x] No example passes audit_logger to WorkflowEngine
+- [x] FastAPI app starts without TypeError
+- [x] All existing tests pass
 
 ## Scope
 
@@ -38,4 +39,9 @@ Move `audit_logger=` from `WorkflowEngine(...)` to `MongoWorkflowStore(...)` in 
 
 ## Tasks
 
-- [-] fix-wiring: Move audit_logger from WorkflowEngine to MongoWorkflowStore in all 6 example files, pass instance_id to the store
+- [x] fix-wiring: Move audit_logger from WorkflowEngine to MongoWorkflowStore in all 6 example files, pass instance_id to the store
+  - branch: `fix-examples-audit-logger/fix-wiring`
+  - pr: #31
+
+## PRs
+- #31: Fix audit_logger wiring in all example files

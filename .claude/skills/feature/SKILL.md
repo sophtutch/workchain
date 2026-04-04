@@ -196,6 +196,10 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
      - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<pr_number>-<name>.md` (e.g. `completed/30-readme-documentation.md`)
      - Report: "Feature <name> complete! Moved to completed/"
    - Otherwise save the file and report progress: "Task 3/5 complete. Next: `/feature next <name>`"
+8. Commit and push the feature doc changes to main:
+   - `git add .claude/features/` (covers both the updated/moved file and any deletion of the old path)
+   - Commit with message: `chore: Complete <feature-name> feature, update feature doc (#<pr_number>)` (or `chore: Update <feature-name> feature progress` for mid-feature tasks)
+   - `git push origin main`
 
 If `/ship` is interrupted or fails, leave the task as `[-]` so the user can resume with `/feature next <name>` (it will pick up the same task).
 
