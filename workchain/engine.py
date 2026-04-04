@@ -541,10 +541,10 @@ class WorkflowEngine:
         if step.verify_completion:
             try:
                 checker = get_handler(step.verify_completion)
-                is_done = await self._call_handler(
+                check_result = await self._call_handler(
                     checker, step.config, _build_results(wf, idx), step.result or StepResult()
                 )
-                if is_done:
+                if check_result.complete:
                     logger.info(
                         "Step %s verified as completed after recovery.", step.name
                     )

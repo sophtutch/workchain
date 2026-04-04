@@ -20,6 +20,7 @@ from tests.conftest import (
     greet_handler,
     noop_handler,
     verify_done,
+    verify_not_done,
 )
 from workchain.decorators import _STEP_REGISTRY, _normalize_check_result
 from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
@@ -566,6 +567,31 @@ class TestRecovery:
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.COMPLETED
         assert loaded.steps[0].status == StepStatus.COMPLETED
+
+    async def test_recover_verify_completion_not_done(self, store, engine):
+        """Step with verify_completion that returns False does NOT mark COMPLETED."""
+        wf = Workflow(
+            name="recovery_verify_not_done",
+            status=WorkflowStatus.RUNNING,
+            fence_token=1,
+            steps=[
+                Step(
+                    name="not_verified",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.SUBMITTED,
+                    verify_completion=verify_not_done._step_meta["handler"],
+                    idempotent=False,
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        claimed = await store.try_claim(wf.id, "test-engine-001")
+        await engine._run_workflow(claimed)
+
+        loaded = await store.get(wf.id)
+        # verify_not_done returns False → step should NOT be completed
+        assert loaded.steps[0].status != StepStatus.COMPLETED
 
     async def test_recover_async_with_completeness_check(self, store, engine):
         """Async step in SUBMITTED with result: completeness_check transitions to BLOCKED."""
