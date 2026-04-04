@@ -1210,15 +1210,14 @@ class MongoWorkflowStore:
         """
         Atomically set workflow status to FAILED. Called when a step fails.
 
-        Returns the updated workflow, or None if already terminal.
+        Only matches RUNNING workflows — a step can only fail after the
+        workflow has been claimed (which transitions it to RUNNING).
+        Returns the updated workflow, or None if not RUNNING.
         """
         doc = await self._col.find_one_and_update(
             {
                 "_id": workflow_id,
-                "status": {"$in": [
-                    WorkflowStatus.PENDING.value,
-                    WorkflowStatus.RUNNING.value,
-                ]},
+                "status": WorkflowStatus.RUNNING.value,
             },
             {"$set": {
                 "status": WorkflowStatus.FAILED.value,

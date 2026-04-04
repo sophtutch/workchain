@@ -1247,7 +1247,8 @@ class TestTryFailWorkflow:
         assert result is not None
         assert result.status == WorkflowStatus.FAILED
 
-    async def test_fails_pending_workflow(self, store):
+    async def test_does_not_fail_pending_workflow(self, store):
+        """Only RUNNING workflows can be failed — PENDING should use cancel()."""
         wf = Workflow(
             name="fail_pending",
             steps=[Step(name="a", handler="mod.func", depends_on=[])],
@@ -1255,8 +1256,7 @@ class TestTryFailWorkflow:
         await store.insert(wf)
 
         result = await store.try_fail_workflow(wf.id)
-        assert result is not None
-        assert result.status == WorkflowStatus.FAILED
+        assert result is None
 
     async def test_does_not_fail_already_terminal(self, store):
         wf = Workflow(
