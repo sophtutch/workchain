@@ -98,8 +98,9 @@ Note the PR number from the output — it is needed for all subsequent steps.
 
 Set up a recurring poll using CronCreate. See [Devin polling pattern](#devin-polling-pattern) below for the poll prompt template.
 
-- Cron expression: `*/5 * * * *` (every 5 minutes)
+- Cron expression: `* * * * *` (every 1 minute)
 - Set `BASELINE_COMMENT_COUNT=0` (no Devin comments yet)
+- If no review arrives after 5 polls, delete the cron, report to the user, and ask whether to continue waiting or proceed without review
 
 When the poll detects new Devin comments, proceed to step 7.
 
