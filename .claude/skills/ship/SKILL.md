@@ -138,10 +138,12 @@ gh api repos/$REPO/pulls/{N}/comments/{comment_id}/replies \
 
 If a reply needs backticks, use `gh pr comment {N} --body '...'` instead.
 
-8. Resolve the conversation thread after replying:
+8. Resolve the review thread after replying. First find the unresolved thread ID, then resolve it:
 
 ```
-gh api graphql -f query='mutation { minimizeComment(input: {subjectId: "<comment_node_id>", classifier: RESOLVED}) { minimizedComment { isMinimized } } }'
+gh api graphql -f query='query { repository(owner: "<owner>", name: "<repo>") { pullRequest(number: {N}) { reviewThreads(first: 20) { nodes { id isResolved comments(first: 1) { nodes { body } } } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false) | .id'
+
+gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<thread_id>"}) { thread { isResolved } } }'
 ```
 
 If a comment is about code that doesn't belong in this PR (e.g. leaked changes), explain that in the reply.
