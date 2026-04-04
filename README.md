@@ -174,6 +174,7 @@ async def deploy(config: DeployConfig, results: dict[str, StepResult]) -> Deploy
     job_id = start_deployment(config.environment)
     return DeployResult(job_id=job_id)  # engine sets BLOCKED, releases lock
 
+@completeness_check()
 async def check_deploy(config, results, result: DeployResult) -> CheckResult:
     status = get_deployment_status(result.job_id)
     return CheckResult(complete=status == "ready", progress=status.percent)
@@ -272,9 +273,10 @@ async def charge_payment(config: PaymentConfig, results: dict[str, StepResult]) 
     return PaymentResult(receipt_id=receipt.id)
 
 @completeness_check()
-async def verify_charge(config: PaymentConfig, results: dict[str, StepResult], result: PaymentResult) -> bool:
+async def verify_charge(config: PaymentConfig, results: dict[str, StepResult], result: PaymentResult) -> CheckResult:
     """Check if the charge went through by querying the payment gateway."""
-    return await payment_gateway.has_receipt(result.receipt_id)
+    charged = await payment_gateway.has_receipt(result.receipt_id)
+    return CheckResult(complete=charged)
 
 workflow = Workflow(
     name="checkout",
@@ -289,7 +291,7 @@ workflow = Workflow(
 )
 ```
 
-The `verify_completion` handler receives `(config, results, result)` and returns a bool. It supports `needs_context=True` for dependency injection.
+The `verify_completion` handler receives `(config, results, result)` and returns a `CheckResult` (or `bool`/`dict` for convenience -- the `@completeness_check` decorator normalizes all return types). It supports `needs_context=True` for dependency injection.
 
 ## Architecture
 
