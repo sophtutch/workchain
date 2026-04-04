@@ -1,7 +1,7 @@
 ---
 name: typed-result-fail-step
 created: 2026-04-04T10:00:00Z
-status: planned
+status: in_progress
 ---
 
 # Accept StepResult in fail_step
@@ -37,4 +37,4 @@ Change `fail_step` to accept `result: StepResult` instead of `result: dict`. The
 
 ## Tasks
 
-- [ ] refactor-fail-step: Change fail_step signature from result: dict to result: StepResult, derive audit error fields internally, update 4 engine call sites and test
+- [-] refactor-fail-step: Change fail_step signature from result: dict to result: StepResult, derive audit error fields internally, update 4 engine call sites and test

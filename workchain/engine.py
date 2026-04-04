@@ -413,14 +413,10 @@ class WorkflowEngine:
                         error=traceback.format_exc(),
                         completed_at=datetime.now(UTC),
                     )
-                    error_lines = (fail_result.error or "").strip().splitlines()
-                    brief_error = error_lines[-1] if error_lines else ""
-                    # Store emits STEP_FAILED
+                    # Store emits STEP_FAILED (derives error/error_traceback from result)
                     wf = await self._store.fail_step(
                         wf_id, idx, fence,
-                        result=fail_result.model_dump(mode="python", serialize_as_any=True),
-                        error=brief_error,
-                        error_traceback=fail_result.error,
+                        result=fail_result,
                     )
                     # Store emits WORKFLOW_FAILED via advance_step
                     await self._store.advance_step(
@@ -693,11 +689,10 @@ class WorkflowEngine:
                 # Store emits POLL_TIMEOUT via audit_event_type override
                 wf = await self._store.fail_step(
                     wf.id, idx, fence,
-                    result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                    result=fail_result,
                     audit_event_type=AuditEventType.POLL_TIMEOUT,
                     step_status_before=StepStatus.BLOCKED.value,
                     poll_elapsed_seconds=elapsed,
-                    error=fail_result.error,
                 )
                 if wf:
                     # Store emits WORKFLOW_FAILED via advance_step
@@ -720,11 +715,10 @@ class WorkflowEngine:
             # Store emits POLL_MAX_EXCEEDED via audit_event_type override
             wf = await self._store.fail_step(
                 wf.id, idx, fence,
-                result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                result=fail_result,
                 audit_event_type=AuditEventType.POLL_MAX_EXCEEDED,
                 step_status_before=StepStatus.BLOCKED.value,
                 poll_count=step.poll_count,
-                error=fail_result.error,
             )
             if wf:
                 # Store emits WORKFLOW_FAILED via advance_step
@@ -765,11 +759,10 @@ class WorkflowEngine:
             # Store emits POLL_CHECK_ERRORS_EXCEEDED via audit_event_type override
             wf = await self._store.fail_step(
                 wf_id, idx, fence,
-                result=fail_result.model_dump(mode="python", serialize_as_any=True),
+                result=fail_result,
                 audit_event_type=AuditEventType.POLL_CHECK_ERRORS_EXCEEDED,
                 step_status_before=StepStatus.BLOCKED.value,
                 poll_count=step.poll_count,
-                error=fail_result.error,
             )
             if wf:
                 # Store emits WORKFLOW_FAILED via advance_step

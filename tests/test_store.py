@@ -251,7 +251,7 @@ class TestFailStep:
 
         result = await store.fail_step(
             wf.id, 0, 1,
-            result={"error": "boom", "completed_at": None},
+            result=StepResult(error="boom"),
         )
         assert result is not None
         assert result.steps[0].status == StepStatus.FAILED
