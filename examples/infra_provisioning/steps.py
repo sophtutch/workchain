@@ -11,6 +11,7 @@ Steps:
 
 from __future__ import annotations
 
+import logging
 import random
 import uuid
 from typing import cast
@@ -26,6 +27,7 @@ from workchain import (
     step,
 )
 
+logger = logging.getLogger(__name__)
 _rng = random.SystemRandom()
 
 # ---------------------------------------------------------------------------
@@ -105,9 +107,9 @@ async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcR
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
     subnet_count = _rng.randint(2, 4)
     subnet_ids = [f"subnet-{uuid.uuid4().hex[:12]}" for _ in range(subnet_count)]
-    print(
-        f"  [vpc] Created {vpc_id} ({config.cidr_block}) in {config.region} "
-        f"with {subnet_count} subnets"
+    logger.info(
+        "[vpc] Created %s (%s) in %s with %d subnets",
+        vpc_id, config.cidr_block, config.region, subnet_count,
     )
     return VpcResult(vpc_id=vpc_id, subnet_ids=subnet_ids)
 
@@ -133,10 +135,10 @@ async def check_database(
     progress = _rng.choice([s[0] for s in stages])
 
     if progress >= 1.0:
-        print(f"  [db] Instance {result.db_instance_id} is available!")
+        logger.info("[db] Instance %s is available!", result.db_instance_id)
         return {"complete": True, "progress": 1.0, "message": "Database available"}
     label = next(s[2] for s in stages if s[0] == progress)
-    print(f"  [db] Instance {result.db_instance_id} -- {label} ({progress:.0%})")
+    logger.info("[db] Instance %s -- %s (%.0f%%)", result.db_instance_id, label, progress * 100)
     return {"complete": False, "progress": progress, "message": label}
 
 
@@ -152,9 +154,9 @@ async def provision_database(
     vpc_result = cast(VpcResult, results["create_vpc"])
     db_instance_id = f"db-{uuid.uuid4().hex[:12]}"
     endpoint = f"{db_instance_id}.cluster.{config.engine}.amazonaws.com"
-    print(
-        f"  [db] Provisioning {config.engine} ({config.instance_class}) "
-        f"in VPC {vpc_result.vpc_id} -- instance {db_instance_id}"
+    logger.info(
+        "[db] Provisioning %s (%s) in VPC %s -- instance %s",
+        config.engine, config.instance_class, vpc_result.vpc_id, db_instance_id,
     )
     return DatabaseResult(
         db_instance_id=db_instance_id,
@@ -177,18 +179,18 @@ async def check_deployment(
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
     if _rng.random() < 0.5:
         ready = max(1, config.replicas - 1)
-        print(
-            f"  [deploy] Deployment {result.deployment_id} -- "
-            f"{ready}/{config.replicas} replicas ready"
+        logger.info(
+            "[deploy] Deployment %s -- %d/%d replicas ready",
+            result.deployment_id, ready, config.replicas,
         )
         return {
             "complete": False,
             "progress": ready / config.replicas,
             "message": f"{ready}/{config.replicas} replicas ready",
         }
-    print(
-        f"  [deploy] Deployment {result.deployment_id} -- "
-        f"{config.replicas}/{config.replicas} replicas healthy!"
+    logger.info(
+        "[deploy] Deployment %s -- %d/%d replicas healthy!",
+        result.deployment_id, config.replicas, config.replicas,
     )
     return {
         "complete": True,
@@ -208,9 +210,9 @@ async def deploy_application(
     """Deploy the application containers."""
     db_result = cast(DatabaseResult, results["provision_database"])
     deployment_id = f"deploy-{uuid.uuid4().hex[:12]}"
-    print(
-        f"  [deploy] Deploying {config.image} ({config.replicas} replicas) "
-        f"with DB endpoint {db_result.endpoint} -- deployment {deployment_id}"
+    logger.info(
+        "[deploy] Deploying %s (%d replicas) with DB endpoint %s -- deployment %s",
+        config.image, config.replicas, db_result.endpoint, deployment_id,
     )
     return DeployResult(deployment_id=deployment_id, replicas_ready=0)
 
@@ -229,9 +231,9 @@ async def configure_dns(
     deploy_result = cast(DeployResult, results["deploy_application"])
     record_id = f"rec-{uuid.uuid4().hex[:12]}"
     fqdn = f"{config.domain}."
-    print(
-        f"  [dns] Created {config.record_type} record {record_id} "
-        f"for {fqdn} -> deployment {deploy_result.deployment_id}"
+    logger.info(
+        "[dns] Created %s record %s for %s -> deployment %s",
+        config.record_type, record_id, fqdn, deploy_result.deployment_id,
     )
     return DnsResult(record_id=record_id, fqdn=fqdn)
 
@@ -249,13 +251,13 @@ async def check_tls_cert(
 ) -> dict:
     """Completeness check: simulates certificate issued after 2 polls."""
     if _rng.random() < 0.5:
-        print(f"  [tls] Certificate for {config.domain} -- pending validation")
+        logger.info("[tls] Certificate for %s -- pending validation", config.domain)
         return {
             "complete": False,
             "progress": 0.5,
             "message": "Pending domain validation",
         }
-    print(f"  [tls] Certificate for {config.domain} -- issued!")
+    logger.info("[tls] Certificate for %s -- issued!", config.domain)
     return {"complete": True, "progress": 1.0, "message": "Certificate issued"}
 
 
@@ -270,9 +272,9 @@ async def issue_tls_cert(
     """Request a TLS certificate for the domain."""
     dns_result = cast(DnsResult, results["configure_dns"])
     certificate_arn = f"arn:aws:acm:us-east-1:123456789:certificate/{uuid.uuid4().hex[:12]}"
-    print(
-        f"  [tls] Requesting TLS certificate for {dns_result.fqdn} "
-        f"-- ARN {certificate_arn}"
+    logger.info(
+        "[tls] Requesting TLS certificate for %s -- ARN %s",
+        dns_result.fqdn, certificate_arn,
     )
     return TlsResult(certificate_arn=certificate_arn, valid_until="2027-04-01T00:00:00Z")
 
@@ -290,9 +292,9 @@ async def health_check(
     """Verify the full stack is reachable and returns the expected status."""
     tls_result = cast(TlsResult, results["issue_tls_cert"])
     response_time = round(_rng.uniform(50.0, 200.0), 1)
-    print(
-        f"  [health] GET {config.endpoint} -> {config.expected_status} "
-        f"({response_time}ms), cert {tls_result.certificate_arn[:40]}..."
+    logger.info(
+        "[health] GET %s -> %d (%sms), cert %s...",
+        config.endpoint, config.expected_status, response_time, tls_result.certificate_arn[:40],
     )
     return HealthCheckResult(
         status_code=config.expected_status,

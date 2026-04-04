@@ -54,11 +54,11 @@ async def main() -> None:
     )
     await store.insert(workflow)
     workflow_id = workflow.id
-    print(f"\n{'='*60}")
-    print(f"Infrastructure Provisioning Workflow: {workflow.name}")
-    print(f"Workflow ID: {workflow_id}")
-    print(f"Steps: {', '.join(s.name for s in workflow.steps)}")
-    print(f"{'='*60}\n")
+    logger.info("=" * 60)
+    logger.info("Infrastructure Provisioning Workflow: %s", workflow.name)
+    logger.info("Workflow ID: %s", workflow_id)
+    logger.info("Steps: %s", ", ".join(s.name for s in workflow.steps))
+    logger.info("=" * 60)
 
     # --- Run the engine until the workflow completes ---
     # Context dict makes db and store available to step handlers
@@ -77,12 +77,12 @@ async def main() -> None:
     # --- Print results ---
     wf = await store.get(workflow_id)
     if wf is None:
-        print("ERROR: workflow not found")
+        logger.error("Workflow not found")
         sys.exit(1)
 
-    print(f"\n{'='*60}")
-    print(f"Final status: {wf.status.value}")
-    print(f"{'='*60}")
+    logger.info("=" * 60)
+    logger.info("Final status: %s", wf.status.value)
+    logger.info("=" * 60)
 
     for s in wf.steps:
         status_icon = {
@@ -91,34 +91,32 @@ async def main() -> None:
             "pending": ".",
             "blocked": "~",
         }.get(s.status.value, "?")
-        print(f"\n  [{status_icon}] {s.name} ({s.status.value})")
+        logger.info("  [%s] %s (%s)", status_icon, s.name, s.status.value)
 
         if s.result is None:
             continue
 
         if s.name == "create_vpc":
             r = cast(VpcResult, s.result)
-            print(f"      vpc_id={r.vpc_id}, subnets={r.subnet_ids}")
+            logger.info("      vpc_id=%s, subnets=%s", r.vpc_id, r.subnet_ids)
         elif s.name == "provision_database":
             r = cast(DatabaseResult, s.result)
-            print(f"      db_instance_id={r.db_instance_id}, endpoint={r.endpoint}, port={r.port}")
+            logger.info("      db_instance_id=%s, endpoint=%s, port=%d", r.db_instance_id, r.endpoint, r.port)
         elif s.name == "deploy_application":
             r = cast(DeployResult, s.result)
-            print(f"      deployment_id={r.deployment_id}, replicas_ready={r.replicas_ready}")
+            logger.info("      deployment_id=%s, replicas_ready=%d", r.deployment_id, r.replicas_ready)
         elif s.name == "configure_dns":
             r = cast(DnsResult, s.result)
-            print(f"      record_id={r.record_id}, fqdn={r.fqdn}")
+            logger.info("      record_id=%s, fqdn=%s", r.record_id, r.fqdn)
         elif s.name == "issue_tls_cert":
             r = cast(TlsResult, s.result)
-            print(f"      certificate_arn={r.certificate_arn}, valid_until={r.valid_until}")
+            logger.info("      certificate_arn=%s, valid_until=%s", r.certificate_arn, r.valid_until)
         elif s.name == "health_check":
             r = cast(HealthCheckResult, s.result)
-            print(f"      status_code={r.status_code}, response_time_ms={r.response_time_ms}, healthy={r.healthy}")
+            logger.info("      status_code=%d, response_time_ms=%s, healthy=%s", r.status_code, r.response_time_ms, r.healthy)
 
         if s.result.error:
-            print(f"      error: {s.result.error}")
-
-    print()
+            logger.info("      error: %s", s.result.error)
 
 
 if __name__ == "__main__":

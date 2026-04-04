@@ -11,6 +11,7 @@ Steps:
 
 from __future__ import annotations
 
+import logging
 import random
 import uuid
 from typing import cast
@@ -25,6 +26,7 @@ from workchain import (
     step,
 )
 
+logger = logging.getLogger(__name__)
 _rng = random.SystemRandom()
 
 # ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> Lint
     """Run static analysis / linting on source files."""
     files_checked = _rng.randint(40, 120)
     warnings = _rng.randint(0, 5)
-    print(f"  [lint] Checked {files_checked} files in '{config.source_dir}/', {warnings} warning(s)")
+    logger.info("[lint] Checked %d files in '%s/', %d warning(s)", files_checked, config.source_dir, warnings)
     return LintResult(files_checked=files_checked, warnings=warnings)
 
 
@@ -115,7 +117,7 @@ async def run_tests(config: TestConfig, _results: dict[str, StepResult]) -> Test
     if _rng.random() < 0.2:
         raise RuntimeError("Flaky test failure -- transient network timeout in test_api_integration")
     coverage = round(_rng.uniform(config.coverage_threshold, 98.0), 1)
-    print(f"  [test] {total} passed, 0 failed, coverage {coverage}%")
+    logger.info("[test] %d passed, 0 failed, coverage %s%%", total, coverage)
     return TestResult(tests_passed=total, tests_failed=0, coverage=coverage)
 
 
@@ -139,9 +141,9 @@ async def check_build(
     progress = _rng.choice(progress_steps)
 
     if progress >= 1.0:
-        print(f"  [build] Build {result.build_id} completed!")
+        logger.info("[build] Build %s completed!", result.build_id)
         return {"complete": True, "progress": 1.0, "message": "Build finished"}
-    print(f"  [build] Build {result.build_id} in progress ({progress:.0%})")
+    logger.info("[build] Build %s in progress (%.0f%%)", result.build_id, progress * 100)
     return {
         "complete": False,
         "progress": progress,
@@ -157,7 +159,7 @@ async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -
     """Kick off a container image build."""
     build_id = uuid.uuid4().hex[:12]
     artifact_url = f"https://builds.example.com/{config.repo}/{build_id}"
-    print(f"  [build] Started build {build_id} for {config.repo}@{config.branch}")
+    logger.info("[build] Started build %s for %s@%s", build_id, config.repo, config.branch)
     return BuildResult(build_id=build_id, artifact_url=artifact_url)
 
 
@@ -174,7 +176,7 @@ async def push_to_registry(
     build_result = cast(BuildResult, results["build_artifact"])
     image_tag = f"{build_result.build_id[:8]}-latest"
     registry_url = f"{config.registry}/myorg/myapp:{image_tag}"
-    print(f"  [registry] Pushed {registry_url}")
+    logger.info("[registry] Pushed %s", registry_url)
     return RegistryResult(image_tag=image_tag, registry_url=registry_url)
 
 
@@ -191,13 +193,13 @@ async def check_deployment(
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
     # Simulate: first poll = rolling out, second poll = healthy
     if _rng.random() < 0.5:
-        print(f"  [deploy] Deployment {result.deployment_id} rolling out...")
+        logger.info("[deploy] Deployment %s rolling out...", result.deployment_id)
         return {
             "complete": False,
             "progress": 0.5,
             "message": "Rolling update in progress",
         }
-    print(f"  [deploy] Deployment {result.deployment_id} is healthy!")
+    logger.info("[deploy] Deployment %s is healthy!", result.deployment_id)
     return {"complete": True, "progress": 1.0, "message": "All replicas healthy"}
 
 
@@ -212,9 +214,9 @@ async def deploy_staging(
     """Deploy the container image to the staging environment."""
     registry_result = cast(RegistryResult, results["push_to_registry"])
     deployment_id = uuid.uuid4().hex[:12]
-    print(
-        f"  [deploy] Deploying {registry_result.registry_url} "
-        f"to {config.environment} (deployment {deployment_id})"
+    logger.info(
+        "[deploy] Deploying %s to %s (deployment %s)",
+        registry_result.registry_url, config.environment, deployment_id,
     )
     return DeployResult(deployment_id=deployment_id, environment=config.environment)
 
@@ -231,8 +233,8 @@ async def run_smoke_tests(
     """Run smoke tests against the staging deployment."""
     deploy_result = cast(DeployResult, results["deploy_staging"])
     checks = _rng.randint(5, 15)
-    print(
-        f"  [smoke] Ran {checks} checks against {config.base_url} "
-        f"(deployment {deploy_result.deployment_id})"
+    logger.info(
+        "[smoke] Ran %d checks against %s (deployment %s)",
+        checks, config.base_url, deploy_result.deployment_id,
     )
     return SmokeTestResult(all_passed=True, checks_run=checks)

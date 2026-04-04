@@ -59,17 +59,17 @@ async def main() -> None:
         logger.error("Workflow not found!")
         return
 
-    print("\n" + "=" * 60)
-    print(f"Workflow: {final.name}")
-    print(f"Status:   {final.status.value}")
-    print("Steps:")
+    logger.info("=" * 60)
+    logger.info("Workflow: %s", final.name)
+    logger.info("Status:   %s", final.status.value)
+    logger.info("Steps:")
     for s in final.steps:
         result_summary = ""
         if s.result is not None:
             data = s.result.model_dump(exclude={"completed_at"}, exclude_none=True)
             result_summary = f" -> {data}"
-        print(f"  [{s.status.value:>9}] {s.name}{result_summary}")
-    print("=" * 60)
+        logger.info("  [%9s] %s%s", s.status.value, s.name, result_summary)
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

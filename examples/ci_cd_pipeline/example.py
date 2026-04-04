@@ -50,11 +50,11 @@ async def main() -> None:
     workflow = build_workflow(repo="myorg/myapp", branch="main")
     await store.insert(workflow)
     workflow_id = workflow.id
-    print(f"\n{'='*60}")
-    print(f"CI/CD Pipeline Workflow: {workflow.name}")
-    print(f"Workflow ID: {workflow_id}")
-    print(f"Steps: {', '.join(s.name for s in workflow.steps)}")
-    print(f"{'='*60}\n")
+    logger.info("=" * 60)
+    logger.info("CI/CD Pipeline Workflow: %s", workflow.name)
+    logger.info("Workflow ID: %s", workflow_id)
+    logger.info("Steps: %s", ", ".join(s.name for s in workflow.steps))
+    logger.info("=" * 60)
 
     # --- Run the engine until the workflow completes ---
     # Context dict makes db and store available to step handlers
@@ -73,12 +73,12 @@ async def main() -> None:
     # --- Print results ---
     wf = await store.get(workflow_id)
     if wf is None:
-        print("ERROR: workflow not found")
+        logger.error("Workflow not found")
         sys.exit(1)
 
-    print(f"\n{'='*60}")
-    print(f"Final status: {wf.status.value}")
-    print(f"{'='*60}")
+    logger.info("=" * 60)
+    logger.info("Final status: %s", wf.status.value)
+    logger.info("=" * 60)
 
     for s in wf.steps:
         status_icon = {
@@ -87,34 +87,32 @@ async def main() -> None:
             "pending": ".",
             "blocked": "~",
         }.get(s.status.value, "?")
-        print(f"\n  [{status_icon}] {s.name} ({s.status.value})")
+        logger.info("  [%s] %s (%s)", status_icon, s.name, s.status.value)
 
         if s.result is None:
             continue
 
         if s.name == "lint_code":
             r = cast(LintResult, s.result)
-            print(f"      files_checked={r.files_checked}, warnings={r.warnings}")
+            logger.info("      files_checked=%d, warnings=%d", r.files_checked, r.warnings)
         elif s.name == "run_tests":
             r = cast(TestResult, s.result)
-            print(f"      passed={r.tests_passed}, failed={r.tests_failed}, coverage={r.coverage}%")
+            logger.info("      passed=%d, failed=%d, coverage=%s%%", r.tests_passed, r.tests_failed, r.coverage)
         elif s.name == "build_artifact":
             r = cast(BuildResult, s.result)
-            print(f"      build_id={r.build_id}, artifact_url={r.artifact_url}")
+            logger.info("      build_id=%s, artifact_url=%s", r.build_id, r.artifact_url)
         elif s.name == "push_to_registry":
             r = cast(RegistryResult, s.result)
-            print(f"      image_tag={r.image_tag}, registry_url={r.registry_url}")
+            logger.info("      image_tag=%s, registry_url=%s", r.image_tag, r.registry_url)
         elif s.name == "deploy_staging":
             r = cast(DeployResult, s.result)
-            print(f"      deployment_id={r.deployment_id}, environment={r.environment}")
+            logger.info("      deployment_id=%s, environment=%s", r.deployment_id, r.environment)
         elif s.name == "run_smoke_tests":
             r = cast(SmokeTestResult, s.result)
-            print(f"      all_passed={r.all_passed}, checks_run={r.checks_run}")
+            logger.info("      all_passed=%s, checks_run=%d", r.all_passed, r.checks_run)
 
         if s.result.error:
-            print(f"      error: {s.result.error}")
-
-    print()
+            logger.info("      error: %s", s.result.error)
 
 
 if __name__ == "__main__":
