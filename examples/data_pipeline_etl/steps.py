@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import cast
 
-from workchain import PollPolicy, StepConfig, StepResult, async_step, completeness_check, step
+from workchain import CheckResult, PollPolicy, StepConfig, StepResult, async_step, completeness_check, step
 
 # Poll simulation state — keyed by load_id
 _poll_counts: dict[str, int] = {}
@@ -121,9 +121,8 @@ async def check_load(
     _config: LoadConfig,
     results: dict[str, StepResult],
     result: LoadResult,
-) -> dict:
-    """
-    Completeness check for the warehouse load.
+) -> CheckResult:
+    """Completeness check for the warehouse load.
 
     Simulates a batch load that completes after 3 polls, reporting
     incremental progress each time.
@@ -134,19 +133,19 @@ async def check_load(
 
     if count >= 3:
         transform = cast(TransformResult, results["transform_records"])
-        return {
-            "complete": True,
-            "progress": 1.0,
-            "message": f"Loaded {transform.records_transformed} records",
-        }
+        return CheckResult(
+            complete=True,
+            progress=1.0,
+            message=f"Loaded {transform.records_transformed} records",
+        )
 
     progress = round(count / 3, 2)
-    return {
-        "complete": False,
-        "progress": progress,
-        "message": f"Loading batch {count}/3",
-        "retry_after": 2.0,
-    }
+    return CheckResult(
+        complete=False,
+        progress=progress,
+        message=f"Loading batch {count}/3",
+        retry_after=2.0,
+    )
 
 
 @async_step(

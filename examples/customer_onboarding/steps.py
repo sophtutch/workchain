@@ -8,6 +8,7 @@ import uuid
 from typing import cast
 
 from workchain import (
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     StepConfig,
@@ -91,12 +92,10 @@ async def check_provisioning(
     _config: StepConfig | None,
     _results: dict[str, StepResult],
     result: ProvisionResult,
-) -> dict:
-    """
-    Completeness check for resource provisioning.
+) -> CheckResult:
+    """Completeness check for resource provisioning.
 
     Simulates an external system that completes after 3 polls.
-    Returns a CheckResult dict with progress information.
     """
     job_id = result.job_id
     count = _poll_counts.get(job_id, 0) + 1
@@ -110,11 +109,11 @@ async def check_provisioning(
         "Provisioning poll %d/%d for job=%s (progress=%.0f%%)",
         count, total_polls, job_id, progress * 100,
     )
-    return {
-        "complete": complete,
-        "progress": progress,
-        "message": f"Provisioning poll {count}/{total_polls}",
-    }
+    return CheckResult(
+        complete=complete,
+        progress=progress,
+        message=f"Provisioning poll {count}/{total_polls}",
+    )
 
 
 @async_step(

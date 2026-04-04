@@ -10,6 +10,7 @@ from typing import cast
 from pydantic import Field
 
 from workchain import (
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     StepConfig,
@@ -144,12 +145,10 @@ async def check_remediation(
     _config: TicketConfig,
     _results: dict[str, StepResult],
     result: RemediationResult,
-) -> dict:
-    """
-    Completeness check for remediation.
+) -> CheckResult:
+    """Completeness check for remediation.
 
     Simulates an external remediation system that resolves after 3 polls.
-    Returns a CheckResult dict with progress information.
     """
     rem_id = result.remediation_id
     count = _poll_counts.get(rem_id, 0) + 1
@@ -163,11 +162,11 @@ async def check_remediation(
         "Remediation poll %d/%d for %s (progress=%.0f%%)",
         count, total_polls, rem_id, progress * 100,
     )
-    return {
-        "complete": complete,
-        "progress": progress,
-        "message": f"Remediation poll {count}/{total_polls}",
-    }
+    return CheckResult(
+        complete=complete,
+        progress=progress,
+        message=f"Remediation poll {count}/{total_polls}",
+    )
 
 
 @async_step(

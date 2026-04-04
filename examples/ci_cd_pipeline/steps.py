@@ -17,6 +17,7 @@ import uuid
 from typing import cast
 
 from workchain import (
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     StepConfig,
@@ -130,25 +131,20 @@ async def check_build(
     _config: BuildConfig,
     _results: dict[str, StepResult],
     result: BuildResult,
-) -> dict:
+) -> CheckResult:
     """Completeness check: simulates build completing after 3 polls."""
-    # Use poll_count-like tracking via a simple counter embedded in result
-    # The engine tracks poll_count for us; we simulate progress here.
     progress_steps = [0.3, 0.6, 1.0]
-    # Determine current progress based on how many times we've been called
-    # We store state in result fields -- but since result is immutable from
-    # engine perspective we rely on random progress simulation.
     progress = _rng.choice(progress_steps)
 
     if progress >= 1.0:
         logger.info("[build] Build %s completed!", result.build_id)
-        return {"complete": True, "progress": 1.0, "message": "Build finished"}
+        return CheckResult(complete=True, progress=1.0, message="Build finished")
     logger.info("[build] Build %s in progress (%.0f%%)", result.build_id, progress * 100)
-    return {
-        "complete": False,
-        "progress": progress,
-        "message": f"Compiling and packaging ({progress:.0%})",
-    }
+    return CheckResult(
+        complete=False,
+        progress=progress,
+        message=f"Compiling and packaging ({progress:.0%})",
+    )
 
 
 @async_step(
@@ -189,18 +185,13 @@ async def check_deployment(
     _config: DeployConfig,
     _results: dict[str, StepResult],
     result: DeployResult,
-) -> dict:
+) -> CheckResult:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
-    # Simulate: first poll = rolling out, second poll = healthy
     if _rng.random() < 0.5:
         logger.info("[deploy] Deployment %s rolling out...", result.deployment_id)
-        return {
-            "complete": False,
-            "progress": 0.5,
-            "message": "Rolling update in progress",
-        }
+        return CheckResult(complete=False, progress=0.5, message="Rolling update in progress")
     logger.info("[deploy] Deployment %s is healthy!", result.deployment_id)
-    return {"complete": True, "progress": 1.0, "message": "All replicas healthy"}
+    return CheckResult(complete=True, progress=1.0, message="All replicas healthy")
 
 
 @async_step(

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
 from typing import TYPE_CHECKING
 
-from workchain.models import PollPolicy, RetryPolicy
+from workchain.models import CheckResult, PollPolicy, RetryPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -114,6 +116,24 @@ def async_step(
     return decorator
 
 
+def _normalize_check_result(raw: object) -> CheckResult:
+    """Coerce a completeness check return value to CheckResult.
+
+    Accepts CheckResult (passthrough), dict (model_validate), or bool
+    (converted to CheckResult(complete=v)).  Raises TypeError for
+    anything else so bad return types fail fast at the call site.
+    """
+    if isinstance(raw, CheckResult):
+        return raw
+    if isinstance(raw, dict):
+        return CheckResult.model_validate(raw)
+    if isinstance(raw, bool):
+        return CheckResult(complete=raw)
+    raise TypeError(
+        f"completeness_check must return CheckResult, dict, or bool — got {type(raw).__name__}"
+    )
+
+
 def completeness_check(
     needs_context: bool = False,
     retry: RetryPolicy | None = None,
@@ -122,10 +142,13 @@ def completeness_check(
     Decorator to register a completeness check function for async steps.
 
     The check signature should be:
-        async def check(config: StepConfig, results: dict, result: MyResult) -> bool | dict | CheckResult
+        async def check(config: StepConfig, results: dict, result: MyResult) -> CheckResult
 
     Or with engine context:
-        async def check(config, results, result, ctx: dict[str, Any]) -> bool | dict | CheckResult
+        async def check(config, results, result, ctx: dict[str, Any]) -> CheckResult
+
+    Handlers may also return ``bool`` or ``dict`` for convenience — the
+    decorator normalizes all return values to ``CheckResult``.
 
     Set ``needs_context=True`` to receive the engine context dict as the
     fourth argument.  The handler name is auto-generated from module + qualname.
@@ -137,12 +160,20 @@ def completeness_check(
     """
     def decorator(fn: Callable) -> Callable:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
-        fn._step_meta = {
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            result = fn(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return _normalize_check_result(result)
+
+        wrapper._step_meta = {
             "handler": handler_name,
             "is_completeness_check": True,
             "needs_context": needs_context,
             "retry": retry or RetryPolicy(),
         }
-        _STEP_REGISTRY[handler_name] = fn
-        return fn
+        _STEP_REGISTRY[handler_name] = wrapper
+        return wrapper
     return decorator
