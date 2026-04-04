@@ -1,7 +1,8 @@
 ---
 name: engine-context-manager
 created: 2026-04-04T23:30:00Z
-status: planned
+status: completed
+completed: 2026-04-04T19:30:00Z
 ---
 
 # Add async context manager to WorkflowEngine
@@ -33,4 +34,10 @@ Add `__aenter__` / `__aexit__` to `WorkflowEngine` so it can be used as `async w
 
 ## Tasks
 
-- [ ] add-context-manager: Add __aenter__/__aexit__ to WorkflowEngine with test
+- [x] add-context-manager: Add __aenter__/__aexit__ to WorkflowEngine with test
+  - branch: `engine-context-manager/add-context-manager`
+  - pr: #37
+
+## PRs
+
+- #37 — Add async context manager to WorkflowEngine

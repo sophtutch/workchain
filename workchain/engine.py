@@ -14,9 +14,10 @@ import signal
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 if TYPE_CHECKING:
+    import types
     from collections.abc import Callable
 
 from workchain.audit import AuditEvent, AuditEventType
@@ -66,12 +67,15 @@ class WorkflowEngine:
     """
     Multi-instance-safe workflow engine backed by MongoDB.
 
-    Usage:
-        store = MongoWorkflowStore(db)
+    Usage (context manager — recommended):
+        async with WorkflowEngine(store) as engine:
+            ...  # engine runs claim loop, heartbeat, sweep
+
+    Usage (manual):
         engine = WorkflowEngine(store)
-        await engine.start()   # begins claim loop + heartbeat
+        await engine.start()
         ...
-        await engine.stop()    # graceful shutdown
+        await engine.stop()
     """
 
     def __init__(
@@ -200,6 +204,15 @@ class WorkflowEngine:
         # Drain pending audit writes via the store
         await self._store.drain_audit_tasks()
         logger.info("Shutdown complete.")
+
+    async def __aenter__(self) -> Self:
+        """Start the engine for use as an async context manager."""
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: types.TracebackType | None) -> None:
+        """Stop the engine on context exit, ensuring locks are released."""
+        await self.stop()
 
     # ------------------------------------------------------------------
     # Claim loop — discovers and claims available workflows

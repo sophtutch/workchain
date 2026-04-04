@@ -41,20 +41,16 @@ async def main() -> None:
 
     # Start the engine with aggressive intervals for the demo.
     # Context dict makes db and store available to step handlers
-    engine = WorkflowEngine(
+    async with WorkflowEngine(
         store,
         claim_interval=1.0,
         heartbeat_interval=5.0,
         max_concurrent=3,
         context={"db": db, "store": store},
-    )
-    await engine.start()
-
-    # Let the engine run long enough to complete all steps
-    # (including async polling cycles).
-    await asyncio.sleep(25)
-
-    await engine.stop()
+    ) as engine:
+        # Let the engine run long enough to complete all steps
+        # (including async polling cycles).
+        await asyncio.sleep(25)
 
     # Print final workflow state.
     final = await store.get(wf.id)
