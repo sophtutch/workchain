@@ -14,6 +14,19 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _tz_safe_le(a: datetime, b: datetime) -> bool:
+    """Compare two datetimes, normalising to naive UTC if tz-awareness differs.
+
+    MongoDB drivers may return naive or aware datetimes depending on the
+    driver and codec configuration.  This avoids ``TypeError`` when
+    comparing across the boundary.
+    """
+    if (a.tzinfo is None) != (b.tzinfo is None):
+        a = a.replace(tzinfo=None)
+        b = b.replace(tzinfo=None)
+    return a <= b
+
+
 def _new_id() -> str:
     return uuid.uuid4().hex  # full 32-char hex (128-bit entropy)
 
@@ -286,7 +299,7 @@ class Workflow(BaseModel):
             if s.status == StepStatus.BLOCKED
             and s.locked_by is None
             and s.next_poll_at is not None
-            and s.next_poll_at <= now
+            and _tz_safe_le(s.next_poll_at, now)
         ]
 
     def active_steps(self) -> list[Step]:
