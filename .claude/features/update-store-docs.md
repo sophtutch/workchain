@@ -1,7 +1,7 @@
 ---
 name: update-store-docs
 created: 2026-04-04T10:00:00Z
-status: planned
+status: in_progress
 ---
 
 # Update CLAUDE.md for typed store params
@@ -34,4 +34,4 @@ Update CLAUDE.md to document the convention that store step-state methods accept
 
 ## Tasks
 
-- [ ] update-claude-md: Update CLAUDE.md conventions and store.py section to document StepResult params and internal serialization
+- [-] update-claude-md: Update CLAUDE.md conventions and store.py section to document StepResult params and internal serialization
