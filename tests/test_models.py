@@ -361,3 +361,407 @@ class TestWorkflow:
         )
         assert len(w.steps) == 2
         assert w.steps[0].name == "s1"
+
+
+# ---------------------------------------------------------------------------
+# Step — depends_on and step-level lock fields
+# ---------------------------------------------------------------------------
+
+
+class TestStepDependsOn:
+    def test_depends_on_default_is_none(self):
+        s = Step(name="s1", handler="mod.func")
+        assert s.depends_on is None
+
+    def test_explicit_empty_list(self):
+        s = Step(name="s1", handler="mod.func", depends_on=[])
+        assert s.depends_on == []
+
+    def test_explicit_dependencies(self):
+        s = Step(name="s1", handler="mod.func", depends_on=["a", "b"])
+        assert s.depends_on == ["a", "b"]
+
+
+class TestStepLockFields:
+    def test_defaults(self):
+        s = Step(name="s1", handler="mod.func")
+        assert s.locked_by is None
+        assert s.lock_expires_at is None
+        assert s.fence_token == 0
+
+
+# ---------------------------------------------------------------------------
+# Workflow — depends_on resolution and validation
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowDependsOnResolution:
+    """Tests for the automatic resolution of None → sequential defaults."""
+
+    def test_empty_workflow(self):
+        w = Workflow(name="test")
+        assert w.steps == []
+
+    def test_single_step_gets_empty_depends_on(self):
+        w = Workflow(name="test", steps=[Step(name="a", handler="mod.func")])
+        assert w.steps[0].depends_on == []
+
+    def test_sequential_default_two_steps(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func"),
+                Step(name="b", handler="mod.func"),
+            ],
+        )
+        assert w.steps[0].depends_on == []
+        assert w.steps[1].depends_on == ["a"]
+
+    def test_sequential_default_three_steps(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func"),
+                Step(name="b", handler="mod.func"),
+                Step(name="c", handler="mod.func"),
+            ],
+        )
+        assert w.steps[0].depends_on == []
+        assert w.steps[1].depends_on == ["a"]
+        assert w.steps[2].depends_on == ["b"]
+
+    def test_explicit_depends_on_preserved(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[]),
+                Step(name="b", handler="mod.func", depends_on=[]),
+                Step(name="c", handler="mod.func", depends_on=["a", "b"]),
+            ],
+        )
+        assert w.steps[0].depends_on == []
+        assert w.steps[1].depends_on == []
+        assert w.steps[2].depends_on == ["a", "b"]
+
+    def test_mixed_none_and_explicit(self):
+        """Steps with None get sequential default; explicit ones are preserved."""
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func"),  # None → []
+                Step(name="b", handler="mod.func", depends_on=[]),  # explicit root
+                Step(name="c", handler="mod.func"),  # None → ["b"]
+            ],
+        )
+        assert w.steps[0].depends_on == []
+        assert w.steps[1].depends_on == []
+        assert w.steps[2].depends_on == ["b"]
+
+
+class TestWorkflowDependsOnValidation:
+    """Tests for dependency validation: unknown names, self-refs, cycles."""
+
+    def test_unknown_dependency_raises(self):
+        with pytest.raises(ValidationError, match="depends on unknown step 'z'"):
+            Workflow(
+                name="test",
+                steps=[
+                    Step(name="a", handler="mod.func", depends_on=[]),
+                    Step(name="b", handler="mod.func", depends_on=["z"]),
+                ],
+            )
+
+    def test_self_reference_raises(self):
+        with pytest.raises(ValidationError, match="cannot depend on itself"):
+            Workflow(
+                name="test",
+                steps=[
+                    Step(name="a", handler="mod.func", depends_on=["a"]),
+                ],
+            )
+
+    def test_two_step_cycle_raises(self):
+        with pytest.raises(ValidationError, match="Dependency cycle detected"):
+            Workflow(
+                name="test",
+                steps=[
+                    Step(name="a", handler="mod.func", depends_on=["b"]),
+                    Step(name="b", handler="mod.func", depends_on=["a"]),
+                ],
+            )
+
+    def test_three_step_cycle_raises(self):
+        with pytest.raises(ValidationError, match="Dependency cycle detected"):
+            Workflow(
+                name="test",
+                steps=[
+                    Step(name="a", handler="mod.func", depends_on=["c"]),
+                    Step(name="b", handler="mod.func", depends_on=["a"]),
+                    Step(name="c", handler="mod.func", depends_on=["b"]),
+                ],
+            )
+
+    def test_valid_diamond_pattern(self):
+        """A → (B, C) → D is a valid DAG."""
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[]),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+                Step(name="c", handler="mod.func", depends_on=["a"]),
+                Step(name="d", handler="mod.func", depends_on=["b", "c"]),
+            ],
+        )
+        assert len(w.steps) == 4
+
+    def test_valid_all_roots(self):
+        """All steps independent (no dependencies)."""
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[]),
+                Step(name="b", handler="mod.func", depends_on=[]),
+                Step(name="c", handler="mod.func", depends_on=[]),
+            ],
+        )
+        assert all(s.depends_on == [] for s in w.steps)
+
+
+# ---------------------------------------------------------------------------
+# Workflow — dependency-aware helpers
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowReadySteps:
+    def test_all_pending_roots_are_ready(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[]),
+                Step(name="b", handler="mod.func", depends_on=[]),
+            ],
+        )
+        ready = w.ready_steps()
+        assert [s.name for s in ready] == ["a", "b"]
+
+    def test_dependent_step_not_ready(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[]),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+            ],
+        )
+        ready = w.ready_steps()
+        assert [s.name for s in ready] == ["a"]
+
+    def test_dependent_step_ready_after_dependency_completed(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+            ],
+        )
+        ready = w.ready_steps()
+        assert [s.name for s in ready] == ["b"]
+
+    def test_diamond_ready_steps(self):
+        """After A completes, both B and C become ready. D is not ready yet."""
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+                Step(name="c", handler="mod.func", depends_on=["a"]),
+                Step(name="d", handler="mod.func", depends_on=["b", "c"]),
+            ],
+        )
+        ready = w.ready_steps()
+        assert [s.name for s in ready] == ["b", "c"]
+
+    def test_diamond_d_ready_when_b_and_c_completed(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.COMPLETED),
+                Step(name="c", handler="mod.func", depends_on=["a"], status=StepStatus.COMPLETED),
+                Step(name="d", handler="mod.func", depends_on=["b", "c"]),
+            ],
+        )
+        ready = w.ready_steps()
+        assert [s.name for s in ready] == ["d"]
+
+    def test_locked_step_not_ready(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], locked_by="instance-1"),
+            ],
+        )
+        ready = w.ready_steps()
+        assert ready == []
+
+    def test_completed_step_not_ready(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+            ],
+        )
+        ready = w.ready_steps()
+        assert ready == []
+
+    def test_failed_dependency_blocks_dependent(self):
+        """If a dependency failed, the dependent step is not ready."""
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.FAILED),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+            ],
+        )
+        ready = w.ready_steps()
+        assert ready == []
+
+    def test_no_steps(self):
+        w = Workflow(name="test")
+        assert w.ready_steps() == []
+
+
+class TestWorkflowPollableSteps:
+    def test_blocked_step_past_poll_time(self):
+        past = datetime(2020, 1, 1, tzinfo=UTC)
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(
+                    name="a", handler="mod.func", depends_on=[],
+                    status=StepStatus.BLOCKED, next_poll_at=past,
+                ),
+            ],
+        )
+        pollable = w.pollable_steps()
+        assert [s.name for s in pollable] == ["a"]
+
+    def test_blocked_step_future_poll_not_pollable(self):
+        future = datetime(2099, 1, 1, tzinfo=UTC)
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(
+                    name="a", handler="mod.func", depends_on=[],
+                    status=StepStatus.BLOCKED, next_poll_at=future,
+                ),
+            ],
+        )
+        assert w.pollable_steps() == []
+
+    def test_locked_blocked_step_not_pollable(self):
+        past = datetime(2020, 1, 1, tzinfo=UTC)
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(
+                    name="a", handler="mod.func", depends_on=[],
+                    status=StepStatus.BLOCKED, next_poll_at=past,
+                    locked_by="instance-1",
+                ),
+            ],
+        )
+        assert w.pollable_steps() == []
+
+
+class TestWorkflowActiveSteps:
+    def test_active_steps(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.RUNNING),
+                Step(name="c", handler="mod.func", depends_on=["a"], status=StepStatus.BLOCKED),
+                Step(name="d", handler="mod.func", depends_on=["b", "c"], status=StepStatus.PENDING),
+            ],
+        )
+        active = w.active_steps()
+        assert [s.name for s in active] == ["b", "c"]
+
+
+class TestWorkflowTerminalHelpers:
+    def test_all_steps_terminal(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.FAILED),
+            ],
+        )
+        assert w.all_steps_terminal() is True
+
+    def test_all_steps_terminal_empty(self):
+        w = Workflow(name="test")
+        assert w.all_steps_terminal() is False
+
+    def test_not_all_terminal(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.PENDING),
+            ],
+        )
+        assert w.all_steps_terminal() is False
+
+    def test_all_steps_completed(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.COMPLETED),
+            ],
+        )
+        assert w.all_steps_completed() is True
+
+    def test_all_steps_completed_empty(self):
+        w = Workflow(name="test")
+        assert w.all_steps_completed() is False
+
+    def test_has_failed_step(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.FAILED),
+            ],
+        )
+        assert w.has_failed_step() is True
+
+    def test_no_failed_step(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"], status=StepStatus.COMPLETED),
+            ],
+        )
+        assert w.has_failed_step() is False
+
+
+class TestWorkflowStepByName:
+    def test_found(self):
+        w = Workflow(
+            name="test",
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[]),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+            ],
+        )
+        assert w.step_by_name("b") is w.steps[1]
+
+    def test_not_found(self):
+        w = Workflow(
+            name="test",
+            steps=[Step(name="a", handler="mod.func", depends_on=[])],
+        )
+        assert w.step_by_name("z") is None

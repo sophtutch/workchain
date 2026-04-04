@@ -125,6 +125,14 @@ class Step(BaseModel):
             raise ValueError("step_timeout must not be negative")
         return v
 
+    # Dependency graph — resolved by Workflow._resolve_and_validate_depends_on
+    depends_on: list[str] | None = None   # None = sequential default, [] = root step
+
+    # Step-level locking (for per-step distributed claims)
+    locked_by: str | None = None
+    lock_expires_at: datetime | None = None
+    fence_token: int = 0
+
     is_async: bool = False                # if True, engine polls completeness_check
     completeness_check: str | None = None  # dotted path to async callable -> bool
     verify_completion: str | None = None   # used on crash recovery
@@ -158,7 +166,7 @@ class Workflow(BaseModel):
     name: str
     status: WorkflowStatus = WorkflowStatus.PENDING
     steps: list[Step] = Field(default_factory=list)
-    current_step_index: int = 0
+    current_step_index: int = 0  # DEPRECATED: kept for backward compat during migration
 
     @model_validator(mode="after")
     def _validate_unique_step_names(self) -> Workflow:
@@ -168,7 +176,62 @@ class Workflow(BaseModel):
             raise ValueError(f"Step names must be unique, found duplicates: {sorted(set(dupes))}")
         return self
 
+    @model_validator(mode="after")
+    def _resolve_and_validate_depends_on(self) -> Workflow:
+        """Resolve None → sequential default, then validate the dependency graph.
+
+        - ``depends_on=None`` (the default) means "depend on the previous step",
+          or ``[]`` for the first step.  This preserves backward compatibility.
+        - Rejects unknown step names, self-references, and cycles.
+        """
+        if not self.steps:
+            return self
+
+        step_names = {s.name for s in self.steps}
+
+        # --- Resolve sequential defaults ---
+        for i, step in enumerate(self.steps):
+            if step.depends_on is None:
+                step.depends_on = [self.steps[i - 1].name] if i > 0 else []
+
+        # --- Validate references (depends_on is guaranteed non-None after resolution) ---
+        for step in self.steps:
+            for dep in step.depends_on:  # type: ignore[union-attr]
+                if dep == step.name:
+                    raise ValueError(
+                        f"Step '{step.name}' cannot depend on itself"
+                    )
+                if dep not in step_names:
+                    raise ValueError(
+                        f"Step '{step.name}' depends on unknown step '{dep}'"
+                    )
+
+        # --- Detect cycles via topological sort (Kahn's algorithm) ---
+        in_degree: dict[str, int] = {s.name: 0 for s in self.steps}
+        dependents: dict[str, list[str]] = {s.name: [] for s in self.steps}
+        for step in self.steps:
+            for dep in step.depends_on:  # type: ignore[union-attr]
+                dependents[dep].append(step.name)
+                in_degree[step.name] += 1
+
+        queue = [name for name, deg in in_degree.items() if deg == 0]
+        visited = 0
+        while queue:
+            node = queue.pop()
+            visited += 1
+            for child in dependents[node]:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+
+        if visited != len(self.steps):
+            raise ValueError("Dependency cycle detected among steps")
+
+        return self
+
     # Distributed locking (MongoDB-managed)
+    # DEPRECATED: workflow-level locks kept for backward compat during migration.
+    # Step-level locks (Step.locked_by, Step.fence_token) are the new model.
     locked_by: str | None = None
     lock_expires_at: datetime | None = None
     fence_token: int = 0
@@ -183,3 +246,69 @@ class Workflow(BaseModel):
             WorkflowStatus.NEEDS_REVIEW,
             WorkflowStatus.CANCELLED,
         )
+
+    # --- Dependency-aware helpers ---
+
+    def step_by_name(self, name: str) -> Step | None:
+        """Look up a step by name, or ``None`` if not found."""
+        for s in self.steps:
+            if s.name == name:
+                return s
+        return None
+
+    def ready_steps(self) -> list[Step]:
+        """Return steps that are PENDING with all dependencies COMPLETED and not locked.
+
+        A step is "ready" when:
+        - Its status is PENDING
+        - Every step named in ``depends_on`` has status COMPLETED
+        - It is not currently locked (``locked_by is None``)
+        """
+        by_name = {s.name: s for s in self.steps}
+        ready = []
+        for step in self.steps:
+            if step.status != StepStatus.PENDING or step.locked_by is not None:
+                continue
+            deps = step.depends_on or []
+            if all(
+                (dep := by_name.get(d)) is not None
+                and dep.status == StepStatus.COMPLETED
+                for d in deps
+            ):
+                ready.append(step)
+        return ready
+
+    def pollable_steps(self) -> list[Step]:
+        """Return BLOCKED steps whose ``next_poll_at`` has passed and are not locked."""
+        now = _utcnow()
+        return [
+            s for s in self.steps
+            if s.status == StepStatus.BLOCKED
+            and s.locked_by is None
+            and s.next_poll_at is not None
+            and s.next_poll_at <= now
+        ]
+
+    def active_steps(self) -> list[Step]:
+        """Return steps currently in-flight (SUBMITTED, RUNNING, or BLOCKED)."""
+        return [
+            s for s in self.steps
+            if s.status in (StepStatus.SUBMITTED, StepStatus.RUNNING, StepStatus.BLOCKED)
+        ]
+
+    def all_steps_terminal(self) -> bool:
+        """True if every step is in a terminal state (COMPLETED or FAILED)."""
+        return bool(self.steps) and all(
+            s.status in (StepStatus.COMPLETED, StepStatus.FAILED)
+            for s in self.steps
+        )
+
+    def all_steps_completed(self) -> bool:
+        """True if every step has status COMPLETED."""
+        return bool(self.steps) and all(
+            s.status == StepStatus.COMPLETED for s in self.steps
+        )
+
+    def has_failed_step(self) -> bool:
+        """True if any step has status FAILED."""
+        return any(s.status == StepStatus.FAILED for s in self.steps)
