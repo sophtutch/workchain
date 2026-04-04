@@ -19,7 +19,7 @@ from workchain.exceptions import (
     WorkchainError,
 )
 from workchain.models import (
-    PollHint,
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     Step,
@@ -35,7 +35,7 @@ __all__ = [
     "AuditEvent", "AuditEventType", "AuditLogger", "MongoAuditLogger", "NullAuditLogger",
     "generate_audit_report",
     "Workflow", "Step", "StepConfig", "StepResult", "RetryPolicy",
-    "PollPolicy", "PollHint", "StepStatus", "WorkflowStatus",
+    "PollPolicy", "CheckResult", "StepStatus", "WorkflowStatus",
     "MongoWorkflowStore", "WorkflowEngine",
     "step", "async_step", "completeness_check",
     "WorkchainError", "StepError", "StepTimeoutError", "RetryExhaustedError",

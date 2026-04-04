@@ -96,7 +96,7 @@ async def check_provisioning(
     Completeness check for resource provisioning.
 
     Simulates an external system that completes after 3 polls.
-    Returns a PollHint dict with progress information.
+    Returns a CheckResult dict with progress information.
     """
     job_id = result.job_id
     count = _poll_counts.get(job_id, 0) + 1

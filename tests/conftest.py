@@ -8,7 +8,7 @@ from mongomock_motor import AsyncMongoMockClient
 from workchain.decorators import async_step, completeness_check, step
 from workchain.engine import WorkflowEngine
 from workchain.models import (
-    PollHint,
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     Step,
@@ -72,13 +72,13 @@ async def flaky_handler(_config: StepConfig, _results: dict[str, StepResult]) ->
 @completeness_check()
 async def _check_complete_impl(
     _config: StepConfig, _results: dict[str, StepResult], _result: StepResult
-) -> PollHint:
+) -> CheckResult:
     key = "poll"
     _POLL_COUNTER.setdefault(key, 0)
     _POLL_COUNTER[key] += 1
     if _POLL_COUNTER[key] >= 2:
-        return PollHint(complete=True, progress=1.0)
-    return PollHint(complete=False, progress=0.5, message="in progress")
+        return CheckResult(complete=True, progress=1.0)
+    return CheckResult(complete=False, progress=0.5, message="in progress")
 
 
 @async_step(
@@ -130,15 +130,15 @@ async def check_complete_ctx(
     _results: dict[str, StepResult],
     _result: StepResult,
     ctx: dict[str, object],
-) -> PollHint:
+) -> CheckResult:
     """Completeness check that uses engine context."""
     threshold = ctx.get("complete_threshold", 2)
     key = "poll_ctx"
     _POLL_COUNTER.setdefault(key, 0)
     _POLL_COUNTER[key] += 1
     if _POLL_COUNTER[key] >= threshold:
-        return PollHint(complete=True, progress=1.0)
-    return PollHint(complete=False, progress=0.5)
+        return CheckResult(complete=True, progress=1.0)
+    return CheckResult(complete=False, progress=0.5)
 
 
 # ---------------------------------------------------------------------------

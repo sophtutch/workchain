@@ -74,7 +74,7 @@ class StepConfig(BaseModel):
     """Base class for step configuration. Subclass with typed fields."""
 
 
-class PollHint(BaseModel):
+class CheckResult(BaseModel):
     """
     Optional return type from completeness_check.
     Instead of returning a plain bool, the check can return a dict

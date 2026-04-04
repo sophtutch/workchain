@@ -40,6 +40,6 @@ python -m examples.ci_cd_pipeline.example
 
 - **Typed step configs and results** -- each step has its own `StepConfig` and `StepResult` subclasses with validated fields
 - **Retry policy** -- `run_tests` retries up to 3 times with exponential backoff for transient failures
-- **Async steps with PollHint** -- `build_artifact` and `deploy_staging` use completeness checks that return progress hints
+- **Async steps with CheckResult** -- `build_artifact` and `deploy_staging` use completeness checks that return progress hints
 - **Result passing** -- later steps access earlier results via the `results` dict (e.g., `push_to_registry` reads the `build_id` from `build_artifact`)
 - **Long chain** -- 6 steps executing sequentially with mixed sync/async behavior

@@ -45,14 +45,14 @@ async def $ARGUMENTS(
 ## Template — Async Step
 
 ```python
-from workchain import StepConfig, StepResult, PollHint, PollPolicy, async_step
+from workchain import StepConfig, StepResult, CheckResult, PollPolicy, async_step
 
 class $ARGUMENTS_Result(StepResult):
     job_id: str
 
-async def check_$ARGUMENTS(config, results, result: $ARGUMENTS_Result) -> PollHint:
+async def check_$ARGUMENTS(config, results, result: $ARGUMENTS_Result) -> CheckResult:
     # TODO: check if external work is done
-    return PollHint(complete=False, progress=0.5)
+    return CheckResult(complete=False, progress=0.5)
 
 @async_step(
     name="$ARGUMENTS",

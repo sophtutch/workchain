@@ -25,7 +25,7 @@ from workchain.decorators import _STEP_REGISTRY
 from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
 from workchain.exceptions import HandlerError
 from workchain.models import (
-    PollHint,
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     Step,
@@ -390,7 +390,7 @@ class TestAsyncExecution:
 class TestPollLimits:
     async def test_poll_timeout(self, store, engine):
         async def never_complete(_config, _results, _result):
-            return PollHint(complete=False, progress=0.1)
+            return CheckResult(complete=False, progress=0.1)
 
         never_complete._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.never_complete"] = never_complete
@@ -419,7 +419,7 @@ class TestPollLimits:
 
     async def test_max_polls_exceeded(self, store, engine):
         async def never_complete(_config, _results, _result):
-            return PollHint(complete=False)
+            return CheckResult(complete=False)
 
         never_complete._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.never_complete_max"] = never_complete
@@ -556,10 +556,10 @@ class TestRecovery:
         assert loaded.steps[0].status == StepStatus.COMPLETED
 
     async def test_recover_async_with_poll_hint(self, store, engine):
-        """Async recovery handles PollHint(complete=True) correctly."""
+        """Async recovery handles CheckResult(complete=True) correctly."""
 
         async def check_returns_poll_hint(_config, _results, _result):
-            return PollHint(complete=True, progress=1.0)
+            return CheckResult(complete=True, progress=1.0)
 
         check_returns_poll_hint._step_meta = {"needs_context": False}
         _STEP_REGISTRY["tests.check_poll_hint_done"] = check_returns_poll_hint
@@ -586,7 +586,7 @@ class TestRecovery:
         await engine._run_workflow(claimed)
 
         loaded = await store.get(wf.id)
-        # PollHint(complete=True) should be recognized as complete
+        # CheckResult(complete=True) should be recognized as complete
         assert loaded.steps[0].status == StepStatus.COMPLETED
 
 
@@ -682,7 +682,7 @@ class TestContextInjection:
 
         async def check_with_ctx(_config, _results, _result, ctx: dict[str, Any]):
             check_ctx.update(ctx)
-            return PollHint(complete=True, progress=1.0)
+            return CheckResult(complete=True, progress=1.0)
 
         async_submit._step_meta = {"needs_context": False}
         check_with_ctx._step_meta = {"needs_context": True}
@@ -867,7 +867,7 @@ class TestCompletenessCheckRetries:
             call_count += 1
             if call_count <= 1:
                 raise RuntimeError("transient error")
-            return PollHint(complete=True)
+            return CheckResult(complete=True)
 
         flaky_check._step_meta = {
             "needs_context": False,
@@ -946,8 +946,8 @@ class TestCompletenessCheckRetries:
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
-                return PollHint(complete=True)
-            return PollHint(complete=False)
+                return CheckResult(complete=True)
+            return CheckResult(complete=False)
 
         slow_check._step_meta = {
             "needs_context": False,
