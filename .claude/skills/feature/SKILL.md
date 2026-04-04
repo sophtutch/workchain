@@ -179,7 +179,7 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
      - Set feature status to `completed` in frontmatter
      - Add `completed: <ISO 8601 datetime>` to frontmatter
      - Add a `## PRs` section listing all task PRs
-     - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<name>.md`
+     - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<pr_number>-<name>.md` (e.g. `completed/30-readme-documentation.md`)
      - Report: "Feature <name> complete! Moved to completed/"
    - Otherwise save the file and report progress: "Task 3/5 complete. Next: `/feature next <name>`"
 
