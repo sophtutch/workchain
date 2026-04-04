@@ -108,15 +108,17 @@ EOF
 
 Note the PR number from the output — it is needed for all subsequent steps.
 
-### 8. Poll for review comments
+### 8. Poll for review comments and CI checks
 
-Set up a recurring poll using CronCreate. See [Review comment polling pattern](#review-comment-polling-pattern) below for the poll prompt template.
+Set up a recurring poll using CronCreate. See [Review and CI polling pattern](#review-and-ci-polling-pattern) below for the poll prompt template.
 
 - Cron expression: `* * * * *` (every 1 minute)
 - Set `BASELINE_COMMENT_COUNT=0` (no review comments yet)
+- The poll checks both review comments **and** CI check status
 - If no review arrives after 5 polls, delete the cron and use `AskUserQuestion` to ask the user: "No review comments after 5 minutes. How should we proceed?" with options: "Merge without review", "Keep waiting" (creates a new polling cron), and "Hold — I'll check back later"
+- If CI checks fail, report the failure immediately regardless of review status
 
-When the poll detects new comments, proceed to step 9.
+When the poll detects new comments, proceed to step 9. If CI checks fail, fix the issue before proceeding.
 
 ### 9. Address reviewer feedback
 
@@ -170,23 +172,27 @@ Confirm clean state with `git status`.
 
 ---
 
-## Review comment polling pattern
+## Review and CI polling pattern
 
 Reusable poll prompt template for CronCreate. Replace `{N}` with the PR number, `$REPO` with the repo name, and `{BASELINE}` with the review comment count before this poll phase started (0 for initial, or the count after addressing feedback).
 
 ```
-Check for review comments on PR #{N} in $REPO.
+Check PR #{N} in $REPO for review comments AND CI check status.
 
+1. Review comments:
 Run: gh api repos/$REPO/pulls/{N}/comments --jq 'length'
+If count > {BASELINE}, fetch: gh api repos/$REPO/pulls/{N}/comments --jq '.[] | {id: .id, path: .path, body: .body[0:200], user: .user.login, node_id: .node_id}'
+Also check formal reviews: gh pr view {N} --json reviews --jq '.reviews[] | {body: .body[0:200], state: .state, author: .author.login}'
 
-If the count is greater than {BASELINE}, fetch the new comments:
-gh api repos/$REPO/pulls/{N}/comments --jq '.[] | {id: .id, path: .path, body: .body[0:200], user: .user.login}'
+2. CI checks:
+Run: gh pr checks {N} --json name,state --jq '.[] | {name: .name, state: .state}'
 
-Also check for formal PR reviews:
-gh pr view {N} --json reviews --jq '.reviews[] | {body: .body[0:200], state: .state, author: .author.login}'
-
-If count > {BASELINE}, report the new findings with a summary of each.
-If count == {BASELINE}, say "No new review comments on PR #{N}."
+Report:
+- If new review comments (count > {BASELINE}): report them with a summary
+- If all checks passed: report "All CI checks passed on PR #{N}"
+- If any checks failed: report which ones failed
+- If checks are still pending: report "CI checks still running on PR #{N}"
+- If no comments and no check results: say "No review comments, no CI checks on PR #{N}."
 ```
 
 ## Error handling
