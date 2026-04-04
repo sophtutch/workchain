@@ -146,8 +146,8 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
    - Features with a task already `[-]` (in progress) come first — resume interrupted work
    - Then features with fewer remaining tasks (closer to completion)
    - Then features by created date (oldest first)
-3. Present the suggested feature and its next task to the user. Use `AskUserQuestion` to confirm or let them pick a different one.
-4. Proceed with the selected feature as if the name had been provided.
+3. Present features and their next tasks to the user. Use `AskUserQuestion` with `multiSelect: true` to let them select one or more features to work on.
+4. For each selected feature, proceed sequentially as if the name had been provided (run `/ship` for each in turn).
 
 **If there are no open features:**
 
