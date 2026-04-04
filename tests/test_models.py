@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from workchain.models import (
-    PollHint,
+    CheckResult,
     PollPolicy,
     RetryPolicy,
     Step,
@@ -53,54 +53,54 @@ class TestWorkflowStatus:
 
 
 # ---------------------------------------------------------------------------
-# PollHint
+# CheckResult
 # ---------------------------------------------------------------------------
 
 
-class TestPollHint:
+class TestCheckResult:
     def test_defaults(self):
-        h = PollHint()
+        h = CheckResult()
         assert h.complete is False
         assert h.retry_after is None
         assert h.progress is None
         assert h.message is None
 
     def test_complete_true(self):
-        h = PollHint(complete=True, progress=1.0, message="done")
+        h = CheckResult(complete=True, progress=1.0, message="done")
         assert h.complete is True
         assert h.progress == 1.0
 
     @pytest.mark.parametrize("val", [0.0, 0.5, 1.0])
     def test_valid_progress(self, val):
-        h = PollHint(progress=val)
+        h = CheckResult(progress=val)
         assert h.progress == val
 
     def test_progress_below_zero_raises(self):
         with pytest.raises(ValidationError):
-            PollHint(progress=-0.1)
+            CheckResult(progress=-0.1)
 
     def test_progress_above_one_raises(self):
         with pytest.raises(ValidationError):
-            PollHint(progress=1.1)
+            CheckResult(progress=1.1)
 
     def test_progress_nan_raises(self):
         with pytest.raises(ValidationError, match="finite number"):
-            PollHint(progress=float("nan"))
+            CheckResult(progress=float("nan"))
 
     def test_progress_inf_raises(self):
         with pytest.raises(ValidationError, match="finite number"):
-            PollHint(progress=float("inf"))
+            CheckResult(progress=float("inf"))
 
     def test_progress_neg_inf_raises(self):
         with pytest.raises(ValidationError, match="finite number"):
-            PollHint(progress=float("-inf"))
+            CheckResult(progress=float("-inf"))
 
     def test_progress_none_valid(self):
-        h = PollHint(progress=None)
+        h = CheckResult(progress=None)
         assert h.progress is None
 
     def test_retry_after(self):
-        h = PollHint(retry_after=10.0)
+        h = CheckResult(retry_after=10.0)
         assert h.retry_after == 10.0
 
 

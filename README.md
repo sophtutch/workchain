@@ -26,7 +26,7 @@ pip install -e ".[dev]"
 Use `@step` for synchronous handlers, `@async_step` for handlers that submit external work, and `@completeness_check` for poll functions. Handler names are auto-generated from module + qualname:
 
 ```python
-from workchain import StepConfig, StepResult, step, async_step, completeness_check, PollPolicy, PollHint
+from workchain import StepConfig, StepResult, step, async_step, completeness_check, PollPolicy, CheckResult
 
 class ValidateConfig(StepConfig):
     email: str
@@ -44,8 +44,8 @@ class ProvisionResult(StepResult):
     job_id: str
 
 @completeness_check()
-async def check_provisioning(config, results, result: ProvisionResult) -> PollHint:
-    return PollHint(complete=False, progress=0.5)
+async def check_provisioning(config, results, result: ProvisionResult) -> CheckResult:
+    return CheckResult(complete=False, progress=0.5)
 
 @async_step(
     completeness_check=check_provisioning,
@@ -138,10 +138,10 @@ async def fetch_user(config: UserConfig, results: dict[str, StepResult], ctx: di
 
 # Completeness checks opt in the same way
 @completeness_check(needs_context=True)
-async def check_deploy(config, results, result: DeployResult, ctx: dict[str, Any]) -> PollHint:
+async def check_deploy(config, results, result: DeployResult, ctx: dict[str, Any]) -> CheckResult:
     http = cast(httpx.AsyncClient, ctx["http"])
     resp = await http.get(f"/deployments/{result.job_id}")
-    return PollHint(complete=resp.json()["status"] == "ready")
+    return CheckResult(complete=resp.json()["status"] == "ready")
 ```
 
 Handlers without `needs_context=True` receive only the standard arguments. The engine reads decorator metadata -- no runtime parameter inspection.
@@ -174,9 +174,9 @@ async def deploy(config: DeployConfig, results: dict[str, StepResult]) -> Deploy
     job_id = start_deployment(config.environment)
     return DeployResult(job_id=job_id)  # engine sets BLOCKED, releases lock
 
-async def check_deploy(config, results, result: DeployResult) -> PollHint:
+async def check_deploy(config, results, result: DeployResult) -> CheckResult:
     status = get_deployment_status(result.job_id)
-    return PollHint(complete=status == "ready", progress=status.percent)
+    return CheckResult(complete=status == "ready", progress=status.percent)
 ```
 
 ## Audit Logging
@@ -211,19 +211,19 @@ counts = await store.count_by_status()
 # {"pending": 5, "running": 2, "completed": 10}
 ```
 
-## Adaptive Polling with PollHint.retry_after
+## Adaptive Polling with CheckResult.retry_after
 
-A `completeness_check` can return `PollHint(retry_after=...)` to override the next poll interval (in seconds). This is a one-shot override -- subsequent polls resume normal backoff unless `retry_after` is set again.
+A `completeness_check` can return `CheckResult(retry_after=...)` to override the next poll interval (in seconds). This is a one-shot override -- subsequent polls resume normal backoff unless `retry_after` is set again.
 
 ```python
 @completeness_check()
-async def check_training(config, results, result: TrainResult) -> PollHint:
+async def check_training(config, results, result: TrainResult) -> CheckResult:
     status = await get_job_status(result.job_id)
     if status == "initializing":
-        return PollHint(complete=False, retry_after=5.0)   # poll again quickly
+        return CheckResult(complete=False, retry_after=5.0)   # poll again quickly
     if status == "running":
-        return PollHint(complete=False, retry_after=60.0)  # poll less frequently
-    return PollHint(complete=True)
+        return CheckResult(complete=False, retry_after=60.0)  # poll less frequently
+    return CheckResult(complete=True)
 ```
 
 When `retry_after` is `None` (the default), the engine applies the normal `backoff_multiplier` from the step's `PollPolicy`.

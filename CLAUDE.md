@@ -52,7 +52,7 @@ workchain/
 **Crash-safe state machine**
 - Before execution: step is marked SUBMITTED (write-ahead)
 - On recovery: `verify_completion` / `completeness_check` / idempotent re-run / NEEDS_REVIEW
-- Recovery handles all completeness_check return types: `bool`, `dict`, `PollHint`, and truthy values
+- Recovery handles all completeness_check return types: `bool`, `dict`, `CheckResult`, and truthy values
 - Each retry attempt is persisted to MongoDB before execution
 
 **Claim-poll-release cycle (async steps)**
@@ -74,7 +74,7 @@ workchain/
 - `fence_token` is managed by the store — never set it manually.
 - `WorkflowEngine.instance_id` should be unique per process (auto-generated if omitted).
 - Step handlers must be registered via decorators or importable by dotted path.
-- `PollHint.progress` must be between 0.0 and 1.0.
+- `CheckResult.progress` must be between 0.0 and 1.0.
 - Config models extend `StepConfig`, result models extend `StepResult`.
 - Use `cast()` when accessing specific result types from the `results` dict.
 - Store step-state methods (`complete_step`, `fail_step`, `block_step`) accept `StepResult` objects directly — pass the model, not a dict. The store handles serialization internally via `model_dump(mode="python", serialize_as_any=True)`. Never call `.model_dump()` before passing results to store methods.

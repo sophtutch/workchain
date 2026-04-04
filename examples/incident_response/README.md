@@ -23,7 +23,7 @@ flowchart TD
 - **6-step sequential chain** modeling a full incident lifecycle
 - **Sync steps** for ticket management, paging, diagnostics, and verification
 - **Retry with backoff** on `page_oncall` (3 attempts, exponential)
-- **Async polling** on `apply_remediation` with `PollHint` progress reporting
+- **Async polling** on `apply_remediation` with `CheckResult` progress reporting
 - **Result forwarding** between steps via `cast()` on the results dict
 - **Conditional logic** in remediation (action depends on diagnostic metrics)
 - **In-memory MongoDB mock** for zero-dependency local runs

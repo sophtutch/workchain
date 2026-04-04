@@ -149,7 +149,7 @@ async def check_remediation(
     Completeness check for remediation.
 
     Simulates an external remediation system that resolves after 3 polls.
-    Returns a PollHint dict with progress information.
+    Returns a CheckResult dict with progress information.
     """
     rem_id = result.remediation_id
     count = _poll_counts.get(rem_id, 0) + 1

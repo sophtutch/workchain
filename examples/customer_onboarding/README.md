@@ -20,7 +20,7 @@ flowchart TD
 - **Typed StepConfig / StepResult** subclasses for compile-time safety
 - **Sync steps** with immediate execution (`validate_email`, `send_welcome_email`)
 - **Retry with backoff** on `create_account` (5 attempts, exponential)
-- **Async polling** on `provision_resources` with `PollHint` progress reporting
+- **Async polling** on `provision_resources` with `CheckResult` progress reporting
 - **Result forwarding** between steps via `cast()` on the results dict
 - **In-memory MongoDB mock** for zero-dependency local runs
 

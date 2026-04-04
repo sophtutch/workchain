@@ -23,7 +23,7 @@ from workchain.audit import AuditEvent, AuditEventType
 from workchain.decorators import get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
-    PollHint,
+    CheckResult,
     RetryPolicy,
     Step,
     StepResult,
@@ -572,7 +572,7 @@ class WorkflowEngine:
                     is_complete = raw
                 elif isinstance(raw, dict):
                     is_complete = raw.get("complete", False)
-                elif isinstance(raw, PollHint):
+                elif isinstance(raw, CheckResult):
                     is_complete = raw.complete
                 else:
                     is_complete = bool(raw)
@@ -734,7 +734,7 @@ class WorkflowEngine:
         check_meta = getattr(checker, "_step_meta", {})
         check_retry_policy = check_meta.get("retry", RetryPolicy())
 
-        hint: PollHint | None = None
+        hint: CheckResult | None = None
         is_complete = False
         try:
             retrying = retrying_from_policy(check_retry_policy)
@@ -779,9 +779,9 @@ class WorkflowEngine:
         if isinstance(raw, bool):
             is_complete = raw
         elif isinstance(raw, dict):
-            hint = PollHint.model_validate(raw)
+            hint = CheckResult.model_validate(raw)
             is_complete = hint.complete
-        elif isinstance(raw, PollHint):
+        elif isinstance(raw, CheckResult):
             hint = raw
             is_complete = hint.complete
         else:

@@ -87,7 +87,7 @@ def async_step(
 
     The handler should SUBMIT the work and return immediately with a
     StepResult subclass (e.g. containing a job_id). The engine will then
-    poll the completeness_check callable until it returns True or a PollHint.
+    poll the completeness_check callable until it returns True or a CheckResult.
 
     completeness_check can be:
       - A callable decorated with @completeness_check
@@ -122,10 +122,10 @@ def completeness_check(
     Decorator to register a completeness check function for async steps.
 
     The check signature should be:
-        async def check(config: StepConfig, results: dict, result: MyResult) -> bool | dict | PollHint
+        async def check(config: StepConfig, results: dict, result: MyResult) -> bool | dict | CheckResult
 
     Or with engine context:
-        async def check(config, results, result, ctx: dict[str, Any]) -> bool | dict | PollHint
+        async def check(config, results, result, ctx: dict[str, Any]) -> bool | dict | CheckResult
 
     Set ``needs_context=True`` to receive the engine context dict as the
     fourth argument.  The handler name is auto-generated from module + qualname.
