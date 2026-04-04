@@ -1105,6 +1105,23 @@ class TestFindClaimableSteps:
         claimable = await store.find_claimable_steps()
         assert (wf.id, "a") not in claimable
 
+    async def test_includes_expired_lock_steps(self, store):
+        """Steps with expired locks should be discoverable for reclaiming."""
+        wf = Workflow(
+            name="expired_lock",
+            steps=[
+                Step(
+                    name="a", handler="mod.func", depends_on=[],
+                    locked_by="crashed_inst",
+                    lock_expires_at=datetime.now(UTC) - timedelta(seconds=10),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        claimable = await store.find_claimable_steps()
+        assert (wf.id, "a") in claimable
+
     async def test_includes_pollable_blocked_step(self, store):
         wf = Workflow(
             name="pollable",

@@ -27,6 +27,15 @@ def _tz_safe_le(a: datetime, b: datetime) -> bool:
     return a <= b
 
 
+def _is_unlocked(s: Step) -> bool:
+    """True if the step has no lock or its lock has expired."""
+    if s.locked_by is None:
+        return True
+    if s.lock_expires_at is None:
+        return False
+    return _tz_safe_le(s.lock_expires_at, _utcnow())
+
+
 def _new_id() -> str:
     return uuid.uuid4().hex  # full 32-char hex (128-bit entropy)
 
@@ -275,12 +284,12 @@ class Workflow(BaseModel):
         A step is "ready" when:
         - Its status is PENDING
         - Every step named in ``depends_on`` has status COMPLETED
-        - It is not currently locked (``locked_by is None``)
+        - It is not currently locked (or its lock has expired)
         """
         by_name = {s.name: s for s in self.steps}
         ready = []
         for step in self.steps:
-            if step.status != StepStatus.PENDING or step.locked_by is not None:
+            if step.status != StepStatus.PENDING or not _is_unlocked(step):
                 continue
             deps = step.depends_on or []
             if all(
@@ -292,12 +301,12 @@ class Workflow(BaseModel):
         return ready
 
     def pollable_steps(self) -> list[Step]:
-        """Return BLOCKED steps whose ``next_poll_at`` has passed and are not locked."""
+        """Return BLOCKED steps whose ``next_poll_at`` has passed and are not locked (or lock expired)."""
         now = _utcnow()
         return [
             s for s in self.steps
             if s.status == StepStatus.BLOCKED
-            and s.locked_by is None
+            and _is_unlocked(s)
             and s.next_poll_at is not None
             and _tz_safe_le(s.next_poll_at, now)
         ]
