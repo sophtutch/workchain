@@ -142,6 +142,34 @@ class TestPollPolicy:
         assert p.interval == 2.0
         assert p.max_polls == 10
 
+    def test_negative_interval_rejected(self):
+        with pytest.raises(ValidationError, match="interval must not be negative"):
+            PollPolicy(interval=-1.0)
+
+    def test_negative_backoff_multiplier_rejected(self):
+        with pytest.raises(ValidationError, match="backoff_multiplier must not be negative"):
+            PollPolicy(backoff_multiplier=-0.5)
+
+    def test_negative_max_interval_rejected(self):
+        with pytest.raises(ValidationError, match="max_interval must not be negative"):
+            PollPolicy(max_interval=-10.0)
+
+    def test_negative_timeout_rejected(self):
+        with pytest.raises(ValidationError, match="timeout must not be negative"):
+            PollPolicy(timeout=-1.0)
+
+    def test_negative_max_polls_rejected(self):
+        with pytest.raises(ValidationError, match="max_polls must not be negative"):
+            PollPolicy(max_polls=-1)
+
+    def test_zero_values_accepted(self):
+        p = PollPolicy(interval=0, backoff_multiplier=0, max_interval=0, timeout=0, max_polls=0)
+        assert p.interval == 0
+        assert p.backoff_multiplier == 0
+        assert p.max_interval == 0
+        assert p.timeout == 0
+        assert p.max_polls == 0
+
 
 # ---------------------------------------------------------------------------
 # StepConfig / StepResult
