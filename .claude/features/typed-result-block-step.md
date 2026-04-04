@@ -1,7 +1,7 @@
 ---
 name: typed-result-block-step
 created: 2026-04-04T10:00:00Z
-status: planned
+status: in_progress
 ---
 
 # Accept StepResult in block_step
@@ -37,4 +37,4 @@ Change `block_step` to accept `result: StepResult` instead of `result: dict`. Th
 
 ## Tasks
 
-- [ ] refactor-block-step: Change block_step signature from result: dict to result: StepResult, remove result_summary param, update 2 engine call sites and test
+- [-] refactor-block-step: Change block_step signature from result: dict to result: StepResult, remove result_summary param, update 2 engine call sites and test

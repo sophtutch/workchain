@@ -268,7 +268,7 @@ class TestBlockStep:
 
         result = await store.block_step(
             wf.id, 0, 1,
-            result={"error": None, "completed_at": None},
+            result=StepResult(),
             result_type=None,
             poll_started_at=now,
             next_poll_at=now,

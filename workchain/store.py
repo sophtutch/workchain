@@ -324,7 +324,7 @@ class MongoWorkflowStore:
         workflow_id: str,
         step_index: int,
         fence_token: int,
-        result: dict,
+        result: StepResult,
         result_type: str | None,
         poll_started_at: datetime,
         next_poll_at: datetime,
@@ -332,14 +332,13 @@ class MongoWorkflowStore:
         poll_count: int = 0,
         # Audit context
         audit_event_type: AuditEventType | None = None,
-        result_summary: dict | None = None,
         recovery_action: str | None = None,
         **audit_kwargs: Any,
     ) -> Workflow | None:
         """Transition a step to BLOCKED and initialise poll scheduling."""
         updates: dict = {
             "status": StepStatus.BLOCKED.value,
-            "result": result,
+            "result": result.model_dump(mode="python", serialize_as_any=True),
             "poll_started_at": poll_started_at,
             "next_poll_at": next_poll_at,
             "current_poll_interval": current_poll_interval,
@@ -356,7 +355,7 @@ class MongoWorkflowStore:
                 evt, wf,
                 step=wf.steps[step_index], idx=step_index,
                 step_status_before=StepStatus.RUNNING.value,
-                result_summary=result_summary,
+                result_summary=result.model_dump(exclude_none=True),
                 recovery_action=recovery_action,
                 next_poll_at=next_poll_at,
                 current_poll_interval=current_poll_interval,
