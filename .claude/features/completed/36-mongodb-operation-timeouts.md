@@ -1,7 +1,8 @@
 ---
 name: mongodb-operation-timeouts
 created: 2026-04-04T23:30:00Z
-status: planned
+status: completed
+completed: 2026-04-04T19:10:00Z
 ---
 
 # Add maxTimeMS to MongoDB operations
@@ -34,4 +35,10 @@ Add `maxTimeMS` to all MongoDB write and query operations in `MongoWorkflowStore
 
 ## Tasks
 
-- [ ] add-mongo-timeouts: Add maxTimeMS parameter to store constructor and all MongoDB operations
+- [x] add-mongo-timeouts: Add maxTimeMS parameter to store constructor and all MongoDB operations
+  - branch: `mongodb-operation-timeouts/add-mongo-timeouts`
+  - pr: #36
+
+## PRs
+
+- #36 — Add operation_timeout_ms to MongoWorkflowStore

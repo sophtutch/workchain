@@ -50,13 +50,19 @@ class MongoWorkflowStore:
         collection_name: str = COLLECTION,
         audit_logger: AuditLogger | None = None,
         instance_id: str | None = None,
+        operation_timeout_ms: int = 30_000,
     ):
+        if operation_timeout_ms <= 0:
+            raise ValueError("operation_timeout_ms must be positive")
         self._db = db
         self._col = db[collection_name]
         self._lock_ttl = lock_ttl_seconds
         self._audit: AuditLogger = audit_logger or NullAuditLogger()
         self._instance_id = instance_id
         self._audit_tasks: set[asyncio.Task] = set()
+        # pymongo uses max_time_ms (snake_case) for find/find_one but
+        # maxTimeMS (camelCase) for find_one_and_update/aggregate kwargs.
+        self._op_timeout = operation_timeout_ms
 
     # ------------------------------------------------------------------
     # Audit helpers
@@ -152,7 +158,7 @@ class MongoWorkflowStore:
         return workflow.id
 
     async def get(self, workflow_id: str) -> Workflow | None:
-        doc = await self._col.find_one({"_id": workflow_id})
+        doc = await self._col.find_one({"_id": workflow_id}, max_time_ms=self._op_timeout)
         if doc is None:
             return None
         return self._doc_to_workflow(doc)
@@ -175,6 +181,7 @@ class MongoWorkflowStore:
             {"_id": workflow_id, "fence_token": fence_token},
             {"$set": set_fields},
             return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
         )
         if doc is None:
             logger.warning(
@@ -443,6 +450,7 @@ class MongoWorkflowStore:
             {"_id": workflow_id, "fence_token": fence_token},
             {"$set": set_fields},
             return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
         )
         if doc is None:
             return None
@@ -511,6 +519,7 @@ class MongoWorkflowStore:
                 "$inc": {"fence_token": 1},
             },
             return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
         )
         if doc is None:
             return None
@@ -608,6 +617,7 @@ class MongoWorkflowStore:
                 ],
             },
             {"_id": 1, "locked_by": 1, "current_step_index": 1, "steps.next_poll_at": 1, "status": 1},
+            max_time_ms=self._op_timeout,
         ).limit(limit)
 
         # Second-pass filter for unlocked RUNNING workflows: only include
@@ -671,6 +681,7 @@ class MongoWorkflowStore:
                 "updated_at": {"$lt": stale_cutoff},
             },
             {"_id": 1},
+            max_time_ms=self._op_timeout,
         ).limit(limit)
         results: list[dict] = [
             {"workflow_id": doc["_id"], "anomaly": "step_stuck_in_transient_state"}
@@ -685,6 +696,7 @@ class MongoWorkflowStore:
                 "updated_at": {"$lt": stale_cutoff},
             },
             {"_id": 1},
+            max_time_ms=self._op_timeout,
         ).limit(limit)
         async for doc in cursor:
             wf_id = doc["_id"]
@@ -711,7 +723,7 @@ class MongoWorkflowStore:
             }},
             {"$limit": limit},
         ]
-        async for doc in self._col.aggregate(pipeline):
+        async for doc in self._col.aggregate(pipeline, maxTimeMS=self._op_timeout):
             wf_id = doc["_id"]
             if not any(r["workflow_id"] == wf_id for r in results):
                 results.append({
@@ -773,6 +785,7 @@ class MongoWorkflowStore:
                 "$inc": {"fence_token": 1},
             },
             return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
         )
         if doc is None:
             return None
@@ -802,7 +815,7 @@ class MongoWorkflowStore:
             query["name"] = name
 
         cursor = (
-            self._col.find(query)
+            self._col.find(query, max_time_ms=self._op_timeout)
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
@@ -818,7 +831,7 @@ class MongoWorkflowStore:
             {"$group": {"_id": "$status", "count": {"$sum": 1}}},
         ]
         result: dict[str, int] = {}
-        async for doc in self._col.aggregate(pipeline):
+        async for doc in self._col.aggregate(pipeline, maxTimeMS=self._op_timeout):
             result[doc["_id"]] = doc["count"]
         return result
 
@@ -834,10 +847,9 @@ class MongoWorkflowStore:
             WorkflowStatus.NEEDS_REVIEW.value,
             WorkflowStatus.CANCELLED.value,
         ]
-        result = await self._col.delete_one({
-            "_id": workflow_id,
-            "status": {"$in": terminal},
-        })
+        result = await self._col.delete_one(
+            {"_id": workflow_id, "status": {"$in": terminal}},
+        )
         if result.deleted_count > 0:
             logger.info("Deleted workflow=%s", workflow_id)
             return True
@@ -847,5 +859,6 @@ class MongoWorkflowStore:
         cursor = self._col.find(
             {"status": WorkflowStatus.NEEDS_REVIEW.value},
             {"_id": 1},
+            max_time_ms=self._op_timeout,
         )
         return [doc["_id"] async for doc in cursor]
