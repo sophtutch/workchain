@@ -44,6 +44,16 @@ Branch naming: `feature/<description>`, `fix/<description>`, or `docs/<descripti
 
 Make all code changes first. Do **not** run `hatch fmt` or `hatch test` until the full implementation pass is complete — running the linter mid-implementation will damage intermediate states (e.g. removing an import that hasn't been used yet). Validation happens in the next step.
 
+**Before moving on, check for ripple effects:**
+
+- **README.md** — do any code examples need updating?
+- **CLAUDE.md** — do architecture notes or conventions need updating?
+- **examples/** — do any example scripts use the changed APIs?
+- **.claude/commands/** — do scaffold templates reference changed APIs?
+- **Docstrings** — do class/method docstrings still reflect the new behaviour?
+
+Search with `grep` for the changed function/class/parameter names across these locations. Update anything that references the old behaviour.
+
 ### 3. Final validation
 
 Run the full validation suite explicitly before committing:
