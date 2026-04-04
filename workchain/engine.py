@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from workchain.audit import AuditEvent, AuditEventType
-from workchain.decorators import get_handler
+from workchain.decorators import _normalize_check_result, get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
     RetryPolicy,
@@ -541,9 +541,11 @@ class WorkflowEngine:
         if step.verify_completion:
             try:
                 checker = get_handler(step.verify_completion)
-                check_result = await self._call_handler(
+                raw = await self._call_handler(
                     checker, step.config, _build_results(wf, idx), step.result or StepResult()
                 )
+                # Normalize in case the handler isn't wrapped by @completeness_check
+                check_result = _normalize_check_result(raw)
                 if check_result.complete:
                     logger.info(
                         "Step %s verified as completed after recovery.", step.name
