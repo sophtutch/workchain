@@ -130,24 +130,8 @@ EOF
 )"
 ```
 
-Note the PR number from the output — it is needed for the merge step.
-
-### 10. **[GATE]** Merge and cleanup
-
-Use `AskUserQuestion` to ask: "PR #N is ready. Squash-merge?" with options "Yes — merge" and "No — hold off".
-
-If confirmed:
-
-```
-gh pr merge {N} --squash --delete-branch
-git checkout main
-git fetch --prune
-git pull
-```
-
-Confirm clean state with `git status`.
+Report the PR URL to the user. The workflow is complete — the user will merge manually.
 
 ## Error handling
 
 - If `hatch test` fails, fix the issue and re-run before committing
-- If `gh pr merge` fails due to conflicts, rebase: `git rebase origin/main`, resolve conflicts, force-push with `--force-with-lease`
