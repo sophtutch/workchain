@@ -776,3 +776,26 @@ class TestQueryAPI:
     async def test_delete_nonexistent(self, store):
         deleted = await store.delete_workflow("doesnt_exist")
         assert deleted is False
+
+
+# ---------------------------------------------------------------------------
+# Operation timeouts
+# ---------------------------------------------------------------------------
+
+
+class TestOperationTimeouts:
+    def test_default_timeout(self, mongo_db):
+        store = MongoWorkflowStore(mongo_db)
+        assert store._op_timeout == 30_000
+
+    def test_custom_timeout(self, mongo_db):
+        store = MongoWorkflowStore(mongo_db, operation_timeout_ms=10_000)
+        assert store._op_timeout == 10_000
+
+    def test_zero_timeout_rejected(self, mongo_db):
+        with pytest.raises(ValueError, match="operation_timeout_ms must be positive"):
+            MongoWorkflowStore(mongo_db, operation_timeout_ms=0)
+
+    def test_negative_timeout_rejected(self, mongo_db):
+        with pytest.raises(ValueError, match="operation_timeout_ms must be positive"):
+            MongoWorkflowStore(mongo_db, operation_timeout_ms=-1)
