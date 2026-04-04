@@ -40,5 +40,6 @@ Thumbs.db
 .env.local
 
 # Claude Code — local settings are per-machine
+.claude/scheduled_tasks.lock
 .claude/settings.local.json
 .claude/worktrees/

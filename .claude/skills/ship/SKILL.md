@@ -42,7 +42,7 @@ Branch naming: `feature/<description>`, `fix/<description>`, or `docs/<descripti
 
 ### 2. Implement changes
 
-Make code changes as directed by the user. Hooks in settings.json will auto-run `hatch fmt` and `hatch test` after each Python file edit — do not run these manually unless diagnosing a failure.
+Make all code changes first. Do **not** run `hatch fmt` or `hatch test` until the full implementation pass is complete — running the linter mid-implementation will damage intermediate states (e.g. removing an import that hasn't been used yet). Validation happens in the next step.
 
 ### 3. Final validation
 
@@ -114,7 +114,7 @@ Set up a recurring poll using CronCreate. See [Review comment polling pattern](#
 
 - Cron expression: `* * * * *` (every 1 minute)
 - Set `BASELINE_COMMENT_COUNT=0` (no review comments yet)
-- If no review arrives after 5 polls, delete the cron, report to the user, and ask whether to continue waiting or proceed without review
+- If no review arrives after 5 polls, delete the cron and use `AskUserQuestion` to ask the user: "No review comments after 5 minutes. How should we proceed?" with options: "Merge without review", "Keep waiting" (creates a new polling cron), and "Hold — I'll check back later"
 
 When the poll detects new comments, proceed to step 9.
 
@@ -125,7 +125,7 @@ When review comments arrive (detected by the cron poll or reported by the user):
 1. **Delete the polling cron job** using CronDelete
 2. Read each review comment in full to understand the issue
 3. Implement the fix
-4. Run `hatch fmt` and `hatch test` explicitly to verify the fix (hooks may not trigger for all edit patterns)
+4. Run `hatch fmt` and `hatch test` to verify the fix
 5. Commit with a message referencing the reviewer's finding using HEREDOC format
 6. Push to the branch
 7. Reply to the review comment. **Use single quotes** for the body to avoid bash backtick interpretation:
