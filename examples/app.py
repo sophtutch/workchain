@@ -9,6 +9,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -28,6 +29,12 @@ from examples.infra_provisioning import steps as _infra_steps  # noqa: F401
 from examples.infra_provisioning.workflow import build_workflow as build_infra
 from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
 from workchain.audit_report import generate_audit_report
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    force=True,
+)
 
 # ---------------------------------------------------------------------------
 # Example workflow definitions
