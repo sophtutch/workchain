@@ -57,21 +57,19 @@ Fix any issues until both pass clean. **Do not proceed until tests pass.**
 
 Skip this step if only non-Python files changed (e.g. docs, CLAUDE.md, README.md).
 
-### 4. Run `/simplify`
+### 4. Run `/simplify` (non-trivial changes only)
 
-Invoke `/simplify` to review all changed code for reuse, quality, and efficiency. This is a local analysis that may fix issues automatically.
+**Skip this step** if the change is:
+- A pure rename (find-and-replace across files, no logic changes)
+- Doc-only (markdown, comments, README updates)
+- Under ~20 lines of new logic (small validators, single-function additions)
+
+Otherwise, invoke `/simplify` to review changed code for reuse, quality, and efficiency.
 
 - If `/simplify` makes changes, re-run `hatch fmt` and `hatch test` to confirm the changes are clean
 - If nothing found, proceed
 
-### 5. Run `/review-pr`
-
-Invoke `/review-pr all` to run all 6 local review agents (code-reviewer, code-simplifier, comment-analyzer, pr-test-analyzer, silent-failure-hunter, type-design-analyzer). This is a **local analysis only** — it does not post to GitHub or require a PR to exist.
-
-- If critical issues are found: fix them, re-run `hatch fmt` and `hatch test`, then proceed
-- If clean or only minor/suggestion-level findings: proceed
-
-### 6. Commit and push
+### 5. Commit and push
 
 - Stage specific files (not `git add .`)
 - Write a descriptive commit message using HEREDOC format
@@ -91,7 +89,7 @@ EOF
 git push -u origin <branch-name>
 ```
 
-### 7. Create PR
+### 6. Create PR
 
 ```
 gh pr create --base main --title "<title>" --body "$(cat <<'EOF'
@@ -108,19 +106,20 @@ EOF
 
 Note the PR number from the output — it is needed for all subsequent steps.
 
-### 8. Poll for review comments and CI checks
+### 7. Poll for review comments and CI checks
 
 Set up a recurring poll using CronCreate. See [Review and CI polling pattern](#review-and-ci-polling-pattern) below for the poll prompt template.
 
 - Cron expression: `* * * * *` (every 1 minute)
 - Set `BASELINE_COMMENT_COUNT=0` (no review comments yet)
 - The poll checks both review comments **and** CI check status
-- If no review arrives after 5 polls, delete the cron and use `AskUserQuestion` to ask the user: "No review comments after 5 minutes. How should we proceed?" with options: "Merge without review", "Keep waiting" (creates a new polling cron), and "Hold — I'll check back later"
+- **Short-circuit on green CI**: if all CI checks pass and there are no review comments, **immediately** delete the cron and proceed to the merge gate (step 10) — do not wait for 5 polls
 - If CI checks fail, report the failure immediately regardless of review status
+- If CI is still pending and no review comments after 5 polls, delete the cron and use `AskUserQuestion` to ask: "CI still pending, no review comments after 5 minutes. How should we proceed?" with options: "Merge without review", "Keep waiting" (creates a new polling cron), and "Hold — I'll check back later"
 
-When the poll detects new comments, proceed to step 9. If CI checks fail, fix the issue before proceeding.
+When the poll detects new comments, proceed to step 8.
 
-### 9. Address reviewer feedback
+### 8. Address reviewer feedback
 
 When review comments arrive (detected by the cron poll or reported by the user):
 
@@ -147,15 +146,15 @@ gh api graphql -f query='mutation { minimizeComment(input: {subjectId: "<comment
 
 If a comment is about code that doesn't belong in this PR (e.g. leaked changes), explain that in the reply.
 
-### 10. Poll for reviewer re-scan
+### 9. Poll for reviewer re-scan
 
-After pushing fixes, note the current review comment count and create a new CronCreate poll. See [Review comment polling pattern](#review-comment-polling-pattern) below — set `BASELINE_COMMENT_COUNT` to the current count so only **new** comments trigger an alert.
+After pushing fixes, note the current review comment count and create a new CronCreate poll. See [Review and CI polling pattern](#review-and-ci-polling-pattern) below — set `BASELINE_COMMENT_COUNT` to the current count so only **new** comments trigger an alert.
 
 When the re-scan arrives:
-- If new actionable issues: delete the cron, go back to step 9
-- If no new issues on the **first poll** (count == baseline): delete the cron immediately and proceed to step 11 — do not wait for 5 polls on re-scans
+- If new actionable issues: delete the cron, go back to step 8
+- If no new issues on the **first poll** (count == baseline): delete the cron immediately and proceed to step 10 — do not wait for 5 polls on re-scans
 
-### 11. **[GATE]** Merge and cleanup
+### 10. **[GATE]** Merge and cleanup
 
 Use `AskUserQuestion` to ask: "PR #N is clean. Squash-merge?" with options "Yes — merge" and "No — hold off".
 
@@ -189,10 +188,10 @@ Run: gh pr checks {N} --json name,state --jq '.[] | {name: .name, state: .state}
 
 Report:
 - If new review comments (count > {BASELINE}): report them with a summary
-- If all checks passed: report "All CI checks passed on PR #{N}"
+- If all checks passed AND no new comments: report "All CI checks passed, no review comments on PR #{N}. Ready to merge."
+- If all checks passed AND new comments: report both
 - If any checks failed: report which ones failed
-- If checks are still pending: report "CI checks still running on PR #{N}"
-- If no comments and no check results: say "No review comments, no CI checks on PR #{N}."
+- If checks are still pending and no comments: say "CI checks still running, no review comments on PR #{N}."
 ```
 
 ## Error handling
