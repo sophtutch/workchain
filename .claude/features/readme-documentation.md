@@ -1,7 +1,7 @@
 ---
 name: readme-documentation
 created: 2026-04-04T23:00:00Z
-status: planned
+status: in_progress
 ---
 
 # README documentation gaps
@@ -35,4 +35,4 @@ Add sections to README covering these 4 features with runnable code examples.
 
 ## Tasks
 
-- [ ] update-readme-docs: Add documentation sections for query API, PollHint.retry_after, engine tuning parameters, and verify_completion hook
+- [-] update-readme-docs: Add documentation sections for query API, PollHint.retry_after, engine tuning parameters, and verify_completion hook
