@@ -179,29 +179,26 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
 **If a name is provided:**
 
 1. Read `.claude/features/<name>.md`
-2. Find the first pending task (`[ ]`)
+2. Find the first pending task (`[ ]`) or in-progress task (`[-]`)
 3. If no pending tasks remain, mark the feature as `completed` and report
-4. If the feature status is `planned`, transition it to `in_progress`
-5. Mark the task as in progress (`[-]`) and save the file
-5. Derive a branch name: `<feature-name>/<task-id>` (e.g. `store-typed-params/replace-complete-step-dict`)
-6. Tell the user what task is being shipped and invoke `/ship <branch-name>`
-7. After `/ship` completes (PR merged and on clean main):
-   - Read the feature file again (it may have been modified)
-   - Mark the task as `[x]`
-   - Add branch and PR metadata below the task
-   - If all tasks are now complete:
-     - Set feature status to `completed` in frontmatter
-     - Add `completed: <ISO 8601 datetime>` to frontmatter
-     - Add a `## PRs` section listing all task PRs
-     - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<pr_number>-<name>.md` (e.g. `completed/30-readme-documentation.md`)
-     - Report: "Feature <name> complete! Moved to completed/"
-   - Otherwise save the file and report progress: "Task 3/5 complete. Next: `/feature next <name>`"
-8. Commit and push the feature doc changes to main:
-   - `git add .claude/features/` (covers both the updated/moved file and any deletion of the old path)
-   - Commit with message: `chore: Complete <feature-name> feature, update feature doc (#<pr_number>)` (or `chore: Update <feature-name> feature progress` for mid-feature tasks)
-   - `git push origin main`
+4. Derive a branch name: `<feature-name>/<task-id>` (e.g. `store-typed-params/replace-complete-step-dict`)
+5. Tell the user what task is being shipped and invoke `/ship <branch-name>`
+6. After `/ship` completes (PR created):
+   - **On the feature branch** (not main), update the feature doc:
+     - If the feature status is `planned`, transition it to `in_progress`
+     - Mark the task as `[x]`
+     - Add branch and PR metadata below the task
+     - If all tasks are now complete:
+       - Set feature status to `completed` in frontmatter
+       - Add `completed: <ISO 8601 datetime>` to frontmatter
+       - Add a `## PRs` section listing all task PRs
+       - Move the file from `.claude/features/<name>.md` to `.claude/features/completed/<pr_number>-<name>.md`
+       - Report: "Feature <name> complete! Moved to completed/"
+     - Otherwise save the file and report progress: "Task 3/5 complete. Next: `/feature next <name>`"
+   - Amend the last commit to include the feature doc changes: `git add .claude/features/ && git commit --amend --no-edit`
+   - Force-push the branch: `git push --force-with-lease`
 
-If `/ship` is interrupted or fails, leave the task as `[-]` so the user can resume with `/feature next <name>` (it will pick up the same task).
+**Important:** All feature doc state changes (status transitions, task checkboxes, moves to completed/) happen on the feature branch and land on main when the user merges the PR. Never make uncommitted feature doc changes on main.
 
 ## Error handling
 
