@@ -135,9 +135,9 @@ When the re-scan arrives:
 
 ### 9. **[GATE]** Merge and cleanup
 
-Ask the user: "PR #N is clean. Squash-merge?"
+Use `AskUserQuestion` to ask: "PR #N is clean. Squash-merge?" with options "Yes — merge" and "No — hold off".
 
-On confirmation:
+If confirmed:
 
 ```
 gh pr merge {N} --squash --delete-branch
