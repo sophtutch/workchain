@@ -75,10 +75,8 @@ workflow = Workflow(
 )
 
 await store.insert(workflow)
-engine = WorkflowEngine(store)
-await engine.start()   # runs claim loop, heartbeat, sweep
-# ...
-await engine.stop()    # graceful shutdown, releases all locks
+async with WorkflowEngine(store) as engine:  # start + auto-stop
+    ...  # engine runs claim loop, heartbeat, sweep
 ```
 
 ### 3. FastAPI integration
@@ -101,21 +99,15 @@ async def lifespan(app: FastAPI):
     store = MongoWorkflowStore(db, lock_ttl_seconds=30)
     audit = MongoAuditLogger(db)
 
-    engine = WorkflowEngine(
+    async with WorkflowEngine(
         store,
         audit_logger=audit,
         context={"db": db, "store": store},
-    )
-    
-    await engine.start()
-    
-    app.state.engine = engine
-    app.state.store = store
-    app.state.audit = audit
-    
-    yield
-    
-    await engine.stop()
+    ) as engine:
+        app.state.engine = engine
+        app.state.store = store
+        app.state.audit = audit
+        yield
 
 
 app = FastAPI(lifespan=lifespan)

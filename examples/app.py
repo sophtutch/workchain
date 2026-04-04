@@ -118,7 +118,7 @@ store = MongoWorkflowStore(_db, lock_ttl_seconds=10, audit_logger=audit_logger, 
 async def lifespan(application: FastAPI):  # noqa: ARG001
     await store.ensure_indexes()
     await audit_logger.ensure_indexes()
-    engine = WorkflowEngine(
+    async with WorkflowEngine(
         store,
         instance_id="harness-001",
         claim_interval=0.5,
@@ -127,14 +127,12 @@ async def lifespan(application: FastAPI):  # noqa: ARG001
         step_stuck_seconds=30.0,
         max_concurrent=10,
         context={"db": _db, "store": store, "audit_logger": audit_logger},
-    )
-    await engine.start()
-    app.state.engine = engine
-    yield
-    await engine.stop()
+    ) as engine:
+        app.state.engine = engine
+        yield
 
 
-app = FastAPI(title="workchain Test Harness", lifespan=lifespan)
+app = FastAPI(title="Workchain Test Harness", lifespan=lifespan)
 
 # ---------------------------------------------------------------------------
 # API routes

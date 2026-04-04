@@ -182,6 +182,28 @@ class TestEngineLifecycle:
         await engine.stop()
         assert len(engine._active) == 0
 
+    async def test_context_manager(self, store):
+        engine = WorkflowEngine(
+            store, instance_id="ctx-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+        )
+        async with engine as e:
+            assert e is engine
+            assert len(e._tasks) == 3
+        # After exiting, shutdown should have fired
+        assert engine._shutdown_event.is_set()
+
+    async def test_context_manager_stops_on_exception(self, store):
+        engine = WorkflowEngine(
+            store, instance_id="ctx-err-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+        )
+        with pytest.raises(RuntimeError, match="boom"):
+            async with engine:
+                raise RuntimeError("boom")
+        # Engine should still be stopped even after exception
+        assert engine._shutdown_event.is_set()
+
 
 # ---------------------------------------------------------------------------
 # Sync workflow execution

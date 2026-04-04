@@ -74,15 +74,13 @@ async def main() -> None:
     wf = build_workflow("example")
     await store.insert(wf)
 
-    engine = WorkflowEngine(
+    async with WorkflowEngine(
         store,
         claim_interval=1.0,
         audit_logger=audit,
         context={"db": db, "store": store},
-    )
-    await engine.start()
-    await asyncio.sleep(20)
-    await engine.stop()
+    ) as engine:
+        await asyncio.sleep(20)
 
     final = await store.get(wf.id)
     if final:

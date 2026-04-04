@@ -58,17 +58,13 @@ async def main() -> None:
 
     # --- Run the engine until the workflow completes ---
     # Context dict makes db and store available to step handlers
-    engine = WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0, context={"db": db, "store": store})
-    await engine.start()
-
-    # Poll until the workflow reaches a terminal state
-    for _ in range(120):  # up to 60 seconds
-        await asyncio.sleep(0.5)
-        wf = await store.get(workflow_id)
-        if wf is not None and wf.is_terminal():
-            break
-
-    await engine.stop()
+    async with WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0, context={"db": db, "store": store}) as engine:
+        # Poll until the workflow reaches a terminal state
+        for _ in range(120):  # up to 60 seconds
+            await asyncio.sleep(0.5)
+            wf = await store.get(workflow_id)
+            if wf is not None and wf.is_terminal():
+                break
 
     # --- Print results ---
     wf = await store.get(workflow_id)
