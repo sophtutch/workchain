@@ -77,6 +77,7 @@ workchain/
 - `PollHint.progress` must be between 0.0 and 1.0.
 - Config models extend `StepConfig`, result models extend `StepResult`.
 - Use `cast()` when accessing specific result types from the `results` dict.
+- Store step-state methods (`complete_step`, `fail_step`, `block_step`) accept `StepResult` objects directly — pass the model, not a dict. The store handles serialization internally via `model_dump(mode="python", serialize_as_any=True)`. Never call `.model_dump()` before passing results to store methods.
 - Store uses `model_dump(mode="python", serialize_as_any=True)` — never `mode="json"` (datetimes must be native for MongoDB queries).
 
 ## Files to modify with care
