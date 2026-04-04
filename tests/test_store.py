@@ -883,6 +883,35 @@ class TestTryClaimStep:
         result = await store.try_claim_step(wf.id, "a", "inst_1")
         assert result is None
 
+    async def test_claim_completed_step_rejected(self, store):
+        """Cannot reclaim a step that has already completed."""
+        wf = Workflow(
+            name="completed_step",
+            status=WorkflowStatus.RUNNING,
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.COMPLETED),
+                Step(name="b", handler="mod.func", depends_on=["a"]),
+            ],
+        )
+        await store.insert(wf)
+
+        result = await store.try_claim_step(wf.id, "a", "inst_1")
+        assert result is None
+
+    async def test_claim_failed_step_rejected(self, store):
+        """Cannot reclaim a step that has failed."""
+        wf = Workflow(
+            name="failed_step",
+            status=WorkflowStatus.RUNNING,
+            steps=[
+                Step(name="a", handler="mod.func", depends_on=[], status=StepStatus.FAILED),
+            ],
+        )
+        await store.insert(wf)
+
+        result = await store.try_claim_step(wf.id, "a", "inst_1")
+        assert result is None
+
     async def test_claim_increments_step_fence_token(self, store):
         wf = Workflow(
             name="fence_inc",

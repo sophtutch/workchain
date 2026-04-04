@@ -81,6 +81,7 @@ class MongoWorkflowStore:
         step_status_before: str | None = None,
         workflow_status_before: str | None = None,
         fence_token_before: int | None = None,
+        fence_token_override: int | None = None,
         **kwargs: Any,
     ) -> None:
         """Construct and fire-and-forget an audit event."""
@@ -89,7 +90,7 @@ class MongoWorkflowStore:
             workflow_name=wf.name,
             event_type=event_type,
             instance_id=self._instance_id,
-            fence_token=wf.fence_token,
+            fence_token=fence_token_override if fence_token_override is not None else wf.fence_token,
             fence_token_before=fence_token_before,
             workflow_status=wf.status.value,
             workflow_status_before=workflow_status_before,
@@ -984,6 +985,10 @@ class MongoWorkflowStore:
                     WorkflowStatus.RUNNING.value,
                 ]},
                 f"{prefix}.name": step_name,
+                f"{prefix}.status": {"$in": [
+                    StepStatus.PENDING.value,
+                    StepStatus.BLOCKED.value,
+                ]},
                 "$or": [
                     {f"{prefix}.locked_by": None},
                     {f"{prefix}.lock_expires_at": {"$lt": now}},
@@ -1016,6 +1021,7 @@ class MongoWorkflowStore:
         self._emit(
             AuditEventType.STEP_CLAIMED, wf,
             step=step,
+            fence_token_override=step.fence_token,
             fence_token_before=step.fence_token - 1,
             locked_by=instance_id,
         )
