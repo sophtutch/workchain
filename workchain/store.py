@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -64,8 +65,10 @@ class MongoWorkflowStore:
         # maxTimeMS (camelCase) for find_one_and_update/aggregate kwargs.
         self._op_timeout = operation_timeout_ms
         # Step name → array index cache.  Step lists are immutable after
-        # workflow creation, so this never needs invalidation.
-        self._step_index_cache: dict[tuple[str, str], int] = {}
+        # workflow creation, so entries never go stale.  Bounded via LRU
+        # eviction to prevent unbounded memory growth in long-running engines.
+        self._step_index_cache: OrderedDict[tuple[str, str], int] = OrderedDict()
+        self._step_index_cache_max = 10_000
 
     # ------------------------------------------------------------------
     # Audit helpers
@@ -888,9 +891,9 @@ class MongoWorkflowStore:
         heartbeat.
         """
         key = (workflow_id, step_name)
-        cached = self._step_index_cache.get(key)
-        if cached is not None:
-            return cached
+        if key in self._step_index_cache:
+            self._step_index_cache.move_to_end(key)
+            return self._step_index_cache[key]
 
         doc = await self._col.find_one(
             {"_id": workflow_id},
@@ -901,7 +904,12 @@ class MongoWorkflowStore:
             return None
         # Prime cache for all steps in this workflow at once.
         for i, s in enumerate(doc.get("steps", [])):
-            self._step_index_cache[(workflow_id, s["name"])] = i
+            entry = (workflow_id, s["name"])
+            self._step_index_cache[entry] = i
+            self._step_index_cache.move_to_end(entry)
+        # Evict oldest entries if over capacity.
+        while len(self._step_index_cache) > self._step_index_cache_max:
+            self._step_index_cache.popitem(last=False)
         return self._step_index_cache.get(key)
 
     # ------------------------------------------------------------------
@@ -1021,6 +1029,7 @@ class MongoWorkflowStore:
         self._emit(
             AuditEventType.STEP_CLAIMED, wf,
             step=step,
+            idx=idx,
             fence_token_override=step.fence_token,
             fence_token_before=step.fence_token - 1,
             locked_by=instance_id,

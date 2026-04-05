@@ -105,7 +105,7 @@ Run `/engineering:code-review` on the local diff against main:
 git diff main...HEAD
 ```
 
-- If the verdict is **Approve** with no critical issues, proceed to step 8
+- If the verdict is **Approve** with no critical issues, proceed to step 8 (adversarial review)
 - If the verdict is **Request Changes** or has critical issues, proceed to step 7
 
 ### 7. Address code review findings
@@ -119,13 +119,20 @@ For each critical issue or actionable suggestion from the review:
 
 Repeat until the verdict is **Approve**.
 
-### 8. Push
+### 8. Adversarial review
+
+Run `/codex:adversarial-review` on the local diff against main. This review actively tries to break the code — looking for race conditions, edge cases, and correctness bugs that a standard code review misses.
+
+- If findings are valid, fix them, re-run `hatch fmt` and `hatch test`, amend the commit, and re-run the adversarial review
+- If no actionable findings, proceed
+
+### 9. Push
 
 ```
 git push -u origin <branch-name>
 ```
 
-### 9. Create PR
+### 10. Create PR
 
 ```
 gh pr create --base main --title "<title>" --body "$(cat <<'EOF'
