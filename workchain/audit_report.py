@@ -315,7 +315,6 @@ def _fail_node(title: str, desc: str) -> str:
 
 _WORKFLOW_EVENTS = frozenset({
     AuditEventType.WORKFLOW_CREATED,
-    AuditEventType.WORKFLOW_CLAIMED,
     AuditEventType.WORKFLOW_COMPLETED,
     AuditEventType.WORKFLOW_FAILED,
     AuditEventType.WORKFLOW_CANCELLED,
@@ -399,20 +398,30 @@ def _render_summary(events: list[AuditEvent], wf_name: str) -> str:
     )
 
 
-def _render_discovery(wf_events: list[AuditEvent]) -> str:
-    """Render the discovery/claim section from WORKFLOW_CLAIMED event."""
-    claim = next((e for e in wf_events if e.event_type == AuditEventType.WORKFLOW_CLAIMED), None)
+def _render_discovery(
+    step_groups: dict[int, list[AuditEvent]],
+) -> str:
+    """Render the discovery/claim section from the first STEP_CLAIMED event."""
+    # Find the earliest STEP_CLAIMED across all step groups
+    claim: AuditEvent | None = None
+    for idx in sorted(step_groups.keys()):
+        for e in step_groups[idx]:
+            if e.event_type == AuditEventType.STEP_CLAIMED:
+                if claim is None or e.timestamp < claim.timestamp:
+                    claim = e
+                break  # only need first claim per step group
     if claim is None:
         return ""
 
+    step_label = claim.step_name or f"step_{claim.step_index}"
     flow = (
         '      <div class="step-flow-panel">\n'
         '        <div class="section-label">Discovery</div>\n'
         '        <div class="flow-timeline">\n'
         '          <div class="step-node theme-engine">\n'
         '            <div class="node-header">\n'
-        f'              <span class="node-title">try_claim()</span>\n'
-        f'              {_badge("lock-claim", "lock acquired")}\n'
+        f'              <span class="node-title">try_claim_step({_esc(step_label)})</span>\n'
+        f'              {_badge("lock-claim", "step lock acquired")}\n'
         f'              {_badge("fence-badge", f"fence_token {chr(8594)} {claim.fence_token}")}\n'
         f"            </div>\n"
         f'            <div class="node-desc">'
@@ -424,14 +433,14 @@ def _render_discovery(wf_events: list[AuditEvent]) -> str:
 
     txs = (
         _tx("purple", "Workflow", "pending &rarr; running")
-        + _tx("green", "Locks", "1 claim")
+        + _tx("green", "Locks", f"1 step claim ({_esc(step_label)})")
         + _tx("indigo", "Fence Token", f"fence_token &rarr; {claim.fence_token}")
     )
     tx_col = f'      <div class="step-transitions">\n{txs}      </div>\n'
 
     doc_fields = {
-        "fence_token": claim.fence_token,
-        "locked_by": claim.instance_id,
+        f"steps[{claim.step_index}].fence_token": claim.fence_token,
+        f"steps[{claim.step_index}].locked_by": claim.instance_id,
         "status": "running",
     }
     doc = (
@@ -637,8 +646,8 @@ def _render_step_section(
     # --- Transition column ---
     txs = []
 
-    # Lock claimed (if reclaim after async)
-    claim_events = [e for e in step_events if e.event_type == AuditEventType.WORKFLOW_CLAIMED]
+    # Lock claimed (per-step claim events)
+    claim_events = [e for e in step_events if e.event_type == AuditEventType.STEP_CLAIMED]
     n_claims = len(claim_events)
     if claim_events:
         txs.append(_tx("green", "Locks", f"{n_claims} {'claim' if n_claims == 1 else 'claims'}"))
@@ -687,7 +696,6 @@ def _render_step_section(
     # Use the last meaningful event's data
     final = completed[0] if completed else (failed[0] if failed else None)
     if final and final.result_summary:
-        doc_fields["current_step_index"] = step_num
         if final.fence_token:
             doc_fields["fence_token"] = final.fence_token
         doc_fields[f"steps[{idx}]"] = {
@@ -725,6 +733,10 @@ def _render_completion(wf_events: list[AuditEvent]) -> str:
     )
 
     if completed:
+        fence_badge = (
+            f'          {_badge("fence-badge", f"fence_token: {completed.fence_token}")}\n'
+            if completed.fence_token else ""
+        )
         return (
             '<div class="full-section">\n'
             '  <div class="step-flow-panel">\n'
@@ -734,7 +746,7 @@ def _render_completion(wf_events: list[AuditEvent]) -> str:
             '        <div class="node-header">\n'
             '          <span class="node-title">Workflow Complete</span>\n'
             f'          {_badge("lock-release", "lock released")}\n'
-            f'          {_badge("fence-badge", f"fence_token: {completed.fence_token}")}\n'
+            f"{fence_badge}"
             f"        </div>\n"
             f'        <div class="node-desc">'
             f"Completed at {_fmt_ts(completed.timestamp)}</div>\n"
@@ -856,7 +868,7 @@ def generate_audit_report(events: list[AuditEvent]) -> str:
         _render_header(wf_name),
         _render_summary(events, wf_name),
         '<div class="main-area">\n',
-        _render_discovery(wf_events),
+        _render_discovery(step_groups),
     ]
 
     sections += [_render_step_section(idx, step_groups[idx]) for idx in sorted(step_groups.keys())]

@@ -33,7 +33,7 @@ class $ARGUMENTS_Result(StepResult):
     # TODO: define result fields
     pass
 
-@step(name="$ARGUMENTS")
+@step()
 async def $ARGUMENTS(
     config: $ARGUMENTS_Config,
     _results: dict[str, StepResult],
@@ -55,7 +55,6 @@ async def check_$ARGUMENTS(config, results, result: $ARGUMENTS_Result) -> CheckR
     return CheckResult(complete=False, progress=0.5)
 
 @async_step(
-    name="$ARGUMENTS",
     completeness_check=check_$ARGUMENTS,
     poll=PollPolicy(interval=5.0, timeout=300.0),
 )

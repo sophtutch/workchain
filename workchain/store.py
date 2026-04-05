@@ -93,7 +93,7 @@ class MongoWorkflowStore:
             workflow_name=wf.name,
             event_type=event_type,
             instance_id=self._instance_id,
-            fence_token=fence_token_override if fence_token_override is not None else wf.fence_token,
+            fence_token=fence_token_override,
             fence_token_before=fence_token_before,
             workflow_status=wf.status.value,
             workflow_status_before=workflow_status_before,
@@ -130,8 +130,7 @@ class MongoWorkflowStore:
     async def ensure_indexes(self) -> None:
         """Create indexes for efficient queries."""
         await self._col.create_index("status")
-        await self._col.create_index("lock_expires_at")
-        await self._col.create_index([("status", 1), ("lock_expires_at", 1)])
+        await self._col.create_index([("status", 1), ("steps.status", 1)])
 
     # ------------------------------------------------------------------
     # Document conversion
@@ -170,484 +169,13 @@ class MongoWorkflowStore:
             return None
         return self._doc_to_workflow(doc)
 
-    async def _fenced_step_update(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        updates: dict,
-    ) -> Workflow | None:
-        """
-        Low-level: update a step's fields atomically, guarded by the fence token.
-        Prefer the explicit methods (submit_step, complete_step, etc.) over this.
-        """
-        set_fields = {f"steps.{step_index}.{k}": v for k, v in updates.items()}
-        set_fields["updated_at"] = datetime.now(UTC)
-
-        doc = await self._col.find_one_and_update(
-            {"_id": workflow_id, "fence_token": fence_token},
-            {"$set": set_fields},
-            return_document=ReturnDocument.AFTER,
-            maxTimeMS=self._op_timeout,
-        )
-        if doc is None:
-            logger.warning(
-                "Fenced write rejected for workflow=%s fence=%s (lock stolen?)",
-                workflow_id, fence_token,
-            )
-            return None
-        return self._doc_to_workflow(doc)
-
-    # ------------------------------------------------------------------
-    # Explicit step-state transitions
-    # ------------------------------------------------------------------
-
-    async def submit_step(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        attempt: int,
-    ) -> Workflow | None:
-        """Mark a PENDING step as SUBMITTED with the given attempt number."""
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token,
-            {"status": StepStatus.SUBMITTED.value, "attempt": attempt},
-        )
-        if wf is not None:
-            self._emit(
-                AuditEventType.STEP_SUBMITTED, wf,
-                step=wf.steps[step_index], idx=step_index,
-                step_status_before=StepStatus.PENDING.value,
-            )
-        return wf
-
-    async def mark_step_running(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        attempt: int,
-        *,
-        max_attempts: int | None = None,
-    ) -> Workflow | None:
-        """Transition a SUBMITTED step to RUNNING for the given attempt number."""
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token,
-            {"status": StepStatus.RUNNING.value, "attempt": attempt},
-        )
-        if wf is not None:
-            self._emit(
-                AuditEventType.STEP_RUNNING, wf,
-                step=wf.steps[step_index], idx=step_index,
-                step_status_before=StepStatus.SUBMITTED.value,
-                attempt=attempt,
-                max_attempts=max_attempts,
-            )
-        return wf
-
-    async def complete_step(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        result: StepResult | None = None,
-        result_type: str | None = None,
-        poll_count: int | None = None,
-        last_poll_at: datetime | None = None,
-        last_poll_progress: float | None = None,
-        last_poll_message: str | None = None,
-        # Audit context
-        audit_event_type: AuditEventType | None = None,
-        step_status_before: str = StepStatus.RUNNING.value,
-        recovery_action: str | None = None,
-        **audit_kwargs: Any,
-    ) -> Workflow | None:
-        """Mark a step as COMPLETED with its result."""
-        updates: dict = {"status": StepStatus.COMPLETED.value}
-        if result is not None:
-            updates["result"] = result.model_dump(mode="python", serialize_as_any=True)
-        if result_type is not None:
-            updates["result_type"] = result_type
-        if poll_count is not None:
-            updates["poll_count"] = poll_count
-        if last_poll_at is not None:
-            updates["last_poll_at"] = last_poll_at
-        if last_poll_progress is not None:
-            updates["last_poll_progress"] = last_poll_progress
-        if last_poll_message is not None:
-            updates["last_poll_message"] = last_poll_message
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token, updates,
-        )
-        if wf is not None:
-            evt = audit_event_type or AuditEventType.STEP_COMPLETED
-            self._emit(
-                evt, wf,
-                step=wf.steps[step_index], idx=step_index,
-                step_status_before=step_status_before,
-                result_summary=result.model_dump(exclude_none=True) if result else None,
-                recovery_action=recovery_action,
-                poll_count=poll_count,
-                poll_progress=last_poll_progress,
-                poll_message=last_poll_message,
-                **audit_kwargs,
-            )
-        return wf
-
-    async def fail_step(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        result: StepResult,
-        # Audit context
-        audit_event_type: AuditEventType | None = None,
-        step_status_before: str = StepStatus.RUNNING.value,
-        poll_count: int | None = None,
-        poll_elapsed_seconds: float | None = None,
-        **audit_kwargs: Any,
-    ) -> Workflow | None:
-        """Mark a step as FAILED with an error result."""
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token,
-            {
-                "status": StepStatus.FAILED.value,
-                "result": result.model_dump(mode="python", serialize_as_any=True),
-                "result_type": None,
-            },
-        )
-        if wf is not None:
-            evt = audit_event_type or AuditEventType.STEP_FAILED
-            error_lines = (result.error or "").strip().splitlines()
-            brief_error = error_lines[-1] if error_lines else None
-            self._emit(
-                evt, wf,
-                step=wf.steps[step_index], idx=step_index,
-                step_status_before=step_status_before,
-                error=brief_error,
-                error_traceback=result.error,
-                poll_count=poll_count,
-                poll_elapsed_seconds=poll_elapsed_seconds,
-                **audit_kwargs,
-            )
-        return wf
-
-    async def block_step(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        result: StepResult,
-        result_type: str | None,
-        poll_started_at: datetime,
-        next_poll_at: datetime,
-        current_poll_interval: float,
-        poll_count: int = 0,
-        # Audit context
-        audit_event_type: AuditEventType | None = None,
-        recovery_action: str | None = None,
-        **audit_kwargs: Any,
-    ) -> Workflow | None:
-        """Transition a step to BLOCKED and initialise poll scheduling."""
-        updates: dict = {
-            "status": StepStatus.BLOCKED.value,
-            "result": result.model_dump(mode="python", serialize_as_any=True),
-            "poll_started_at": poll_started_at,
-            "next_poll_at": next_poll_at,
-            "current_poll_interval": current_poll_interval,
-            "poll_count": poll_count,
-        }
-        if result_type is not None:
-            updates["result_type"] = result_type
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token, updates,
-        )
-        if wf is not None:
-            evt = audit_event_type or AuditEventType.STEP_BLOCKED
-            self._emit(
-                evt, wf,
-                step=wf.steps[step_index], idx=step_index,
-                step_status_before=StepStatus.RUNNING.value,
-                result_summary=result.model_dump(exclude_none=True),
-                recovery_action=recovery_action,
-                next_poll_at=next_poll_at,
-                current_poll_interval=current_poll_interval,
-                **audit_kwargs,
-            )
-        return wf
-
-    async def schedule_next_poll(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        poll_count: int,
-        last_poll_at: datetime,
-        next_poll_at: datetime,
-        current_poll_interval: float,
-        last_poll_progress: float | None = None,
-        last_poll_message: str | None = None,
-    ) -> Workflow | None:
-        """Update poll scheduling for a BLOCKED step (not yet complete)."""
-        updates: dict = {
-            "poll_count": poll_count,
-            "last_poll_at": last_poll_at,
-            "next_poll_at": next_poll_at,
-            "current_poll_interval": current_poll_interval,
-        }
-        if last_poll_progress is not None:
-            updates["last_poll_progress"] = last_poll_progress
-        if last_poll_message is not None:
-            updates["last_poll_message"] = last_poll_message
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token, updates,
-        )
-        if wf is not None:
-            self._emit(
-                AuditEventType.POLL_CHECKED, wf,
-                step=wf.steps[step_index], idx=step_index,
-                poll_count=poll_count,
-                poll_progress=last_poll_progress,
-                poll_message=last_poll_message,
-                next_poll_at=next_poll_at,
-                current_poll_interval=current_poll_interval,
-            )
-        return wf
-
-    async def reset_step(
-        self,
-        workflow_id: str,
-        step_index: int,
-        fence_token: int,
-        status: StepStatus = StepStatus.PENDING,
-    ) -> Workflow | None:
-        """Reset a step to the given status (used in recovery)."""
-        wf = await self._fenced_step_update(
-            workflow_id, step_index, fence_token,
-            {"status": status.value},
-        )
-        if wf is not None:
-            self._emit(
-                AuditEventType.RECOVERY_RESET, wf,
-                step=wf.steps[step_index], idx=step_index,
-                recovery_action="reset",
-            )
-        return wf
-
-    async def advance_step(
-        self,
-        workflow_id: str,
-        fence_token: int,
-        new_step_index: int,
-        workflow_status: WorkflowStatus | None = None,
-        # Audit context
-        workflow_status_before: str | None = None,
-        recovery_action: str | None = None,
-    ) -> Workflow | None:
-        """Move to the next step (or mark workflow complete/failed)."""
-        set_fields: dict = {
-            "current_step_index": new_step_index,
-            "updated_at": datetime.now(UTC),
-        }
-        if workflow_status is not None:
-            set_fields["status"] = workflow_status.value
-
-        doc = await self._col.find_one_and_update(
-            {"_id": workflow_id, "fence_token": fence_token},
-            {"$set": set_fields},
-            return_document=ReturnDocument.AFTER,
-            maxTimeMS=self._op_timeout,
-        )
-        if doc is None:
-            return None
-        wf = self._doc_to_workflow(doc)
-
-        # Emit STEP_ADVANCED for normal advances
-        if workflow_status is None:
-            idx = new_step_index - 1 if new_step_index > 0 else 0
-            step = wf.steps[idx] if idx < len(wf.steps) else None
-            self._emit(
-                AuditEventType.STEP_ADVANCED, wf,
-                step=step, idx=idx,
-            )
-        elif workflow_status == WorkflowStatus.COMPLETED:
-            self._emit(
-                AuditEventType.WORKFLOW_COMPLETED, wf,
-                workflow_status_before=workflow_status_before or WorkflowStatus.RUNNING.value,
-            )
-        elif workflow_status == WorkflowStatus.FAILED:
-            self._emit(
-                AuditEventType.WORKFLOW_FAILED, wf,
-                workflow_status_before=workflow_status_before or WorkflowStatus.RUNNING.value,
-            )
-        elif workflow_status == WorkflowStatus.NEEDS_REVIEW:
-            idx = new_step_index
-            step = wf.steps[idx] if idx < len(wf.steps) else None
-            self._emit(
-                AuditEventType.RECOVERY_NEEDS_REVIEW, wf,
-                step=step, idx=idx,
-                recovery_action=recovery_action or "needs_review",
-            )
-        return wf
-
-    # ------------------------------------------------------------------
-    # Distributed locking
-    # ------------------------------------------------------------------
-
-    async def try_claim(
-        self,
-        workflow_id: str,
-        instance_id: str,
-    ) -> Workflow | None:
-        """
-        Atomically claim a workflow if it is unlocked or its lock has expired.
-        Increments the fence token to invalidate any stale writers.
-        """
-        now = datetime.now(UTC)
-        expires = now + timedelta(seconds=self._lock_ttl)
-
-        doc = await self._col.find_one_and_update(
-            {
-                "_id": workflow_id,
-                "status": {"$in": [WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value]},
-                "$or": [
-                    {"lock_expires_at": None},
-                    {"lock_expires_at": {"$lt": now}},
-                ],
-            },
-            {
-                "$set": {
-                    "locked_by": instance_id,
-                    "lock_expires_at": expires,
-                    "status": WorkflowStatus.RUNNING.value,
-                    "updated_at": now,
-                },
-                "$inc": {"fence_token": 1},
-            },
-            return_document=ReturnDocument.AFTER,
-            maxTimeMS=self._op_timeout,
-        )
-        if doc is None:
-            return None
-        logger.info("Claimed workflow=%s instance=%s fence=%s", workflow_id, instance_id, doc["fence_token"])
-        wf = self._doc_to_workflow(doc)
-        self._emit(
-            AuditEventType.WORKFLOW_CLAIMED, wf,
-            fence_token_before=wf.fence_token - 1,
-            locked_by=instance_id,
-        )
-        return wf
-
-    async def heartbeat(
-        self,
-        workflow_id: str,
-        instance_id: str,
-        fence_token: int,
-    ) -> bool:
-        """Extend the lock TTL. Returns False if the lock was stolen."""
-        now = datetime.now(UTC)
-        expires = now + timedelta(seconds=self._lock_ttl)
-
-        result = await self._col.update_one(
-            {
-                "_id": workflow_id,
-                "locked_by": instance_id,
-                "fence_token": fence_token,
-            },
-            {"$set": {"lock_expires_at": expires, "updated_at": now}},
-        )
-        if result.matched_count == 0:
-            logger.warning("Heartbeat failed for workflow=%s (lock stolen?)", workflow_id)
-            return False
-        return True
-
-    async def release_lock(
-        self,
-        workflow_id: str,
-        instance_id: str,
-        fence_token: int,
-    ) -> bool:
-        """Gracefully release a lock (e.g. on SIGTERM)."""
-        result = await self._col.update_one(
-            {
-                "_id": workflow_id,
-                "locked_by": instance_id,
-                "fence_token": fence_token,
-            },
-            {
-                "$set": {
-                    "locked_by": None,
-                    "lock_expires_at": None,
-                    "updated_at": datetime.now(UTC),
-                },
-            },
-        )
-        return result.modified_count > 0
-
     # ------------------------------------------------------------------
     # Discovery — sweep-only, no change streams
     #
     # Two sweeps run at different intervals:
-    #   Fast sweep (find_claimable): discovers new, abandoned, and poll-ready workflows
+    #   Fast sweep (find_claimable_steps): discovers ready steps across all workflows
     #   Slow sweep (find_anomalies): catches stuck steps, stale locks, etc.
     # ------------------------------------------------------------------
-
-    async def find_claimable(self, limit: int = 10) -> list[str]:
-        """
-        Fast sweep — find workflow IDs ready to be claimed:
-        - pending (new, never started)
-        - running but with an expired or missing lock (abandoned)
-        - running with a BLOCKED current step whose next_poll_at has passed
-          and lock is not held (lock was released after submission)
-        """
-        now = datetime.now(UTC)
-        cursor = self._col.find(
-            {
-                "$or": [
-                    # New workflows
-                    {"status": WorkflowStatus.PENDING.value},
-                    # Abandoned workflows (lock expired or missing)
-                    {
-                        "status": WorkflowStatus.RUNNING.value,
-                        "locked_by": {"$ne": None},
-                        "$or": [
-                            {"lock_expires_at": None},
-                            {"lock_expires_at": {"$lt": now}},
-                        ],
-                    },
-                    # Async steps released for polling — unlocked and due for next poll
-                    {
-                        "status": WorkflowStatus.RUNNING.value,
-                        "locked_by": None,
-                    },
-                ],
-            },
-            {"_id": 1, "locked_by": 1, "current_step_index": 1, "steps.next_poll_at": 1, "status": 1},
-            max_time_ms=self._op_timeout,
-        ).limit(limit)
-
-        # Second-pass filter for unlocked RUNNING workflows: only include
-        # them if the current step's next_poll_at has passed (or isn't set).
-        # This avoids claiming BLOCKED workflows before their poll is due.
-        results = []
-        async for doc in cursor:
-            wf_status = doc.get("status")
-            if doc.get("locked_by") is None and wf_status != WorkflowStatus.PENDING.value:
-                idx = doc.get("current_step_index", 0)
-                steps = doc.get("steps", [])
-                if idx < len(steps):
-                    next_poll = steps[idx].get("next_poll_at")
-                    if next_poll is not None:
-                        if isinstance(next_poll, str):
-                            next_poll = datetime.fromisoformat(next_poll)
-                        if next_poll.tzinfo is None:
-                            next_poll = next_poll.replace(tzinfo=UTC)
-                    if next_poll is not None and next_poll > now:
-                        continue  # not due yet
-            results.append(doc["_id"])
-
-        return results
 
     async def find_anomalies(
         self,
@@ -755,30 +283,6 @@ class MongoWorkflowStore:
 
         return results
 
-    async def force_release_lock(
-        self,
-        workflow_id: str,
-    ) -> bool:
-        """
-        Unconditionally release a lock — used by the slow sweep to unstick
-        workflows with stale locks. Ignores fence token so the next fast
-        sweep can reclaim it.
-        """
-        result = await self._col.update_one(
-            {"_id": workflow_id},
-            {
-                "$set": {
-                    "locked_by": None,
-                    "lock_expires_at": None,
-                    "updated_at": datetime.now(UTC),
-                },
-            },
-        )
-        if result.modified_count > 0:
-            logger.warning("Force-released lock on workflow=%s", workflow_id)
-            return True
-        return False
-
     async def cancel_workflow(self, workflow_id: str) -> Workflow | None:
         """
         Cancel a workflow. Only non-terminal workflows can be cancelled.
@@ -792,6 +296,24 @@ class MongoWorkflowStore:
             WorkflowStatus.NEEDS_REVIEW.value,
             WorkflowStatus.CANCELLED.value,
         ]
+        # Build step-lock clearing fields for all steps in the workflow.
+        # We pre-fetch the doc to know how many steps exist, then clear
+        # locks atomically in the same update using explicit indices
+        # (mongomock doesn't support $[] or $[identifier] operators).
+        existing = await self._col.find_one(
+            {"_id": workflow_id, "status": {"$nin": terminal}},
+            max_time_ms=self._op_timeout,
+        )
+        if existing is None:
+            return None
+
+        step_clears: dict[str, None] = {}
+        fence_incs: dict[str, int] = {}
+        for i in range(len(existing.get("steps", []))):
+            step_clears[f"steps.{i}.locked_by"] = None
+            step_clears[f"steps.{i}.lock_expires_at"] = None
+            fence_incs[f"steps.{i}.fence_token"] = 1
+
         doc = await self._col.find_one_and_update(
             {
                 "_id": workflow_id,
@@ -800,11 +322,10 @@ class MongoWorkflowStore:
             {
                 "$set": {
                     "status": WorkflowStatus.CANCELLED.value,
-                    "locked_by": None,
-                    "lock_expires_at": None,
                     "updated_at": now,
+                    **step_clears,
                 },
-                "$inc": {"fence_token": 1},
+                "$inc": fence_incs,
             },
             return_document=ReturnDocument.AFTER,
             maxTimeMS=self._op_timeout,

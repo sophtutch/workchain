@@ -305,10 +305,6 @@ class TestWorkflow:
         assert len(w.id) == 32
         assert w.status == WorkflowStatus.PENDING
         assert w.steps == []
-        assert w.current_step_index == 0
-        assert w.locked_by is None
-        assert w.lock_expires_at is None
-        assert w.fence_token == 0
         assert w.created_at is not None
         assert w.updated_at is not None
 

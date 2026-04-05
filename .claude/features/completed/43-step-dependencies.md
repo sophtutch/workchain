@@ -1,7 +1,8 @@
 ---
 name: step-dependencies
 created: 2026-04-04T22:16:15Z
-status: in_progress
+status: completed
+completed: 2026-04-05T15:15:00Z
 ---
 
 # Step Dependencies
@@ -81,7 +82,19 @@ Key architectural changes:
   - pr: #42
   - effort: ~1h 30m
   - cost: step-dependencies.4 / ~400k tokens
-- [ ] docs-and-examples: Remove `current_step_index`, update all docs/examples/commands, add parallel-steps example
+- [x] docs-and-examples: Remove `current_step_index`, update all docs/examples/commands, add parallel-steps example
+  - branch: `step-dependencies/docs-and-examples`
+  - pr: #43
+  - effort: ~2h
+  - cost: step-dependencies.5 / ~600k tokens
+
+## PRs
+
+- #38 — model-and-validation
+- #39 — store-step-claims
+- #41 — engine-rewrite
+- #42 — recovery-and-sweep
+- #43 — docs-and-examples
 
 ### Task 1: model-and-validation
 

@@ -76,7 +76,7 @@ EXAMPLES = {
     },
     "infra_provisioning": {
         "title": "Infrastructure Provisioning",
-        "description": "VPC, provision DB (async), deploy app (async), DNS, TLS cert (async), health check",
+        "description": "VPC || provision DB (concurrent), deploy app (async), DNS, TLS cert (async), health check",
         "steps": 6,
         "fields": [
             {"name": "domain", "label": "Domain", "default": "app.example.com", "type": "text"},
@@ -153,7 +153,6 @@ async def list_workflows():
             "name": wf.name,
             "status": wf.status.value,
             "progress": f"{completed_steps}/{total_steps}",
-            "current_step_index": wf.current_step_index,
             "total_steps": total_steps,
             "completed_steps": completed_steps,
             "created_at": str(wf.created_at),
@@ -205,9 +204,6 @@ async def get_workflow(workflow_id: str):
         "id": wf.id,
         "name": wf.name,
         "status": wf.status.value,
-        "current_step_index": wf.current_step_index,
-        "fence_token": wf.fence_token,
-        "locked_by": wf.locked_by,
         "steps": steps,
     }
 

@@ -2,7 +2,7 @@
 
 ## What this is
 
-`workchain` is a Python library for programmatic construction and execution of **persistent, multi-step workflows**. Steps execute sequentially, state is persisted to MongoDB via `motor`, and distributed execution is safe via TTL-based locks + fence tokens (optimistic locking).
+`workchain` is a Python library for programmatic construction and execution of **persistent, multi-step workflows**. Steps declare dependencies via `depends_on`; independent steps execute concurrently across engine instances. State is persisted to MongoDB via `motor`, and distributed execution is safe via per-step TTL-based locks + fence tokens (optimistic locking).
 
 See `README.md` for usage examples, quick start, and API documentation.
 
@@ -12,8 +12,8 @@ See `README.md` for usage examples, quick start, and API documentation.
 workchain/
 ├── models.py       — Pydantic models: Workflow, Step, StepConfig, StepResult, enums, policies
 ├── decorators.py   — @step / @async_step / @completeness_check decorators + handler registry
-├── engine.py       — WorkflowEngine: claim loop, heartbeat, sweep, execution
-├── store.py        — MongoWorkflowStore: persistence, distributed locking, typed deserialization
+├── engine.py       — WorkflowEngine: per-step claim loop, heartbeat, sweep, execution
+├── store.py        — MongoWorkflowStore: persistence, per-step distributed locking, typed deserialization
 ├── retry.py        — Retry utilities wrapping tenacity with RetryPolicy
 ├── audit.py        — AuditEvent model, AuditLogger protocol, MongoAuditLogger
 └── audit_report.py — HTML execution report generator from audit events
@@ -36,7 +36,7 @@ workchain/
 - Workflow completes atomically when all steps are done; fails when any step fails
 
 **Two step modes**
-- **Sync steps** (`@step`): execute handler, persist result, advance immediately
+- **Sync steps** (`@step`): execute handler, persist result, complete step immediately
 - **Async steps** (`@async_step`): submit work, set BLOCKED, release lock, poll `@completeness_check` on subsequent claims until complete
 
 **Decorator-driven metadata**
@@ -82,12 +82,12 @@ workchain/
 - `CheckResult.progress` must be between 0.0 and 1.0.
 - Config models extend `StepConfig`, result models extend `StepResult`.
 - Use `cast()` when accessing specific result types from the `results` dict.
-- Store step-state methods (`complete_step`, `fail_step`, `block_step`) accept `StepResult` objects directly — pass the model, not a dict. The store handles serialization internally via `model_dump(mode="python", serialize_as_any=True)`. Never call `.model_dump()` before passing results to store methods.
+- Store step-state methods (`complete_step_by_name`, `fail_step_by_name`, `block_step_by_name`) accept `StepResult` objects directly — pass the model, not a dict. The store handles serialization internally via `model_dump(mode="python", serialize_as_any=True)`. Never call `.model_dump()` before passing results to store methods.
 - Store uses `model_dump(mode="python", serialize_as_any=True)` — never `mode="json"` (datetimes must be native for MongoDB queries).
 
 ## Files to modify with care
 
-- `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures. Step-state methods have two variants: workflow-fence (`_fenced_step_update`) and step-fence (`_fenced_step_update_by_name`). The engine uses the `_by_name` variants for per-step claiming. The generic methods are private and should not be called directly from the engine
+- `store.py` — the per-step lock acquisition query, fence-guarded writes via `_fenced_step_update_by_name`, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures
 - `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios; understand all paths before changing. Recovery operates per-step, not per-workflow
 - `engine.py` `_call_handler()` — uses `_step_meta["needs_context"]` and `iscoroutine` safety net; do not reintroduce `inspect.signature`
 - `models.py` — changing field names affects all persisted MongoDB documents; `Step._set_type_paths` auto-populates `config_type`/`result_type`
