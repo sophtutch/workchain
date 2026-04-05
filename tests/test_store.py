@@ -1032,6 +1032,8 @@ class TestForceReleaseStepLock:
 
         loaded = await store.get(wf.id)
         assert loaded.step_by_name("a").locked_by is None
+        # Force-release must bump fence to invalidate the old holder's writes
+        assert loaded.step_by_name("a").fence_token == 2
 
     async def test_force_release_nonexistent_step(self, store):
         wf = Workflow(

@@ -15,5 +15,8 @@
       "Bash(mongodump:*)",
       "Bash(mongorestore:*)"
     ]
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true
   }
 }

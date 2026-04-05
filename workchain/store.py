@@ -858,6 +858,10 @@ class MongoWorkflowStore:
             {"_id": workflow_id, "status": {"$in": terminal}},
         )
         if result.deleted_count > 0:
+            # Invalidate step index cache entries for this workflow.
+            keys_to_remove = [k for k in self._step_index_cache if k[0] == workflow_id]
+            for k in keys_to_remove:
+                del self._step_index_cache[k]
             logger.info("Deleted workflow=%s", workflow_id)
             return True
         return False
@@ -1124,6 +1128,7 @@ class MongoWorkflowStore:
                     f"{prefix}.lock_expires_at": None,
                     "updated_at": datetime.now(UTC),
                 },
+                "$inc": {f"{prefix}.fence_token": 1},
             },
         )
         if result.modified_count > 0:
