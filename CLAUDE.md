@@ -28,9 +28,12 @@ workchain/
 - The store resolves these paths at read time via `_doc_to_workflow()`, so handlers receive properly typed objects
 - Handlers access preceding step results via `results: dict[str, StepResult]`, using `cast()` for per-key types
 
-**Sequential step execution**
-- Steps execute in order (`current_step_index` advances linearly)
-- No DAG — steps are a flat list
+**Dependency-based step execution**
+- Steps declare dependencies via `depends_on: list[str]` referencing other step names
+- Steps without explicit `depends_on` default to sequential chain (each depends on previous)
+- Steps with `depends_on: []` (empty list) are root steps, ready immediately
+- Independent steps can execute concurrently across engine instances
+- Workflow completes atomically when all steps are done; fails when any step fails
 
 **Two step modes**
 - **Sync steps** (`@step`): execute handler, persist result, advance immediately
@@ -42,12 +45,14 @@ workchain/
 - `_step_meta` dict attached to each handler carries all metadata — the engine reads it, never uses `inspect.signature`
 - Both sync and async handlers are supported via `asyncio.iscoroutine` safety net
 
-**Distributed safety**
-- Lock acquisition via atomic `findOneAndUpdate` — only one instance wins
-- `try_claim()` filters by status (`PENDING`/`RUNNING` only) to prevent re-claiming terminal workflows
-- `fence_token` increments on each claim; all writes are fenced (`{"fence_token": N}`)
-- Heartbeat loop renews lock TTL; stale locks expire and are reclaimed
-- Sweep loop detects anomalies (stuck steps, stale locks, unadvanced completed steps)
+**Distributed safety (step-level locking)**
+- Lock fields (`locked_by`, `lock_expires_at`, `fence_token`) live on each `Step`, not on `Workflow`
+- `try_claim_step()` atomically locks a single step via `findOneAndUpdate` with array filters
+- Each step has its own `fence_token`; all per-step writes are fenced (`{"steps.$[s].fence_token": N}`)
+- `find_claimable_steps()` discovers ready steps across all running workflows (two-phase: broad query → Python readiness filter)
+- Multiple engine instances can concurrently execute independent steps of the same workflow
+- Heartbeat loop renews per-step lock TTLs; stale locks expire and are reclaimed
+- Sweep loop detects anomalies (stuck steps, stale step locks)
 
 **Crash-safe state machine**
 - Before execution: step is marked SUBMITTED (write-ahead)
@@ -56,9 +61,9 @@ workchain/
 - Each retry attempt is persisted to MongoDB before execution
 
 **Claim-poll-release cycle (async steps)**
-1. Claim workflow, execute handler (submission), set BLOCKED, schedule `next_poll_at`, release lock
-2. Fast sweep rediscovers workflow when `next_poll_at` passes
-3. Claim, run one `completeness_check`, if not done → schedule next poll, release lock
+1. Claim step, execute handler (submission), set BLOCKED, schedule `next_poll_at`, release step lock
+2. Claim loop rediscovers step when `next_poll_at` passes
+3. Claim step, run one `completeness_check`, if not done → schedule next poll, release step lock
 4. Repeat until complete or timeout/max_polls exceeded
 5. If `completeness_check` throws, the engine retries using the check's `RetryPolicy` (configured via `@completeness_check(retry=...)`). If all retries are exhausted within a single poll cycle, the step fails immediately.
 
@@ -82,8 +87,8 @@ workchain/
 
 ## Files to modify with care
 
-- `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures. The explicit step-state methods (`submit_step`, `complete_step`, `fail_step`, `block_step`, `schedule_next_poll`, `mark_step_running`, `reset_step`) all delegate to `_fenced_step_update` — the generic method is private and should not be called directly from the engine
-- `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios; understand all paths before changing
+- `store.py` — the lock acquisition query, fence-guarded writes, and `_doc_to_workflow` deserialization are carefully crafted; changes risk race conditions or type resolution failures. Step-state methods have two variants: workflow-fence (`_fenced_step_update`) and step-fence (`_fenced_step_update_by_name`). The engine uses the `_by_name` variants for per-step claiming. The generic methods are private and should not be called directly from the engine
+- `engine.py` `_recover_step()` — recovery logic handles multiple crash scenarios; understand all paths before changing. Recovery operates per-step, not per-workflow
 - `engine.py` `_call_handler()` — uses `_step_meta["needs_context"]` and `iscoroutine` safety net; do not reintroduce `inspect.signature`
 - `models.py` — changing field names affects all persisted MongoDB documents; `Step._set_type_paths` auto-populates `config_type`/`result_type`
 - `decorators.py` — `_step_meta` dict is the contract between decorators and engine; adding/removing keys affects both

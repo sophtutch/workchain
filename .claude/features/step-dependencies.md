@@ -1,6 +1,6 @@
 ---
 name: step-dependencies
-created: 2026-04-04T00:00:00Z
+created: 2026-04-04T22:16:15Z
 status: in_progress
 ---
 
@@ -64,10 +64,18 @@ Key architectural changes:
 - [x] model-and-validation: Add `depends_on` and step-level lock fields to Step, dependency validation on Workflow, readiness helpers
   - branch: `step-dependencies/model-and-validation`
   - pr: #38
+  - effort: ~3h
+  - cost: unknown (pre-tracking)
 - [x] store-step-claims: Rewrite store for per-step claiming, heartbeat, release, fenced writes via MongoDB array filters
   - branch: `step-dependencies/store-step-claims`
   - pr: #39
-- [ ] engine-rewrite: Rewrite engine to claim/execute individual ready steps, track active steps, derive workflow completion
+  - effort: ~5h
+  - cost: unknown (pre-tracking)
+- [x] engine-rewrite: Rewrite engine to claim/execute individual ready steps, track active steps, derive workflow completion
+  - branch: `step-dependencies/engine-rewrite`
+  - pr: #41
+  - effort: ~4h
+  - cost: step-dependencies.3 / ~800k tokens
 - [ ] recovery-and-sweep: Update crash recovery and sweep for per-step locks and multiple in-flight steps
 - [ ] docs-and-examples: Remove `current_step_index`, update all docs/examples/commands, add parallel-steps example
 
