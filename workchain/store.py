@@ -965,6 +965,262 @@ class MongoWorkflowStore:
         return self._doc_to_workflow(doc)
 
     # ------------------------------------------------------------------
+    # Per-step state transitions (name-based, step-level fence tokens)
+    #
+    # These mirror the index-based methods above but use step names and
+    # step-level fence tokens via _fenced_step_update_by_name.  The old
+    # index-based methods remain for backward compatibility during the
+    # migration (removed in Task 5).
+    # ------------------------------------------------------------------
+
+    async def submit_step_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        attempt: int,
+    ) -> Workflow | None:
+        """Mark a PENDING step as SUBMITTED with the given attempt number."""
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token,
+            {"status": StepStatus.SUBMITTED.value, "attempt": attempt},
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            self._emit(
+                AuditEventType.STEP_SUBMITTED, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                step_status_before=StepStatus.PENDING.value,
+                fence_token_override=step_fence_token,
+            )
+        return wf
+
+    async def mark_step_running_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        attempt: int,
+        *,
+        max_attempts: int | None = None,
+    ) -> Workflow | None:
+        """Transition a SUBMITTED step to RUNNING for the given attempt number."""
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token,
+            {"status": StepStatus.RUNNING.value, "attempt": attempt},
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            self._emit(
+                AuditEventType.STEP_RUNNING, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                step_status_before=StepStatus.SUBMITTED.value,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                fence_token_override=step_fence_token,
+            )
+        return wf
+
+    async def complete_step_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        result: StepResult | None = None,
+        result_type: str | None = None,
+        poll_count: int | None = None,
+        last_poll_at: datetime | None = None,
+        last_poll_progress: float | None = None,
+        last_poll_message: str | None = None,
+        # Audit context
+        audit_event_type: AuditEventType | None = None,
+        step_status_before: str = StepStatus.RUNNING.value,
+        recovery_action: str | None = None,
+        **audit_kwargs: Any,
+    ) -> Workflow | None:
+        """Mark a step as COMPLETED with its result."""
+        updates: dict = {"status": StepStatus.COMPLETED.value}
+        if result is not None:
+            updates["result"] = result.model_dump(mode="python", serialize_as_any=True)
+        if result_type is not None:
+            updates["result_type"] = result_type
+        if poll_count is not None:
+            updates["poll_count"] = poll_count
+        if last_poll_at is not None:
+            updates["last_poll_at"] = last_poll_at
+        if last_poll_progress is not None:
+            updates["last_poll_progress"] = last_poll_progress
+        if last_poll_message is not None:
+            updates["last_poll_message"] = last_poll_message
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token, updates,
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            evt = audit_event_type or AuditEventType.STEP_COMPLETED
+            self._emit(
+                evt, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                step_status_before=step_status_before,
+                result_summary=result.model_dump(exclude_none=True) if result else None,
+                recovery_action=recovery_action,
+                poll_count=poll_count,
+                poll_progress=last_poll_progress,
+                poll_message=last_poll_message,
+                fence_token_override=step_fence_token,
+                **audit_kwargs,
+            )
+        return wf
+
+    async def fail_step_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        result: StepResult,
+        # Audit context
+        audit_event_type: AuditEventType | None = None,
+        step_status_before: str = StepStatus.RUNNING.value,
+        poll_count: int | None = None,
+        poll_elapsed_seconds: float | None = None,
+        **audit_kwargs: Any,
+    ) -> Workflow | None:
+        """Mark a step as FAILED with an error result."""
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token,
+            {
+                "status": StepStatus.FAILED.value,
+                "result": result.model_dump(mode="python", serialize_as_any=True),
+                "result_type": None,
+            },
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            evt = audit_event_type or AuditEventType.STEP_FAILED
+            error_lines = (result.error or "").strip().splitlines()
+            brief_error = error_lines[-1] if error_lines else None
+            self._emit(
+                evt, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                step_status_before=step_status_before,
+                error=brief_error,
+                error_traceback=result.error,
+                poll_count=poll_count,
+                poll_elapsed_seconds=poll_elapsed_seconds,
+                fence_token_override=step_fence_token,
+                **audit_kwargs,
+            )
+        return wf
+
+    async def block_step_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        result: StepResult,
+        result_type: str | None,
+        poll_started_at: datetime,
+        next_poll_at: datetime,
+        current_poll_interval: float,
+        poll_count: int = 0,
+        # Audit context
+        audit_event_type: AuditEventType | None = None,
+        recovery_action: str | None = None,
+        **audit_kwargs: Any,
+    ) -> Workflow | None:
+        """Transition a step to BLOCKED and initialise poll scheduling."""
+        updates: dict = {
+            "status": StepStatus.BLOCKED.value,
+            "result": result.model_dump(mode="python", serialize_as_any=True),
+            "poll_started_at": poll_started_at,
+            "next_poll_at": next_poll_at,
+            "current_poll_interval": current_poll_interval,
+            "poll_count": poll_count,
+        }
+        if result_type is not None:
+            updates["result_type"] = result_type
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token, updates,
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            evt = audit_event_type or AuditEventType.STEP_BLOCKED
+            self._emit(
+                evt, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                step_status_before=StepStatus.RUNNING.value,
+                result_summary=result.model_dump(exclude_none=True),
+                recovery_action=recovery_action,
+                next_poll_at=next_poll_at,
+                current_poll_interval=current_poll_interval,
+                fence_token_override=step_fence_token,
+                **audit_kwargs,
+            )
+        return wf
+
+    async def schedule_next_poll_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        poll_count: int,
+        last_poll_at: datetime,
+        next_poll_at: datetime,
+        current_poll_interval: float,
+        last_poll_progress: float | None = None,
+        last_poll_message: str | None = None,
+    ) -> Workflow | None:
+        """Update poll scheduling for a BLOCKED step (not yet complete)."""
+        updates: dict = {
+            "poll_count": poll_count,
+            "last_poll_at": last_poll_at,
+            "next_poll_at": next_poll_at,
+            "current_poll_interval": current_poll_interval,
+        }
+        if last_poll_progress is not None:
+            updates["last_poll_progress"] = last_poll_progress
+        if last_poll_message is not None:
+            updates["last_poll_message"] = last_poll_message
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token, updates,
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            self._emit(
+                AuditEventType.POLL_CHECKED, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                poll_count=poll_count,
+                poll_progress=last_poll_progress,
+                poll_message=last_poll_message,
+                next_poll_at=next_poll_at,
+                current_poll_interval=current_poll_interval,
+                fence_token_override=step_fence_token,
+            )
+        return wf
+
+    async def reset_step_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        status: StepStatus = StepStatus.PENDING,
+    ) -> Workflow | None:
+        """Reset a step to the given status (used in recovery)."""
+        wf = await self._fenced_step_update_by_name(
+            workflow_id, step_name, step_fence_token,
+            {"status": status.value},
+        )
+        if wf is not None:
+            idx = await self._step_index(workflow_id, step_name)
+            self._emit(
+                AuditEventType.RECOVERY_RESET, wf,
+                step=wf.step_by_name(step_name), idx=idx,
+                recovery_action="reset",
+                fence_token_override=step_fence_token,
+            )
+        return wf
+
+    # ------------------------------------------------------------------
     # Per-step claiming and lock management
     # ------------------------------------------------------------------
 
@@ -1000,6 +1256,8 @@ class MongoWorkflowStore:
                 f"{prefix}.status": {"$in": [
                     StepStatus.PENDING.value,
                     StepStatus.BLOCKED.value,
+                    StepStatus.SUBMITTED.value,
+                    StepStatus.RUNNING.value,
                 ]},
                 "$or": [
                     {f"{prefix}.locked_by": None},
@@ -1253,5 +1511,36 @@ class MongoWorkflowStore:
         self._emit(
             AuditEventType.WORKFLOW_FAILED, wf,
             workflow_status_before=WorkflowStatus.RUNNING.value,
+        )
+        return wf
+
+    async def try_needs_review_workflow(self, workflow_id: str) -> Workflow | None:
+        """
+        Atomically set workflow status to NEEDS_REVIEW. Called when a step
+        cannot be safely recovered (non-idempotent, no verify hook).
+
+        Only matches RUNNING workflows.
+        Returns the updated workflow, or None if not RUNNING.
+        """
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                "status": WorkflowStatus.RUNNING.value,
+            },
+            {"$set": {
+                "status": WorkflowStatus.NEEDS_REVIEW.value,
+                "updated_at": datetime.now(UTC),
+            }},
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            return None
+        wf = self._doc_to_workflow(doc)
+        logger.info("Workflow needs review: %s", workflow_id)
+        self._emit(
+            AuditEventType.RECOVERY_NEEDS_REVIEW, wf,
+            workflow_status_before=WorkflowStatus.RUNNING.value,
+            recovery_action="needs_review",
         )
         return wf

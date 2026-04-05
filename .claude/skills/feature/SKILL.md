@@ -56,16 +56,24 @@ status: planned | in_progress | completed
 - [x] task-1: Description of first task
   - branch: `refactor/explicit-store-methods`
   - pr: #24
+  - effort: 2h 15m
+  - cost: $1.23 / 450k tokens
 - [x] task-2: Description of second task
   - branch: `refactor/audit-logging-in-store`
   - pr: #25
+  - effort: 1h 30m
+  - cost: $0.89 / 320k tokens
 - [ ] task-3: Description of third task
 ```
 
 Task format:
 - `[ ]` — pending
 - `[-]` — in progress (currently being shipped)
-- `[x]` — completed (with branch and PR metadata indented below)
+- `[x]` — completed (with branch, PR, effort, and cost metadata indented below)
+
+Effort and cost metadata:
+- `effort` — wall-clock time spent on the task (e.g. `2h 15m`)
+- `cost` — API cost and token usage (e.g. `$1.23 / 450k tokens`)
 
 ---
 
@@ -187,7 +195,7 @@ If the feature file doesn't exist, say so and suggest `/feature plan <name>`.
    - **On the feature branch** (not main), update the feature doc:
      - If the feature status is `planned`, transition it to `in_progress`
      - Mark the task as `[x]`
-     - Add branch and PR metadata below the task
+     - Add branch, PR, effort, and cost metadata below the task
      - If all tasks are now complete:
        - Set feature status to `completed` in frontmatter
        - Add `completed: <ISO 8601 datetime>` to frontmatter

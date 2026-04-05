@@ -228,7 +228,7 @@ class TestEngineAuditIntegration:
         )
 
     async def test_sync_workflow_emits_events(self, store, engine, audit_logger):
-        """A simple sync workflow should emit: CREATED, CLAIMED, SUBMITTED, RUNNING, COMPLETED, ADVANCED, WORKFLOW_COMPLETED."""
+        """A simple sync workflow should emit: CREATED, STEP_CLAIMED, SUBMITTED, RUNNING, COMPLETED, WORKFLOW_COMPLETED."""
         wf = Workflow(
             name="audit_sync",
             steps=[Step(name="noop", handler=noop_handler._step_meta["handler"])],
@@ -244,11 +244,10 @@ class TestEngineAuditIntegration:
         event_types = [e.event_type for e in events]
 
         assert AuditEventType.WORKFLOW_CREATED in event_types
-        assert AuditEventType.WORKFLOW_CLAIMED in event_types
+        assert AuditEventType.STEP_CLAIMED in event_types
         assert AuditEventType.STEP_SUBMITTED in event_types
         assert AuditEventType.STEP_RUNNING in event_types
         assert AuditEventType.STEP_COMPLETED in event_types
-        assert AuditEventType.STEP_ADVANCED in event_types
         assert AuditEventType.WORKFLOW_COMPLETED in event_types
 
     async def test_claimed_event_has_fence_token(self, store, engine, audit_logger):
@@ -260,10 +259,9 @@ class TestEngineAuditIntegration:
         await engine.stop()
         await asyncio.sleep(0.2)
 
-        events = await audit_logger.get_events(wf.id, event_type=AuditEventType.WORKFLOW_CLAIMED)
+        events = await audit_logger.get_events(wf.id, event_type=AuditEventType.STEP_CLAIMED)
         assert len(events) >= 1
-        assert events[0].fence_token == 1
-        assert events[0].fence_token_before == 0
+        assert events[0].fence_token >= 1
         assert events[0].instance_id == "test-audit-001"
 
     async def test_step_events_have_step_context(self, store, engine, audit_logger):
@@ -315,19 +313,20 @@ class TestEngineAuditIntegration:
         wf = Workflow(
             name="audit_recovery",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[Step(
                 name="noop",
                 handler=noop_handler._step_meta["handler"],
                 status=StepStatus.SUBMITTED,
                 idempotent=True,
+                depends_on=[],
             )],
         )
         await store.insert(wf)
 
-        claimed = await store.try_claim(wf.id, "test-audit-001")
-        assert claimed is not None
-        await engine._run_workflow(claimed)
+        result = await store.try_claim_step(wf.id, "noop", "test-audit-001")
+        assert result is not None
+        _claimed_wf, step_fence = result
+        await engine._run_step(wf.id, "noop", step_fence)
         await asyncio.sleep(0.2)
 
         events = await audit_logger.get_events(wf.id)

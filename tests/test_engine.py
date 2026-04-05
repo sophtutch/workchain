@@ -42,46 +42,55 @@ from workchain.models import (
 
 
 class TestBuildResults:
-    def test_empty_workflow(self):
-        wf = Workflow(name="test", steps=[])
-        assert _build_results(wf, 0) == {}
+    def test_no_dependencies(self):
+        wf = Workflow(
+            name="test",
+            steps=[Step(name="s1", handler="mod.f", depends_on=[])],
+        )
+        assert _build_results(wf, "s1") == {}
 
-    def test_steps_with_results(self):
+    def test_collects_dependency_results(self):
         wf = Workflow(
             name="test",
             steps=[
-                Step(name="s1", handler="mod.f", result=GreetResult(greeting="hi")),
-                Step(name="s2", handler="mod.f"),
+                Step(name="s1", handler="mod.f", depends_on=[], result=GreetResult(greeting="hi")),
+                Step(name="s2", handler="mod.f", depends_on=["s1"]),
             ],
         )
-        results = _build_results(wf, 2)
+        results = _build_results(wf, "s2")
         assert "s1" in results
         assert isinstance(results["s1"], GreetResult)
-        assert "s2" not in results  # no result
 
-    def test_respects_up_to_index(self):
+    def test_only_includes_declared_dependencies(self):
+        """Only results from depends_on are included, not all prior steps."""
         wf = Workflow(
             name="test",
             steps=[
-                Step(name="s1", handler="mod.f", result=StepResult()),
-                Step(name="s2", handler="mod.f", result=StepResult()),
+                Step(name="s1", handler="mod.f", depends_on=[], result=StepResult()),
+                Step(name="s2", handler="mod.f", depends_on=[], result=StepResult()),
+                Step(name="s3", handler="mod.f", depends_on=["s2"]),
             ],
         )
-        results = _build_results(wf, 1)
-        assert "s1" in results
-        assert "s2" not in results
+        results = _build_results(wf, "s3")
+        assert "s1" not in results  # not a dependency of s3
+        assert "s2" in results
 
     def test_skips_none_results(self):
         wf = Workflow(
             name="test",
             steps=[
-                Step(name="s1", handler="mod.f"),
-                Step(name="s2", handler="mod.f", result=StepResult()),
+                Step(name="s1", handler="mod.f", depends_on=[]),
+                Step(name="s2", handler="mod.f", depends_on=[], result=StepResult()),
+                Step(name="s3", handler="mod.f", depends_on=["s1", "s2"]),
             ],
         )
-        results = _build_results(wf, 2)
-        assert "s1" not in results
+        results = _build_results(wf, "s3")
+        assert "s1" not in results  # no result
         assert "s2" in results
+
+    def test_unknown_step_name(self):
+        wf = Workflow(name="test", steps=[Step(name="s1", handler="mod.f", depends_on=[])])
+        assert _build_results(wf, "nonexistent") == {}
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +271,7 @@ class TestSyncExecution:
         assert isinstance(loaded.steps[0].result, GreetResult)
         assert loaded.steps[0].result.greeting == "Hello, World!"
 
-    async def test_workflow_advances_step_index(self, store, engine):
+    async def test_workflow_completes_after_all_steps(self, store, engine):
         wf = Workflow(
             name="advance_test",
             steps=[
@@ -277,7 +286,8 @@ class TestSyncExecution:
         await engine.stop()
 
         loaded = await store.get(wf.id)
-        assert loaded.current_step_index == 2
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert all(s.status == StepStatus.COMPLETED for s in loaded.steps)
 
     async def test_sync_handler_works(self, store):
         """A plain sync (non-async) handler registered via _STEP_REGISTRY completes without TypeError."""
@@ -515,28 +525,31 @@ class TestPollLimits:
 
 
 class TestRecovery:
+    async def _claim_and_run_step(self, store, engine, wf_id, step_name):
+        """Helper: claim a step and run it via _run_step."""
+        result = await store.try_claim_step(wf_id, step_name, "test-engine-001")
+        assert result is not None, f"Failed to claim step {step_name}"
+        _wf, step_fence = result
+        await engine._run_step(wf_id, step_name, step_fence)
+
     async def test_recover_idempotent_reruns(self, store, engine):
         """An idempotent step found in SUBMITTED state gets re-run."""
         wf = Workflow(
             name="recovery_idem",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[
                 Step(
                     name="noop",
                     handler=noop_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
                     idempotent=True,
+                    depends_on=[],
                 ),
             ],
         )
         await store.insert(wf)
 
-        # Claim and run
-        claimed = await store.try_claim(wf.id, "test-engine-001")
-        assert claimed is not None
-
-        await engine._run_workflow(claimed)
+        await self._claim_and_run_step(store, engine, wf.id, "noop")
 
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.COMPLETED
@@ -547,20 +560,19 @@ class TestRecovery:
         wf = Workflow(
             name="recovery_non_idem",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[
                 Step(
                     name="danger",
                     handler=noop_handler._step_meta["handler"],
                     status=StepStatus.SUBMITTED,
                     idempotent=False,
+                    depends_on=[],
                 ),
             ],
         )
         await store.insert(wf)
 
-        claimed = await store.try_claim(wf.id, "test-engine-001")
-        await engine._run_workflow(claimed)
+        await self._claim_and_run_step(store, engine, wf.id, "danger")
 
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.NEEDS_REVIEW
@@ -570,7 +582,6 @@ class TestRecovery:
         wf = Workflow(
             name="recovery_verify",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[
                 Step(
                     name="verified",
@@ -578,13 +589,13 @@ class TestRecovery:
                     status=StepStatus.SUBMITTED,
                     verify_completion=verify_done._step_meta["handler"],
                     idempotent=False,
+                    depends_on=[],
                 ),
             ],
         )
         await store.insert(wf)
 
-        claimed = await store.try_claim(wf.id, "test-engine-001")
-        await engine._run_workflow(claimed)
+        await self._claim_and_run_step(store, engine, wf.id, "verified")
 
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.COMPLETED
@@ -595,7 +606,6 @@ class TestRecovery:
         wf = Workflow(
             name="recovery_verify_not_done",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[
                 Step(
                     name="not_verified",
@@ -603,13 +613,13 @@ class TestRecovery:
                     status=StepStatus.SUBMITTED,
                     verify_completion=verify_not_done._step_meta["handler"],
                     idempotent=False,
+                    depends_on=[],
                 ),
             ],
         )
         await store.insert(wf)
 
-        claimed = await store.try_claim(wf.id, "test-engine-001")
-        await engine._run_workflow(claimed)
+        await self._claim_and_run_step(store, engine, wf.id, "not_verified")
 
         loaded = await store.get(wf.id)
         # verify_not_done returns False → step should NOT be completed
@@ -620,7 +630,6 @@ class TestRecovery:
         wf = Workflow(
             name="recovery_async",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[
                 Step(
                     name="async_step",
@@ -630,13 +639,13 @@ class TestRecovery:
                     completeness_check=check_complete_always_done._step_meta["handler"],
                     result=SubmitResult(job_id="existing_job"),
                     idempotent=False,
+                    depends_on=[],
                 ),
             ],
         )
         await store.insert(wf)
 
-        claimed = await store.try_claim(wf.id, "test-engine-001")
-        await engine._run_workflow(claimed)
+        await self._claim_and_run_step(store, engine, wf.id, "async_step")
 
         loaded = await store.get(wf.id)
         # check_always_done returns True, so step should be COMPLETED
@@ -654,7 +663,6 @@ class TestRecovery:
         wf = Workflow(
             name="recovery_poll_hint",
             status=WorkflowStatus.RUNNING,
-            fence_token=1,
             steps=[
                 Step(
                     name="async_step",
@@ -664,13 +672,13 @@ class TestRecovery:
                     completeness_check="tests.check_poll_hint_done",
                     result=SubmitResult(job_id="existing_job"),
                     idempotent=False,
+                    depends_on=[],
                 ),
             ],
         )
         await store.insert(wf)
 
-        claimed = await store.try_claim(wf.id, "test-engine-001")
-        await engine._run_workflow(claimed)
+        await self._claim_and_run_step(store, engine, wf.id, "async_step")
 
         loaded = await store.get(wf.id)
         # CheckResult(complete=True) should be recognized as complete
@@ -864,13 +872,17 @@ class TestCancellation:
         assert call_count < 3
 
     async def test_cancelled_workflow_not_claimed(self, store):
-        wf = Workflow(name="already_cancelled", status=WorkflowStatus.CANCELLED)
+        wf = Workflow(
+            name="already_cancelled",
+            status=WorkflowStatus.CANCELLED,
+            steps=[Step(name="s1", handler=noop_handler._step_meta["handler"], depends_on=[])],
+        )
         await store.insert(wf)
 
-        ids = await store.find_claimable()
-        assert wf.id not in ids
+        claimable = await store.find_claimable_steps()
+        assert not any(wf_id == wf.id for wf_id, _ in claimable)
 
-        result = await store.try_claim(wf.id, "inst_1")
+        result = await store.try_claim_step(wf.id, "s1", "inst_1")
         assert result is None
 
     async def test_is_terminal_includes_cancelled(self):
@@ -1107,3 +1119,143 @@ class TestCompletenessCheckRetries:
         assert "always fails" in (loaded.steps[0].result.error or "")
         # Default max_attempts=3: called 3 times then exhausted
         assert call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Concurrent step execution (dependency-based)
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentSteps:
+    async def test_parallel_root_steps(self, store):
+        """Two root steps (depends_on=[]) both complete concurrently."""
+        wf = Workflow(
+            name="parallel_roots",
+            steps=[
+                Step(name="a", handler=noop_handler._step_meta["handler"], depends_on=[]),
+                Step(name="b", handler=noop_handler._step_meta["handler"], depends_on=[]),
+            ],
+        )
+        await store.insert(wf)
+
+        engine = WorkflowEngine(
+            store, instance_id="parallel-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+            max_concurrent=5,
+        )
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert all(s.status == StepStatus.COMPLETED for s in loaded.steps)
+
+    async def test_diamond_dependency(self, store):
+        """Diamond: A(root) → B,C(depend on A) → D(depends on B,C)."""
+        wf = Workflow(
+            name="diamond",
+            steps=[
+                Step(name="a", handler=noop_handler._step_meta["handler"], depends_on=[]),
+                Step(name="b", handler=noop_handler._step_meta["handler"], depends_on=["a"]),
+                Step(name="c", handler=noop_handler._step_meta["handler"], depends_on=["a"]),
+                Step(name="d", handler=noop_handler._step_meta["handler"], depends_on=["b", "c"]),
+            ],
+        )
+        await store.insert(wf)
+
+        engine = WorkflowEngine(
+            store, instance_id="diamond-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+            max_concurrent=5,
+        )
+        await engine.start()
+        await asyncio.sleep(1.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert all(s.status == StepStatus.COMPLETED for s in loaded.steps)
+
+    async def test_step_failure_fails_workflow(self, store):
+        """A step failure triggers try_fail_workflow."""
+        wf = Workflow(
+            name="fail_propagation",
+            steps=[
+                Step(
+                    name="doomed",
+                    handler=fail_handler._step_meta["handler"],
+                    depends_on=[],
+                    retry_policy=RetryPolicy(max_attempts=1, wait_seconds=0.01),
+                ),
+                Step(name="never_runs", handler=noop_handler._step_meta["handler"], depends_on=["doomed"]),
+            ],
+        )
+        await store.insert(wf)
+
+        engine = WorkflowEngine(
+            store, instance_id="fail-test",
+            claim_interval=0.05, heartbeat_interval=0.05, sweep_interval=10,
+        )
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.steps[0].status == StepStatus.FAILED
+        # The dependent step should still be PENDING (never executed)
+        assert loaded.steps[1].status == StepStatus.PENDING
+
+    async def test_sequential_default_depends_on(self, store, engine):
+        """Steps without explicit depends_on default to sequential chain."""
+        wf = Workflow(
+            name="seq_default",
+            steps=[
+                Step(name="s1", handler=noop_handler._step_meta["handler"]),
+                Step(name="s2", handler=noop_handler._step_meta["handler"]),
+                Step(name="s3", handler=noop_handler._step_meta["handler"]),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(1.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert all(s.status == StepStatus.COMPLETED for s in loaded.steps)
+
+    async def test_results_from_dependencies(self, store, engine):
+        """Handler receives results from its declared dependencies only."""
+        received_results = {}
+
+        async def capture_results(_config, results):
+            received_results.update(results)
+            return StepResult()
+
+        capture_results._step_meta = {"needs_context": False}
+        _STEP_REGISTRY["tests.capture_results"] = capture_results
+
+        wf = Workflow(
+            name="dep_results",
+            steps=[
+                Step(name="greet", handler=greet_handler._step_meta["handler"],
+                     config=GreetConfig(name="World"), depends_on=[]),
+                Step(name="noop", handler=noop_handler._step_meta["handler"], depends_on=[]),
+                Step(name="capture", handler="tests.capture_results", depends_on=["greet"]),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(1.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        # capture step should only see greet's result, not noop's
+        assert "greet" in received_results
+        assert "noop" not in received_results
+        assert isinstance(received_results["greet"], GreetResult)
