@@ -71,7 +71,11 @@ Key architectural changes:
   - pr: #39
   - effort: ~5h
   - cost: unknown (pre-tracking)
-- [ ] engine-rewrite: Rewrite engine to claim/execute individual ready steps, track active steps, derive workflow completion
+- [x] engine-rewrite: Rewrite engine to claim/execute individual ready steps, track active steps, derive workflow completion
+  - branch: `step-dependencies/engine-rewrite`
+  - pr: #41
+  - effort: ~4h
+  - cost: step-dependencies.3 / ~800k tokens
 - [ ] recovery-and-sweep: Update crash recovery and sweep for per-step locks and multiple in-flight steps
 - [ ] docs-and-examples: Remove `current_step_index`, update all docs/examples/commands, add parallel-steps example
 
