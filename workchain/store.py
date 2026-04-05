@@ -655,88 +655,103 @@ class MongoWorkflowStore:
         limit: int = 20,
     ) -> list[dict]:
         """
-        Slow sweep — find workflows with anomalous state that the fast
-        sweep won't catch:
+        Slow sweep — find steps and workflows with anomalous state that
+        the fast claim loop won't catch:
 
-        1. Steps stuck in SUBMITTED/RUNNING longer than step_stuck_seconds
-           even though the workflow lock is still held (handler may have
-           hung or the instance is zombie-locked).
-        2. Workflows in RUNNING with a valid lock but no updated_at change
-           for longer than step_stuck_seconds (engine may have died without
-           releasing the lock and heartbeat is no longer extending it — but
-           TTL hasn't expired yet due to a recent heartbeat).
-        3. Workflows in RUNNING where current step is COMPLETED but
-           current_step_index was never advanced (engine died between
-           step completion and advance).
+        1. **Stuck steps** — steps in SUBMITTED/RUNNING whose workflow
+           hasn't been updated for longer than *step_stuck_seconds*.
+           The handler may have hung or the instance died without releasing.
+        2. **Stale step locks** — steps with ``locked_by`` set but
+           ``lock_expires_at`` already in the past and no recent heartbeat
+           (workflow ``updated_at`` is stale). The lock TTL expired but
+           was never cleaned up.
+        3. **Orphaned workflows** — workflow status is RUNNING but every
+           step is in a terminal state (COMPLETED or FAILED). The engine
+           instance that ran the last step died before calling
+           ``try_complete_workflow`` / ``try_fail_workflow``.
 
-        Returns a list of dicts: {"workflow_id": str, "anomaly": str}
+        Returns a list of dicts with keys:
+        ``{"workflow_id": str, "step_name": str | None, "anomaly": str}``
         """
         now = datetime.now(UTC)
         stale_cutoff = now - timedelta(seconds=step_stuck_seconds)
-        # 1. Steps stuck in transient states too long
-        cursor = self._col.find(
-            {
-                "status": WorkflowStatus.RUNNING.value,
-                "steps": {
-                    "$elemMatch": {
-                        "status": {"$in": [
-                            StepStatus.SUBMITTED.value,
-                            StepStatus.RUNNING.value,
-                        ]},
-                    },
-                },
-                "updated_at": {"$lt": stale_cutoff},
-            },
-            {"_id": 1},
-            max_time_ms=self._op_timeout,
-        ).limit(limit)
-        results: list[dict] = [
-            {"workflow_id": doc["_id"], "anomaly": "step_stuck_in_transient_state"}
-            async for doc in cursor
-        ]
+        results: list[dict] = []
+        seen: set[tuple[str, str | None]] = set()
 
-        # 2. Stale lock — running but no heartbeat activity
-        cursor = self._col.find(
-            {
-                "status": WorkflowStatus.RUNNING.value,
-                "locked_by": {"$ne": None},
-                "updated_at": {"$lt": stale_cutoff},
-            },
-            {"_id": 1},
-            max_time_ms=self._op_timeout,
-        ).limit(limit)
-        async for doc in cursor:
-            wf_id = doc["_id"]
-            if not any(r["workflow_id"] == wf_id for r in results):
+        def _add(wf_id: str, step_name: str | None, anomaly: str) -> None:
+            key = (wf_id, step_name)
+            if key not in seen:
+                seen.add(key)
                 results.append({
                     "workflow_id": wf_id,
-                    "anomaly": "stale_lock_no_heartbeat",
+                    "step_name": step_name,
+                    "anomaly": anomaly,
                 })
 
-        # 3. Completed step but index not advanced
-        #    Use aggregation to compare current step status with index
-        pipeline = [
-            {"$match": {"status": WorkflowStatus.RUNNING.value}},
-            {"$project": {
-                "current_step_index": 1,
-                "current_step_status": {
-                    "$arrayElemAt": ["$steps.status", "$current_step_index"]
-                },
-                "updated_at": 1,
-            }},
+        # 1. Steps stuck in transient states too long
+        pipeline_stuck: list[dict] = [
             {"$match": {
-                "current_step_status": StepStatus.COMPLETED.value,
+                "status": WorkflowStatus.RUNNING.value,
                 "updated_at": {"$lt": stale_cutoff},
+                "steps": {"$elemMatch": {
+                    "status": {"$in": [
+                        StepStatus.SUBMITTED.value,
+                        StepStatus.RUNNING.value,
+                    ]},
+                }},
+            }},
+            {"$project": {"steps": 1}},
+            {"$unwind": "$steps"},
+            {"$match": {"steps.status": {"$in": [
+                StepStatus.SUBMITTED.value,
+                StepStatus.RUNNING.value,
+            ]}}},
+            {"$limit": limit},
+        ]
+        async for doc in self._col.aggregate(pipeline_stuck, maxTimeMS=self._op_timeout):
+            _add(doc["_id"], doc["steps"]["name"], "step_stuck_in_transient_state")
+
+        # 2. Stale step locks — step locked but lock expired + no heartbeat
+        pipeline_stale: list[dict] = [
+            {"$match": {
+                "status": WorkflowStatus.RUNNING.value,
+                "updated_at": {"$lt": stale_cutoff},
+                "steps": {"$elemMatch": {
+                    "locked_by": {"$ne": None},
+                    "lock_expires_at": {"$lt": now},
+                }},
+            }},
+            {"$project": {"steps": 1}},
+            {"$unwind": "$steps"},
+            {"$match": {
+                "steps.locked_by": {"$ne": None},
+                "steps.lock_expires_at": {"$lt": now},
             }},
             {"$limit": limit},
         ]
-        async for doc in self._col.aggregate(pipeline, maxTimeMS=self._op_timeout):
-            wf_id = doc["_id"]
-            if not any(r["workflow_id"] == wf_id for r in results):
-                results.append({
-                    "workflow_id": wf_id,
-                    "anomaly": "completed_step_not_advanced",
-                })
+        async for doc in self._col.aggregate(pipeline_stale, maxTimeMS=self._op_timeout):
+            _add(doc["_id"], doc["steps"]["name"], "stale_step_lock")
+
+        # 3. Orphaned workflows — all steps terminal but workflow still RUNNING.
+        #    Use double-negation: no step exists that is NOT in a terminal state.
+        non_terminal = [
+            s.value for s in StepStatus
+            if s not in (StepStatus.COMPLETED, StepStatus.FAILED)
+        ]
+        cursor_orphan = self._col.find(
+            {
+                "status": WorkflowStatus.RUNNING.value,
+                "updated_at": {"$lt": stale_cutoff},
+                "steps.0": {"$exists": True},
+                "steps": {"$not": {"$elemMatch": {
+                    "status": {"$in": non_terminal},
+                }}},
+            },
+            {"_id": 1},
+            max_time_ms=self._op_timeout,
+        ).limit(limit)
+        async for doc in cursor_orphan:
+            _add(doc["_id"], None, "orphaned_workflow")
 
         return results
 

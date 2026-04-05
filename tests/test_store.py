@@ -639,17 +639,23 @@ class TestFindAnomalies:
         wf = Workflow(
             name="stuck",
             status=WorkflowStatus.RUNNING,
-            locked_by="inst",
-            lock_expires_at=datetime.now(UTC) + timedelta(seconds=30),
             updated_at=datetime.now(UTC) - timedelta(seconds=600),
             steps=[
-                Step(name="s1", handler="mod.func", status=StepStatus.SUBMITTED),
+                Step(
+                    name="s1", handler="mod.func", status=StepStatus.SUBMITTED,
+                    locked_by="inst",
+                    lock_expires_at=datetime.now(UTC) + timedelta(seconds=30),
+                    depends_on=[],
+                ),
             ],
         )
         await store.insert(wf)
 
         anomalies = await store.find_anomalies(step_stuck_seconds=300)
-        assert any(a["workflow_id"] == wf.id for a in anomalies)
+        assert any(
+            a["workflow_id"] == wf.id and a["step_name"] == "s1"
+            for a in anomalies
+        )
 
     async def test_no_anomalies(self, store):
         wf = Workflow(name="healthy", status=WorkflowStatus.PENDING)

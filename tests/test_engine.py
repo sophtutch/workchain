@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -23,7 +24,7 @@ from tests.conftest import (
     verify_not_done,
 )
 from workchain.decorators import _STEP_REGISTRY, _normalize_check_result
-from workchain.engine import WorkflowEngine, _build_results, _wrap_handler_return
+from workchain.engine import WorkflowEngine, _ActiveStep, _build_results, _wrap_handler_return
 from workchain.exceptions import HandlerError
 from workchain.models import (
     CheckResult,
@@ -684,6 +685,97 @@ class TestRecovery:
         # CheckResult(complete=True) should be recognized as complete
         assert loaded.steps[0].status == StepStatus.COMPLETED
 
+    async def test_recover_crashed_step_with_healthy_sibling(self, store, engine):
+        """One step crashed (SUBMITTED), sibling step is COMPLETED — recovery fixes only the crashed one."""
+        wf = Workflow(
+            name="recovery_sibling",
+            status=WorkflowStatus.RUNNING,
+            steps=[
+                Step(
+                    name="done",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.COMPLETED,
+                    depends_on=[],
+                ),
+                Step(
+                    name="crashed",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.SUBMITTED,
+                    idempotent=True,
+                    depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await self._claim_and_run_step(store, engine, wf.id, "crashed")
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert loaded.step_by_name("done").status == StepStatus.COMPLETED
+        assert loaded.step_by_name("crashed").status == StepStatus.COMPLETED
+
+    async def test_recover_multiple_crashed_steps(self, store, engine):
+        """Two crashed steps in the same workflow are each recovered independently."""
+        wf = Workflow(
+            name="recovery_multi",
+            status=WorkflowStatus.RUNNING,
+            steps=[
+                Step(
+                    name="a",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.SUBMITTED,
+                    idempotent=True,
+                    depends_on=[],
+                ),
+                Step(
+                    name="b",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.RUNNING,
+                    idempotent=True,
+                    depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        # Recover each independently
+        await self._claim_and_run_step(store, engine, wf.id, "a")
+        await self._claim_and_run_step(store, engine, wf.id, "b")
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+        assert loaded.step_by_name("a").status == StepStatus.COMPLETED
+        assert loaded.step_by_name("b").status == StepStatus.COMPLETED
+
+    async def test_needs_review_propagates_to_workflow(self, store, engine):
+        """NEEDS_REVIEW on a non-idempotent crashed step propagates to workflow."""
+        wf = Workflow(
+            name="recovery_needs_review",
+            status=WorkflowStatus.RUNNING,
+            steps=[
+                Step(
+                    name="healthy",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.COMPLETED,
+                    depends_on=[],
+                ),
+                Step(
+                    name="broken",
+                    handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.SUBMITTED,
+                    idempotent=False,
+                    depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await self._claim_and_run_step(store, engine, wf.id, "broken")
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.NEEDS_REVIEW
+
 
 # ---------------------------------------------------------------------------
 # Sweep loop
@@ -691,30 +783,182 @@ class TestRecovery:
 
 
 class TestSweepLoop:
-    async def test_sweep_force_releases_anomaly(self, store):
-        """Sweep detects stuck workflow and force-releases its lock."""
+    async def test_sweep_detects_stuck_step(self, store):
+        """Sweep detects a step stuck in SUBMITTED and force-releases its lock."""
         wf = Workflow(
-            name="stuck_wf",
+            name="stuck_step",
             status=WorkflowStatus.RUNNING,
-            locked_by="dead_instance",
-            lock_expires_at=datetime.now(UTC) + timedelta(seconds=30),
             updated_at=datetime.now(UTC) - timedelta(seconds=600),
-            fence_token=1,
             steps=[
-                Step(name="s1", handler=noop_handler._step_meta["handler"], status=StepStatus.SUBMITTED),
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.SUBMITTED,
+                    locked_by="dead_instance",
+                    lock_expires_at=datetime.now(UTC) + timedelta(seconds=30),
+                    fence_token=1,
+                    depends_on=[],
+                ),
             ],
         )
         await store.insert(wf)
 
-        # Run anomaly detection directly instead of via engine loop
         anomalies = await store.find_anomalies(step_stuck_seconds=300)
-        assert any(a["workflow_id"] == wf.id for a in anomalies)
+        assert any(
+            a["workflow_id"] == wf.id and a["step_name"] == "s1"
+            for a in anomalies
+        )
 
-        released = await store.force_release_lock(wf.id)
+        released = await store.force_release_step_lock(wf.id, "s1")
         assert released is True
 
         loaded = await store.get(wf.id)
-        assert loaded.locked_by is None
+        assert loaded.steps[0].locked_by is None
+        # fence_token incremented by force release
+        assert loaded.steps[0].fence_token == 2
+
+    async def test_sweep_detects_stale_step_lock(self, store):
+        """Sweep detects a step with an expired lock and stale workflow."""
+        wf = Workflow(
+            name="stale_lock",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.RUNNING,
+                    locked_by="dead_instance",
+                    lock_expires_at=datetime.now(UTC) - timedelta(seconds=10),
+                    fence_token=1,
+                    depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        anomalies = await store.find_anomalies(step_stuck_seconds=300)
+        step_anomalies = [
+            a for a in anomalies
+            if a["workflow_id"] == wf.id and a["step_name"] == "s1"
+        ]
+        assert len(step_anomalies) >= 1
+
+    async def test_sweep_detects_orphaned_workflow(self, store):
+        """Sweep detects a workflow where all steps are done but status is still RUNNING."""
+        wf = Workflow(
+            name="orphaned",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.COMPLETED, depends_on=[],
+                ),
+                Step(
+                    name="s2", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.COMPLETED, depends_on=["s1"],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        anomalies = await store.find_anomalies(step_stuck_seconds=300)
+        orphan = [a for a in anomalies if a["anomaly"] == "orphaned_workflow"]
+        assert any(a["workflow_id"] == wf.id for a in orphan)
+
+    async def test_sweep_resolves_orphaned_completed(self, store, engine):
+        """Sweep loop resolves orphaned workflow by calling try_complete_workflow."""
+        wf = Workflow(
+            name="orphaned_complete",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.COMPLETED, depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        # Run engine with short sweep interval to trigger the sweep
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.COMPLETED
+
+    async def test_sweep_resolves_orphaned_failed(self, store, engine):
+        """Sweep loop resolves orphaned workflow where all steps are terminal (one failed)."""
+        wf = Workflow(
+            name="orphaned_fail",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.FAILED, depends_on=[],
+                ),
+                Step(
+                    name="s2", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.COMPLETED, depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+
+    async def test_sweep_skips_active_steps(self, store):
+        """Sweep does not force-release steps actively processed by this instance."""
+        wf = Workflow(
+            name="active_step",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.SUBMITTED,
+                    locked_by="test-engine-001",
+                    lock_expires_at=datetime.now(UTC) + timedelta(seconds=30),
+                    fence_token=1,
+                    depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        engine = WorkflowEngine(
+            store, instance_id="test-engine-001",
+            claim_interval=10, heartbeat_interval=10, sweep_interval=0.05,
+            step_stuck_seconds=1.0,
+        )
+        # Simulate an active step by adding it to _active
+        dummy_task = asyncio.create_task(asyncio.sleep(100))
+        engine._active[(wf.id, "s1")] = _ActiveStep(dummy_task, 1)
+
+        try:
+            # Start engine (only sweep runs quickly; claim/heartbeat are slow)
+            await engine.start()
+            await asyncio.sleep(0.3)
+
+            # Check DB before stop() — sweep should have skipped this step
+            loaded = await store.get(wf.id)
+            assert loaded.steps[0].locked_by == "test-engine-001"
+            assert loaded.steps[0].fence_token == 1
+
+            # Clean up _active so stop() doesn't release the lock we're checking
+            engine._active.pop((wf.id, "s1"), None)
+            await engine.stop()
+        finally:
+            dummy_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await dummy_task
 
 
 # ---------------------------------------------------------------------------
