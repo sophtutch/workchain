@@ -312,48 +312,87 @@ class WorkflowEngine:
 
     async def _sweep_loop(self) -> None:
         """
-        Runs on a longer interval than the claim loop. Detects workflows
-        that are stuck in inconsistent states and force-releases their
-        locks so the fast claim loop can reclaim them.
+        Runs on a longer interval than the claim loop. Detects steps and
+        workflows in inconsistent states and resolves them so the fast
+        claim loop can reclaim them.
 
-        Anomalies detected:
-        - Steps stuck in SUBMITTED/RUNNING with no updated_at progress
-        - Stale locks with no heartbeat activity
+        Anomalies handled:
+        - **step_stuck_in_transient_state** / **stale_step_lock**: force-release
+          the step lock so it can be reclaimed and recovered.
+        - **orphaned_workflow**: all steps are terminal but the workflow is
+          still RUNNING — attempt to finalise via try_complete/try_fail.
         """
         while not self._shutdown_event.is_set():
             try:
                 anomalies = await self._store.find_anomalies(
                     step_stuck_seconds=self._step_stuck_seconds,
                 )
+                resolved = 0
                 for entry in anomalies:
                     wf_id = entry["workflow_id"]
+                    step_name: str | None = entry.get("step_name")
                     anomaly = entry["anomaly"]
 
-                    # Don't force-release workflows this instance owns
-                    if self._is_workflow_active(wf_id):
+                    # Don't touch steps this instance is actively processing
+                    if step_name and (wf_id, step_name) in self._active:
+                        continue
+                    if not step_name and self._is_workflow_active(wf_id):
                         continue
 
-                    logger.warning(
-                        "Sweep detected anomaly=%s on workflow=%s, force-releasing lock",
-                        anomaly,
-                        wf_id,
-                    )
-                    await self._store.force_release_lock(wf_id)
-                    # Emit audit events for the anomaly
                     sweep_wf = await self._store.get(wf_id)
-                    if sweep_wf:
+                    if sweep_wf is None:
+                        continue
+
+                    if anomaly == "orphaned_workflow":
+                        # Re-validate on the fresh document: all steps must
+                        # still be terminal to avoid resolving a workflow that
+                        # has been reclaimed since the anomaly was detected.
+                        if any(
+                            s.status not in (StepStatus.COMPLETED, StepStatus.FAILED)
+                            for s in sweep_wf.steps
+                        ):
+                            continue
+
+                        if sweep_wf.has_failed_step():
+                            result = await self._store.try_fail_workflow(wf_id)
+                        else:
+                            result = await self._store.try_complete_workflow(wf_id)
+                        if result is None:
+                            continue  # concurrent resolution by another instance
+                        logger.warning(
+                            "Sweep resolved orphaned_workflow=%s",
+                            wf_id,
+                        )
                         await self._emit_event(
                             AuditEventType.SWEEP_ANOMALY, sweep_wf,
                             anomaly_type=anomaly,
                         )
-                        await self._emit_event(
-                            AuditEventType.LOCK_FORCE_RELEASED, sweep_wf,
-                            anomaly_type=anomaly, lock_released=True,
+                        resolved += 1
+                    elif step_name:
+                        # Step-level anomaly: force-release the step lock
+                        logger.warning(
+                            "Sweep detected anomaly=%s on workflow=%s step=%s, "
+                            "force-releasing step lock",
+                            anomaly, wf_id, step_name,
                         )
-                    # The fast claim loop will pick it up on its next iteration
+                        released = await self._store.force_release_step_lock(
+                            wf_id, step_name,
+                        )
+                        if released:
+                            step = sweep_wf.step_by_name(step_name)
+                            await self._emit_event(
+                                AuditEventType.SWEEP_ANOMALY, sweep_wf,
+                                step=step, anomaly_type=anomaly,
+                            )
+                            await self._emit_event(
+                                AuditEventType.LOCK_FORCE_RELEASED, sweep_wf,
+                                step=step, lock_released=True,
+                                anomaly_type=anomaly,
+                            )
+                            resolved += 1
 
-                if anomalies:
-                    logger.info("Sweep released %d anomalous workflows", len(anomalies))
+                if resolved:
+                    logger.info("Sweep resolved %d anomalies", resolved)
 
             except Exception:
                 logger.exception("Error in sweep loop")
