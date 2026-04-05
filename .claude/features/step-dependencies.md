@@ -76,7 +76,11 @@ Key architectural changes:
   - pr: #41
   - effort: ~4h
   - cost: step-dependencies.3 / ~800k tokens
-- [ ] recovery-and-sweep: Update crash recovery and sweep for per-step locks and multiple in-flight steps
+- [x] recovery-and-sweep: Update crash recovery and sweep for per-step locks and multiple in-flight steps
+  - branch: `step-dependencies/recovery-and-sweep`
+  - pr: #42
+  - effort: ~1h 30m
+  - cost: step-dependencies.4 / ~400k tokens
 - [ ] docs-and-examples: Remove `current_step_index`, update all docs/examples/commands, add parallel-steps example
 
 ### Task 1: model-and-validation
