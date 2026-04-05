@@ -36,6 +36,7 @@ class AuditEventType(str, Enum):
     WORKFLOW_FAILED = "workflow_failed"
 
     # Step lifecycle
+    STEP_CLAIMED = "step_claimed"
     STEP_SUBMITTED = "step_submitted"
     STEP_RUNNING = "step_running"
     STEP_COMPLETED = "step_completed"

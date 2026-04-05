@@ -64,7 +64,9 @@ Key architectural changes:
 - [x] model-and-validation: Add `depends_on` and step-level lock fields to Step, dependency validation on Workflow, readiness helpers
   - branch: `step-dependencies/model-and-validation`
   - pr: #38
-- [ ] store-step-claims: Rewrite store for per-step claiming, heartbeat, release, fenced writes via MongoDB array filters
+- [x] store-step-claims: Rewrite store for per-step claiming, heartbeat, release, fenced writes via MongoDB array filters
+  - branch: `step-dependencies/store-step-claims`
+  - pr: #39
 - [ ] engine-rewrite: Rewrite engine to claim/execute individual ready steps, track active steps, derive workflow completion
 - [ ] recovery-and-sweep: Update crash recovery and sweep for per-step locks and multiple in-flight steps
 - [ ] docs-and-examples: Remove `current_step_index`, update all docs/examples/commands, add parallel-steps example

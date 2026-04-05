@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -63,6 +64,11 @@ class MongoWorkflowStore:
         # pymongo uses max_time_ms (snake_case) for find/find_one but
         # maxTimeMS (camelCase) for find_one_and_update/aggregate kwargs.
         self._op_timeout = operation_timeout_ms
+        # Step name → array index cache.  Step lists are immutable after
+        # workflow creation, so entries never go stale.  Bounded via LRU
+        # eviction to prevent unbounded memory growth in long-running engines.
+        self._step_index_cache: OrderedDict[tuple[str, str], int] = OrderedDict()
+        self._step_index_cache_max = 10_000
 
     # ------------------------------------------------------------------
     # Audit helpers
@@ -78,6 +84,7 @@ class MongoWorkflowStore:
         step_status_before: str | None = None,
         workflow_status_before: str | None = None,
         fence_token_before: int | None = None,
+        fence_token_override: int | None = None,
         **kwargs: Any,
     ) -> None:
         """Construct and fire-and-forget an audit event."""
@@ -86,7 +93,7 @@ class MongoWorkflowStore:
             workflow_name=wf.name,
             event_type=event_type,
             instance_id=self._instance_id,
-            fence_token=wf.fence_token,
+            fence_token=fence_token_override if fence_token_override is not None else wf.fence_token,
             fence_token_before=fence_token_before,
             workflow_status=wf.status.value,
             workflow_status_before=workflow_status_before,
@@ -851,6 +858,10 @@ class MongoWorkflowStore:
             {"_id": workflow_id, "status": {"$in": terminal}},
         )
         if result.deleted_count > 0:
+            # Invalidate step index cache entries for this workflow.
+            keys_to_remove = [k for k in self._step_index_cache if k[0] == workflow_id]
+            for k in keys_to_remove:
+                del self._step_index_cache[k]
             logger.info("Deleted workflow=%s", workflow_id)
             return True
         return False
@@ -862,3 +873,385 @@ class MongoWorkflowStore:
             max_time_ms=self._op_timeout,
         )
         return [doc["_id"] async for doc in cursor]
+
+    # ==================================================================
+    # Per-step distributed locking (new model — step-level claims)
+    #
+    # These methods support the dependency-based execution model where
+    # individual steps (not workflows) are claimed, executed, and released.
+    # Multiple engine instances can work on different steps of the same
+    # workflow concurrently.
+    # ==================================================================
+
+    # ------------------------------------------------------------------
+    # Step index resolution
+    # ------------------------------------------------------------------
+
+    async def _step_index(self, workflow_id: str, step_name: str) -> int | None:
+        """Resolve a step name to its array index.
+
+        Step lists are immutable after workflow creation, so the result is
+        cached in-memory to avoid repeated round-trips on hot paths like
+        heartbeat.
+        """
+        key = (workflow_id, step_name)
+        if key in self._step_index_cache:
+            self._step_index_cache.move_to_end(key)
+            return self._step_index_cache[key]
+
+        doc = await self._col.find_one(
+            {"_id": workflow_id},
+            {"steps.name": 1},
+            max_time_ms=self._op_timeout,
+        )
+        if doc is None:
+            return None
+        # Prime cache for all steps in this workflow at once.
+        for i, s in enumerate(doc.get("steps", [])):
+            entry = (workflow_id, s["name"])
+            self._step_index_cache[entry] = i
+            self._step_index_cache.move_to_end(entry)
+        # Evict oldest entries if over capacity.
+        while len(self._step_index_cache) > self._step_index_cache_max:
+            self._step_index_cache.popitem(last=False)
+        return self._step_index_cache.get(key)
+
+    # ------------------------------------------------------------------
+    # Step-level fenced updates
+    # ------------------------------------------------------------------
+
+    async def _fenced_step_update_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_fence_token: int,
+        updates: dict,
+    ) -> Workflow | None:
+        """
+        Low-level: update a step's fields atomically, guarded by the step's
+        fence token. Uses explicit array index to target the step by name
+        within the embedded array.
+
+        Returns the updated Workflow or None if the fence was rejected.
+        """
+        idx = await self._step_index(workflow_id, step_name)
+        if idx is None:
+            logger.warning(
+                "Step not found for fenced write: workflow=%s step=%s",
+                workflow_id, step_name,
+            )
+            return None
+
+        prefix = f"steps.{idx}"
+        set_fields = {f"{prefix}.{k}": v for k, v in updates.items()}
+        set_fields["updated_at"] = datetime.now(UTC)
+
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                f"{prefix}.name": step_name,
+                f"{prefix}.fence_token": step_fence_token,
+            },
+            {"$set": set_fields},
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            logger.warning(
+                "Fenced step write rejected for workflow=%s step=%s fence=%s (lock stolen?)",
+                workflow_id, step_name, step_fence_token,
+            )
+            return None
+        return self._doc_to_workflow(doc)
+
+    # ------------------------------------------------------------------
+    # Per-step claiming and lock management
+    # ------------------------------------------------------------------
+
+    async def try_claim_step(
+        self,
+        workflow_id: str,
+        step_name: str,
+        instance_id: str,
+    ) -> tuple[Workflow, int] | None:
+        """
+        Atomically claim a single step for execution. The step must be
+        unlocked (or its lock expired) and the workflow must be non-terminal.
+
+        Returns (workflow, step_fence_token) on success, None on failure.
+        Increments the step's fence_token to invalidate stale writers.
+        """
+        idx = await self._step_index(workflow_id, step_name)
+        if idx is None:
+            return None
+
+        now = datetime.now(UTC)
+        expires = now + timedelta(seconds=self._lock_ttl)
+        prefix = f"steps.{idx}"
+
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                "status": {"$in": [
+                    WorkflowStatus.PENDING.value,
+                    WorkflowStatus.RUNNING.value,
+                ]},
+                f"{prefix}.name": step_name,
+                f"{prefix}.status": {"$in": [
+                    StepStatus.PENDING.value,
+                    StepStatus.BLOCKED.value,
+                ]},
+                "$or": [
+                    {f"{prefix}.locked_by": None},
+                    {f"{prefix}.lock_expires_at": {"$lt": now}},
+                ],
+            },
+            {
+                "$set": {
+                    f"{prefix}.locked_by": instance_id,
+                    f"{prefix}.lock_expires_at": expires,
+                    "status": WorkflowStatus.RUNNING.value,
+                    "updated_at": now,
+                },
+                "$inc": {f"{prefix}.fence_token": 1},
+            },
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            return None
+
+        wf = self._doc_to_workflow(doc)
+        step = wf.step_by_name(step_name)
+        if step is None:
+            return None  # should not happen
+
+        logger.info(
+            "Claimed step=%s workflow=%s instance=%s fence=%s",
+            step_name, workflow_id, instance_id, step.fence_token,
+        )
+        self._emit(
+            AuditEventType.STEP_CLAIMED, wf,
+            step=step,
+            idx=idx,
+            fence_token_override=step.fence_token,
+            fence_token_before=step.fence_token - 1,
+            locked_by=instance_id,
+        )
+        return wf, step.fence_token
+
+    async def heartbeat_step(
+        self,
+        workflow_id: str,
+        step_name: str,
+        instance_id: str,
+        step_fence_token: int,
+    ) -> bool:
+        """Extend the lock TTL on a single step. Returns False if the lock was stolen."""
+        idx = await self._step_index(workflow_id, step_name)
+        if idx is None:
+            return False
+
+        now = datetime.now(UTC)
+        expires = now + timedelta(seconds=self._lock_ttl)
+        prefix = f"steps.{idx}"
+
+        result = await self._col.update_one(
+            {
+                "_id": workflow_id,
+                f"{prefix}.name": step_name,
+                f"{prefix}.locked_by": instance_id,
+                f"{prefix}.fence_token": step_fence_token,
+            },
+            {"$set": {f"{prefix}.lock_expires_at": expires, "updated_at": now}},
+        )
+        if result.matched_count == 0:
+            logger.warning(
+                "Step heartbeat failed for workflow=%s step=%s (lock stolen?)",
+                workflow_id, step_name,
+            )
+            return False
+        return True
+
+    async def release_step_lock(
+        self,
+        workflow_id: str,
+        step_name: str,
+        instance_id: str,
+        step_fence_token: int,
+    ) -> bool:
+        """Gracefully release a step's lock."""
+        idx = await self._step_index(workflow_id, step_name)
+        if idx is None:
+            return False
+
+        prefix = f"steps.{idx}"
+        result = await self._col.update_one(
+            {
+                "_id": workflow_id,
+                f"{prefix}.name": step_name,
+                f"{prefix}.locked_by": instance_id,
+                f"{prefix}.fence_token": step_fence_token,
+            },
+            {
+                "$set": {
+                    f"{prefix}.locked_by": None,
+                    f"{prefix}.lock_expires_at": None,
+                    "updated_at": datetime.now(UTC),
+                },
+            },
+        )
+        return result.modified_count > 0
+
+    async def force_release_step_lock(
+        self,
+        workflow_id: str,
+        step_name: str,
+    ) -> bool:
+        """
+        Unconditionally release a step's lock — used by the sweep to
+        unstick steps with stale locks. Ignores fence token.
+        """
+        idx = await self._step_index(workflow_id, step_name)
+        if idx is None:
+            return False
+
+        prefix = f"steps.{idx}"
+        result = await self._col.update_one(
+            {
+                "_id": workflow_id,
+                f"{prefix}.name": step_name,
+            },
+            {
+                "$set": {
+                    f"{prefix}.locked_by": None,
+                    f"{prefix}.lock_expires_at": None,
+                    "updated_at": datetime.now(UTC),
+                },
+                "$inc": {f"{prefix}.fence_token": 1},
+            },
+        )
+        if result.modified_count > 0:
+            logger.warning(
+                "Force-released step lock on workflow=%s step=%s",
+                workflow_id, step_name,
+            )
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Per-step discovery
+    # ------------------------------------------------------------------
+
+    async def find_claimable_steps(self, limit: int = 10) -> list[tuple[str, str]]:
+        """
+        Find (workflow_id, step_name) pairs for steps that are ready to be
+        claimed:
+        - PENDING steps whose dependencies are all COMPLETED, and unlocked
+        - BLOCKED steps whose next_poll_at has passed, and unlocked
+
+        Uses a broad MongoDB query followed by Python-side readiness
+        filtering via Workflow.ready_steps() and Workflow.pollable_steps().
+        """
+        cursor = self._col.find(
+            {
+                "status": {"$in": [
+                    WorkflowStatus.PENDING.value,
+                    WorkflowStatus.RUNNING.value,
+                ]},
+                "steps": {
+                    "$elemMatch": {
+                        "status": {"$in": [
+                            StepStatus.PENDING.value,
+                            StepStatus.BLOCKED.value,
+                        ]},
+                    },
+                },
+            },
+            max_time_ms=self._op_timeout,
+        ).limit(limit * 3)  # over-fetch since Python filter narrows results
+
+        results: list[tuple[str, str]] = []
+        async for doc in cursor:
+            wf = self._doc_to_workflow(doc)
+            for step in wf.ready_steps():
+                results.append((wf.id, step.name))
+                if len(results) >= limit:
+                    return results
+            for step in wf.pollable_steps():
+                results.append((wf.id, step.name))
+                if len(results) >= limit:
+                    return results
+        return results
+
+    # ------------------------------------------------------------------
+    # Workflow status transitions (atomic)
+    # ------------------------------------------------------------------
+
+    async def try_complete_workflow(self, workflow_id: str) -> Workflow | None:
+        """
+        Atomically set workflow status to COMPLETED if all steps are COMPLETED.
+
+        Called after a step completes — checks whether that was the last step.
+        Uses a MongoDB query that only matches if no non-completed step exists.
+        Returns the updated workflow, or None if not all steps are done.
+        """
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                "status": WorkflowStatus.RUNNING.value,
+                "steps.0": {"$exists": True},  # must have at least one step
+                "steps": {
+                    "$not": {
+                        "$elemMatch": {
+                            "status": {"$ne": StepStatus.COMPLETED.value},
+                        },
+                    },
+                },
+            },
+            {"$set": {
+                "status": WorkflowStatus.COMPLETED.value,
+                "updated_at": datetime.now(UTC),
+            }},
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            return None
+        wf = self._doc_to_workflow(doc)
+        logger.info("Workflow completed: %s", workflow_id)
+        self._emit(
+            AuditEventType.WORKFLOW_COMPLETED, wf,
+            workflow_status_before=WorkflowStatus.RUNNING.value,
+        )
+        return wf
+
+    async def try_fail_workflow(self, workflow_id: str) -> Workflow | None:
+        """
+        Atomically set workflow status to FAILED. Called when a step fails.
+
+        Only matches RUNNING workflows — a step can only fail after the
+        workflow has been claimed (which transitions it to RUNNING).
+        Returns the updated workflow, or None if not RUNNING.
+        """
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                "status": WorkflowStatus.RUNNING.value,
+            },
+            {"$set": {
+                "status": WorkflowStatus.FAILED.value,
+                "updated_at": datetime.now(UTC),
+            }},
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            return None
+        wf = self._doc_to_workflow(doc)
+        logger.info("Workflow failed: %s", workflow_id)
+        self._emit(
+            AuditEventType.WORKFLOW_FAILED, wf,
+            workflow_status_before=WorkflowStatus.RUNNING.value,
+        )
+        return wf
