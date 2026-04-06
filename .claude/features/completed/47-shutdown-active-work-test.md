@@ -1,7 +1,8 @@
 ---
 name: shutdown-active-work-test
 created: 2026-04-04T17:55:58Z
-status: planned
+status: completed
+completed: 2026-04-06T00:00:00Z
 ---
 
 # Test graceful shutdown during active workflow execution
@@ -36,4 +37,6 @@ Add an integration test that:
 
 ## Tasks
 
-- [ ] add-shutdown-test: Add integration test for graceful shutdown during active workflow execution
+- [x] add-shutdown-test: Add integration test for graceful shutdown during active workflow execution
+  - branch: `shutdown-active-work-test`
+  - pr: #47
