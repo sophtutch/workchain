@@ -214,6 +214,41 @@ class TestEngineLifecycle:
         # Engine should still be stopped even after exception
         assert engine._shutdown_event.is_set()
 
+    async def test_stop_awaits_tasks_before_releasing_locks(self, store):
+        """stop() should await active tasks' cleanup before releasing locks."""
+        cleanup_ran = False
+
+        async def slow_handler(_config, _results):
+            nonlocal cleanup_ran
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                # Simulate cleanup work
+                await asyncio.sleep(0.05)
+                cleanup_ran = True
+                raise
+            return StepResult()
+
+        slow_handler._step_meta = {"handler": "tests.slow_stop", "needs_context": False}
+        _STEP_REGISTRY["tests.slow_stop"] = slow_handler
+
+        engine = WorkflowEngine(
+            store, instance_id="stop-await-test",
+            claim_interval=0.05, heartbeat_interval=10, sweep_interval=10,
+        )
+        wf = Workflow(
+            name="stop_await",
+            steps=[Step(name="s1", handler="tests.slow_stop", depends_on=[])],
+        )
+        await store.insert(wf)
+        await engine.start()
+        await asyncio.sleep(0.3)  # Let claim loop pick up the step
+
+        await engine.stop()
+
+        # The cleanup in the CancelledError handler should have run
+        assert cleanup_ran
+
 
 # ---------------------------------------------------------------------------
 # Sync workflow execution
