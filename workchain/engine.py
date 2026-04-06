@@ -168,7 +168,7 @@ class WorkflowEngine:
             workflow_name=wf.name,
             event_type=event_type,
             instance_id=self._instance_id,
-            fence_token=step_fence_token if step_fence_token is not None else wf.fence_token,
+            fence_token=step_fence_token,
             workflow_status=wf.status.value,
             step_index=idx,
             step_name=step.name if step else None,

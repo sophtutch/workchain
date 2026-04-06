@@ -18,7 +18,8 @@ def _make_sync_workflow_events() -> list[AuditEvent]:
     return [
         AuditEvent(
             workflow_id="wf1", workflow_name="test_sync",
-            event_type=AuditEventType.WORKFLOW_CLAIMED,
+            event_type=AuditEventType.STEP_CLAIMED,
+            step_index=0, step_name="greet",
             instance_id="inst_a1", fence_token=1, fence_token_before=0,
             workflow_status="running", workflow_status_before="pending",
             timestamp=_ts(0), sequence=1,
@@ -72,7 +73,8 @@ def _make_failed_workflow_events() -> list[AuditEvent]:
     return [
         AuditEvent(
             workflow_id="wf2", workflow_name="test_fail",
-            event_type=AuditEventType.WORKFLOW_CLAIMED,
+            event_type=AuditEventType.STEP_CLAIMED,
+            step_index=0, step_name="fail",
             instance_id="inst_a1", fence_token=1, fence_token_before=0,
             workflow_status="running", workflow_status_before="pending",
             timestamp=_ts(0), sequence=1,
@@ -118,7 +120,8 @@ def _make_async_workflow_events() -> list[AuditEvent]:
     return [
         AuditEvent(
             workflow_id="wf3", workflow_name="test_async",
-            event_type=AuditEventType.WORKFLOW_CLAIMED,
+            event_type=AuditEventType.STEP_CLAIMED,
+            step_index=0, step_name="deploy",
             instance_id="inst_a1", fence_token=1, fence_token_before=0,
             workflow_status="running", workflow_status_before="pending",
             timestamp=_ts(0), sequence=1,
@@ -213,7 +216,8 @@ def _make_cancelled_workflow_events() -> list[AuditEvent]:
     return [
         AuditEvent(
             workflow_id="wf_cancel", workflow_name="test_cancel",
-            event_type=AuditEventType.WORKFLOW_CLAIMED,
+            event_type=AuditEventType.STEP_CLAIMED,
+            step_index=0, step_name="setup",
             instance_id="inst_a1", fence_token=1, fence_token_before=0,
             workflow_status="running", workflow_status_before="pending",
             timestamp=_ts(0), sequence=1,
@@ -314,7 +318,8 @@ class TestGenerateAuditReport:
         events = [
             AuditEvent(
                 workflow_id="wf4", workflow_name="test_retry",
-                event_type=AuditEventType.WORKFLOW_CLAIMED,
+                event_type=AuditEventType.STEP_CLAIMED,
+                step_index=0, step_name="flaky",
                 instance_id="inst_a1", fence_token=1, fence_token_before=0,
                 workflow_status="running", workflow_status_before="pending",
                 timestamp=_ts(0), sequence=1,
@@ -381,9 +386,11 @@ class TestGenerateAuditReport:
     def test_multi_step_workflow(self):
         """A workflow with 2 steps should have 2 step sections."""
         events = [
+            # Step 0 claimed (per-step claiming)
             AuditEvent(
                 workflow_id="wf5", workflow_name="multi",
-                event_type=AuditEventType.WORKFLOW_CLAIMED,
+                event_type=AuditEventType.STEP_CLAIMED,
+                step_index=0, step_name="s1",
                 instance_id="inst_a1", fence_token=1, fence_token_before=0,
                 workflow_status="running", workflow_status_before="pending",
                 timestamp=_ts(0), sequence=1,

@@ -1,4 +1,12 @@
-"""Build the infrastructure provisioning workflow definition."""
+"""Build the infrastructure provisioning workflow definition.
+
+Dependency graph (concurrent steps marked with ||):
+    create_vpc ──┐
+                 ├──> deploy_application ──> configure_dns ──> issue_tls_cert ──> health_check
+    provision_db ┘
+         ||
+    (create_vpc and provision_database run in parallel)
+"""
 
 from __future__ import annotations
 
@@ -20,6 +28,10 @@ def build_workflow(
 ) -> Workflow:
     """Construct a 6-step infrastructure provisioning workflow.
 
+    create_vpc and provision_database are independent root steps that run
+    concurrently.  deploy_application waits for both before starting.
+    The remaining steps run sequentially.
+
     Args:
         domain: Target domain name, e.g. "app.example.com".
         image: Container image to deploy, e.g. "myorg/myapp:latest".
@@ -31,13 +43,14 @@ def build_workflow(
     return Workflow(
         name=f"infra-{domain}",
         steps=[
-            # 1. Create VPC and subnets
+            # 1. Create VPC and subnets (root -- no dependencies)
             Step(
                 name="create_vpc",
                 handler="examples.infra_provisioning.steps.create_vpc",
                 config=VpcConfig(cidr_block="10.0.0.0/16", region=region),
+                depends_on=[],  # root step — starts immediately
             ),
-            # 2. Provision database (async -- polls until available)
+            # 2. Provision database (root -- runs in parallel with create_vpc)
             Step(
                 name="provision_database",
                 handler="examples.infra_provisioning.steps.provision_database",
@@ -53,8 +66,9 @@ def build_workflow(
                     timeout=600.0,
                     max_polls=15,
                 ),
+                depends_on=[],  # root step — starts immediately
             ),
-            # 3. Deploy application (async -- polls until healthy)
+            # 3. Deploy application (waits for VPC + database)
             Step(
                 name="deploy_application",
                 handler="examples.infra_provisioning.steps.deploy_application",
@@ -69,12 +83,14 @@ def build_workflow(
                     timeout=300.0,
                     max_polls=10,
                 ),
+                depends_on=["create_vpc", "provision_database"],
             ),
             # 4. Configure DNS records
             Step(
                 name="configure_dns",
                 handler="examples.infra_provisioning.steps.configure_dns",
                 config=DnsConfig(domain=domain, record_type="A"),
+                depends_on=["deploy_application"],
             ),
             # 5. Issue TLS certificate (async -- polls until issued)
             Step(
@@ -91,6 +107,7 @@ def build_workflow(
                     timeout=900.0,
                     max_polls=20,
                 ),
+                depends_on=["configure_dns"],
             ),
             # 6. Final health check
             Step(
@@ -100,6 +117,7 @@ def build_workflow(
                     endpoint=f"https://{domain}/healthz",
                     expected_status=200,
                 ),
+                depends_on=["issue_tls_cert"],
             ),
         ],
     )

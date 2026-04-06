@@ -40,8 +40,10 @@ def build_workflow(name: str) -> Workflow:
     return Workflow(
         name="$ARGUMENTS",
         steps=[
-            Step(name="step_one", handler="examples.$ARGUMENTS.steps.step_one"),
-            # Add more steps here
+            Step(name="step_one", handler="examples.$ARGUMENTS.steps.step_one",
+                 depends_on=[]),  # root step — runs immediately
+            # Add more steps here. Use depends_on=["step_one"] for sequential,
+            # or depends_on=[] for concurrent root steps.
         ],
     )
 ```

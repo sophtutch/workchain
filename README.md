@@ -4,10 +4,10 @@ Programmatic construction and execution of persistent, multi-step workflows.
 
 ## Features
 
-- **Sequential step execution** -- steps run in order with typed configs and results
+- **Dependency-based step execution** -- steps declare dependencies via `depends_on`; independent steps run concurrently across engine instances
 - **Two step modes** -- synchronous (`@step`) and async with polling (`@async_step`)
 - **MongoDB persistence** -- workflow state survives process restarts via async motor driver
-- **Distributed safety** -- TTL-based locks with fence tokens ensure only one instance processes a workflow at a time
+- **Distributed safety** -- per-step TTL-based locks with fence tokens; multiple instances can work on different steps of the same workflow simultaneously
 - **Crash recovery** -- write-ahead logging, verify hooks, and idempotent re-run strategies
 - **Retry policies** -- per-step exponential backoff via tenacity
 - **Audit logging** -- structured event log for every state change, enough to reconstruct execution history
@@ -79,6 +79,64 @@ async with WorkflowEngine(store) as engine:  # start + auto-stop
     ...  # engine runs claim loop, heartbeat, sweep
 ```
 
+## Step Dependencies
+
+Steps declare dependencies via `depends_on`. Without explicit dependencies, steps run sequentially (each depends on the previous). With `depends_on`, independent steps can execute concurrently across engine instances.
+
+### Sequential (default)
+
+Steps without `depends_on` automatically depend on the previous step:
+
+```python
+workflow = Workflow(
+    name="pipeline",
+    steps=[
+        Step(name="extract", handler="myapp.steps.extract"),
+        Step(name="transform", handler="myapp.steps.transform"),  # depends on "extract"
+        Step(name="load", handler="myapp.steps.load"),            # depends on "transform"
+    ],
+)
+```
+
+### Concurrent (diamond pattern)
+
+Use `depends_on` to express parallelism. In this example, `create_vpc` and `provision_database` run concurrently, while `deploy_application` waits for both:
+
+```python
+workflow = Workflow(
+    name="infra",
+    steps=[
+        Step(name="create_vpc", handler="myapp.steps.create_vpc",
+             depends_on=[]),                                       # root step — runs immediately
+        Step(name="provision_database", handler="myapp.steps.provision_db",
+             depends_on=[]),                                       # root step — runs in parallel
+        Step(name="deploy_application", handler="myapp.steps.deploy",
+             depends_on=["create_vpc", "provision_database"]),     # waits for both
+        Step(name="health_check", handler="myapp.steps.health_check",
+             depends_on=["deploy_application"]),
+    ],
+)
+```
+
+### Accessing dependency results
+
+Handlers receive a `results` dict keyed by step name. Only results from completed dependencies are included:
+
+```python
+@step()
+async def deploy(config: DeployConfig, results: dict[str, StepResult]) -> DeployResult:
+    vpc = cast(VpcResult, results["create_vpc"])
+    db = cast(DatabaseResult, results["provision_database"])
+    return DeployResult(deployment_id=start_deploy(vpc.vpc_id, db.endpoint))
+```
+
+### Validation
+
+The `Workflow` model validates the dependency graph at construction time:
+- Unknown step names in `depends_on` raise `ValueError`
+- Self-references raise `ValueError`
+- Cycles (A→B→C→A) are detected via topological sort and raise `ValueError`
+
 ### 3. FastAPI integration
 
 Use the lifespan context manager to start/stop the engine with the app:
@@ -142,7 +200,7 @@ Handlers without `needs_context=True` receive only the standard arguments. The e
 
 ### Sync steps (`@step`)
 
-Execute the handler, persist the result, advance to the next step -- all within a single lock hold:
+Execute the handler, persist the result, and complete the step -- all within a single lock hold:
 
 ```python
 @step()
@@ -227,11 +285,11 @@ The engine and store accept timing parameters that control the claim-poll-releas
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `claim_interval` | `5.0s` | How often the claim loop discovers new workflows |
-| `heartbeat_interval` | `10.0s` | How often locks are renewed on active workflows |
+| `claim_interval` | `5.0s` | How often the claim loop discovers ready steps |
+| `heartbeat_interval` | `10.0s` | How often per-step locks are renewed |
 | `sweep_interval` | `60.0s` | How often the sweep detects stuck steps and stale locks |
 | `step_stuck_seconds` | `300.0s` | Threshold before a step is flagged as stuck |
-| `max_concurrent` | `5` | Maximum workflows processed concurrently per engine |
+| `max_concurrent` | `5` | Maximum steps processed concurrently per engine |
 | `lock_ttl_seconds` | `30` | Lock expiry time (set on `MongoWorkflowStore`) |
 
 ```python
@@ -283,12 +341,12 @@ app = FastAPI(lifespan=lifespan)
 
 ## Crash Recovery: verify_completion
 
-When the engine reclaims a workflow with a step stuck in SUBMITTED or RUNNING state (after a crash), it runs a recovery cascade:
+When the engine reclaims a step stuck in SUBMITTED or RUNNING state (after a crash), it runs a recovery cascade:
 
 1. **`verify_completion`** -- if set, calls the hook to check if the step actually finished before the crash. If it returns `True`, the step is marked complete without re-running.
 2. **`completeness_check`** (async steps) -- checks if the external submission went through. If so, transitions to BLOCKED for polling.
 3. **Idempotent re-run** -- if the handler is marked `idempotent=True`, re-executes it.
-4. **NEEDS_REVIEW** -- if none of the above apply, the workflow is flagged for manual intervention.
+4. **NEEDS_REVIEW** -- if none of the above apply, the step (and workflow) is flagged for manual intervention.
 
 Set `verify_completion` on a step as a dotted-path string pointing to a handler:
 
@@ -325,8 +383,8 @@ The `verify_completion` handler receives `(config, results, result)` and returns
 workchain/
 ├── models.py       -- Pydantic models: Workflow, Step, StepConfig, StepResult, enums, policies
 ├── decorators.py   -- @step / @async_step decorators + handler registry
-├── engine.py       -- WorkflowEngine: claim loop, heartbeat, sweep, execution
-├── store.py        -- MongoWorkflowStore: persistence, distributed locking
+├── engine.py       -- WorkflowEngine: per-step claim loop, heartbeat, sweep, execution
+├── store.py        -- MongoWorkflowStore: persistence, per-step distributed locking
 ├── retry.py        -- Retry utilities wrapping tenacity with RetryPolicy
 └── audit.py        -- AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ```

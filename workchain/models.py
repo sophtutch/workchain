@@ -188,8 +188,6 @@ class Workflow(BaseModel):
     name: str
     status: WorkflowStatus = WorkflowStatus.PENDING
     steps: list[Step] = Field(default_factory=list)
-    current_step_index: int = 0  # DEPRECATED: kept for backward compat during migration
-
     @model_validator(mode="after")
     def _validate_unique_step_names(self) -> Workflow:
         names = [s.name for s in self.steps]
@@ -250,13 +248,6 @@ class Workflow(BaseModel):
             raise ValueError("Dependency cycle detected among steps")
 
         return self
-
-    # Distributed locking (MongoDB-managed)
-    # DEPRECATED: workflow-level locks kept for backward compat during migration.
-    # Step-level locks (Step.locked_by, Step.fence_token) are the new model.
-    locked_by: str | None = None
-    lock_expires_at: datetime | None = None
-    fence_token: int = 0
 
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

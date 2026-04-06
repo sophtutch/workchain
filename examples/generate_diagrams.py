@@ -522,7 +522,7 @@ def _render_step_section(
               <span class="badge lock-claim">lock acquired</span>
               <span class="badge fence-badge">fence &rarr; {fence_before + 1 if step.needs_reclaim else fence_before}</span>
             </div>
-            <div class="node-desc">Sweep discovers workflow at <code>current_step_index: {idx}</code>, claims lock.</div>
+            <div class="node-desc">Sweep discovers step <code>{idx}</code> ready, claims step lock.</div>
           </div>"""))
 
     flow_nodes.append(textwrap.dedent(f"""\
@@ -651,7 +651,7 @@ def _render_step_section(
     if step.is_final:
         advance_badges += ' <span class="badge lock-release">lock released</span>'
 
-    advance_desc = f'<code>steps[{idx}].status &rarr; "completed"</code>, <code>current_step_index &rarr; {step_num}</code>.'
+    advance_desc = f'<code>steps[{idx}].status &rarr; "completed"</code>.'
     if step.is_final:
         advance_desc += ' <code>workflow.status &rarr; "completed"</code>.'
 
@@ -698,7 +698,6 @@ def _render_step_section(
             txs.append(_tx("red", "Retries", f"{n_fails} {'retry' if n_fails == 1 else 'retries'}"))
 
     txs.append(_tx("green", "Step Status", "&rarr; completed"))
-    txs.append(_tx("purple", "Step Index", f"idx &rarr; {step_num}"))
 
     if step.is_final:
         txs.append(_tx("purple", "Workflow", "&rarr; completed"))
@@ -711,7 +710,6 @@ def _render_step_section(
 
     # --- Doc panel (diff only) ---
     diff_fields: dict = {}
-    diff_fields["current_step_index"] = step_num
 
     if fence_after != fence_before:
         diff_fields["fence_token"] = fence_after
@@ -862,7 +860,7 @@ def _render_crash_recovery() -> str:
 def _render_state_transitions() -> str:
     rows = [
         ("pending", "running", "<code>try_claim()</code> &mdash; atomic findOneAndUpdate, increments fence_token"),
-        ("running", "running", "Step completes, <code>current_step_index</code> advances, next step begins"),
+        ("running", "running", "Step completes, dependent steps become ready for claiming"),
         ("running", "blocked", "Async step submitted, lock released, <code>next_poll_at</code> persisted"),
         ("blocked", "running", "<code>completeness_check</code> returns complete, lock kept, step advances"),
         ("running", "completed", "Final step result persisted, all steps done, lock released"),
