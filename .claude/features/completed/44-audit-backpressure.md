@@ -1,7 +1,8 @@
 ---
 name: audit-backpressure
 created: 2026-04-04T17:55:58Z
-status: planned
+status: completed
+completed: 2026-04-06T00:00:00Z
 ---
 
 # Add backpressure to fire-and-forget audit writes
@@ -34,4 +35,6 @@ Add a bounded semaphore to `MongoAuditLogger` that limits concurrent pending wri
 
 ## Tasks
 
-- [ ] add-audit-backpressure: Add max_pending limit to MongoAuditLogger with drop-and-warn behavior
+- [x] add-audit-backpressure: Add max_pending limit to MongoAuditLogger with drop-and-warn behavior
+  - branch: `audit-backpressure`
+  - pr: #44

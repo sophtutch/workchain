@@ -176,10 +176,17 @@ class NullAuditLogger:
 class MongoAuditLogger:
     """Writes audit events to a MongoDB collection with fire-and-forget semantics."""
 
-    def __init__(self, db: AsyncIOMotorDatabase, collection_name: str = AUDIT_COLLECTION) -> None:
+    def __init__(
+        self,
+        db: AsyncIOMotorDatabase,
+        collection_name: str = AUDIT_COLLECTION,
+        max_pending: int = 100,
+    ) -> None:
         self._col = db[collection_name]
         self._pending: set[asyncio.Task] = set()
         self._sequences: dict[str, int] = {}
+        self._max_pending = max_pending
+        self.dropped_count: int = 0
 
     async def ensure_indexes(self) -> None:
         """Create indexes for efficient queries."""
@@ -193,6 +200,17 @@ class MongoAuditLogger:
 
     async def emit(self, event: AuditEvent) -> None:
         """Record an audit event (fire-and-forget)."""
+        if len(self._pending) >= self._max_pending:
+            self.dropped_count += 1
+            logger.warning(
+                "Audit backpressure: dropping event %s for workflow %s "
+                "(%d pending, %d dropped total)",
+                event.event_type.value,
+                event.workflow_id,
+                len(self._pending),
+                self.dropped_count,
+            )
+            return
         event.sequence = self._next_sequence(event.workflow_id)
         doc = event.model_dump(mode="python", exclude_none=True)
         doc["_id"] = doc.pop("id")

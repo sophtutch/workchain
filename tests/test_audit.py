@@ -192,6 +192,50 @@ class TestMongoAuditLogger:
         assert "step_name" not in doc  # None fields excluded
         assert "error" not in doc
 
+    async def test_backpressure_drops_events(self, audit_db):
+        """Events are dropped with a warning when pending tasks reach max_pending."""
+        audit_logger = MongoAuditLogger(audit_db, max_pending=3)
+
+        # Block _safe_insert so tasks stay pending
+        blocker: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        original_safe_insert = audit_logger._safe_insert
+
+        async def slow_insert(doc: dict) -> None:
+            await blocker
+            await original_safe_insert(doc)
+
+        audit_logger._safe_insert = slow_insert  # type: ignore[assignment]
+
+        # Emit 3 events — all should be accepted (max_pending=3)
+        for _i in range(3):
+            await audit_logger.emit(AuditEvent(
+                workflow_id="wf1", workflow_name="test",
+                event_type=AuditEventType.STEP_RUNNING,
+            ))
+
+        assert len(audit_logger._pending) == 3
+        assert audit_logger.dropped_count == 0
+
+        # Emit 2 more — these should be dropped
+        for _i in range(2):
+            await audit_logger.emit(AuditEvent(
+                workflow_id="wf1", workflow_name="test",
+                event_type=AuditEventType.STEP_COMPLETED,
+            ))
+
+        assert audit_logger.dropped_count == 2
+        assert len(audit_logger._pending) == 3  # still 3, not 5
+
+        # Unblock and let tasks drain
+        blocker.set_result(None)
+        await asyncio.sleep(0.1)
+
+        assert len(audit_logger._pending) == 0
+
+        # Only the 3 accepted events should be in the database
+        events = await audit_logger.get_events("wf1")
+        assert len(events) == 3
+
 
 # ---------------------------------------------------------------------------
 # Engine integration — verify audit events are emitted
