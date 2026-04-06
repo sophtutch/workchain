@@ -261,6 +261,44 @@ class TestFindAnomalies:
         anomalies = await store.find_anomalies()
         assert len(anomalies) == 0
 
+    async def test_detects_stale_step_lock(self, store):
+        """A step with an expired lock and stale workflow updated_at is an anomaly."""
+        wf = Workflow(
+            name="stale_lock",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler="mod.func", status=StepStatus.BLOCKED,
+                    locked_by="dead_inst",
+                    lock_expires_at=datetime.now(UTC) - timedelta(seconds=60),
+                    depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        anomalies = await store.find_anomalies(step_stuck_seconds=300)
+        stale = [a for a in anomalies if a["anomaly"] == "stale_step_lock"]
+        assert any(a["workflow_id"] == wf.id and a["step_name"] == "s1" for a in stale)
+
+    async def test_detects_orphaned_workflow(self, store):
+        """A RUNNING workflow with all steps terminal is an orphaned workflow."""
+        wf = Workflow(
+            name="orphaned",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(name="s1", handler="mod.func", status=StepStatus.COMPLETED, depends_on=[]),
+                Step(name="s2", handler="mod.func", status=StepStatus.COMPLETED, depends_on=["s1"]),
+            ],
+        )
+        await store.insert(wf)
+
+        anomalies = await store.find_anomalies(step_stuck_seconds=300)
+        orphaned = [a for a in anomalies if a["anomaly"] == "orphaned_workflow"]
+        assert any(a["workflow_id"] == wf.id for a in orphaned)
+
 
 class TestFindNeedsReview:
     async def test_finds_needs_review(self, store):
@@ -533,6 +571,26 @@ class TestTryClaimStep:
         assert result2 is not None
         _, fence2 = result2
         assert fence2 == 2
+
+    async def test_concurrent_claim_same_step_only_one_wins(self, store):
+        """When two instances race to claim the same step, only one succeeds."""
+        wf = Workflow(
+            name="race",
+            steps=[Step(name="a", handler="mod.func", depends_on=[])],
+        )
+        await store.insert(wf)
+
+        result_1 = await store.try_claim_step(wf.id, "a", "inst_1")
+        result_2 = await store.try_claim_step(wf.id, "a", "inst_2")
+
+        # Exactly one should succeed
+        assert (result_1 is None) != (result_2 is None)
+
+        winner = result_1 if result_1 is not None else result_2
+        wf_after, fence = winner
+        step = wf_after.step_by_name("a")
+        assert step.locked_by in ("inst_1", "inst_2")
+        assert fence == 1
 
 
 class TestHeartbeatStep:

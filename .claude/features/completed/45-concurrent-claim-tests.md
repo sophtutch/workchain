@@ -1,7 +1,8 @@
 ---
 name: concurrent-claim-tests
 created: 2026-04-04T00:46:06Z
-status: planned
+status: completed
+completed: 2026-04-06T00:00:00Z
 ---
 
 # Concurrent claim and anomaly detection tests
@@ -32,4 +33,6 @@ Add integration tests for: concurrent try_claim where only one instance wins, fi
 
 ## Tasks
 
-- [ ] add-concurrent-claim-tests: Add integration tests for concurrent try_claim, stale-lock anomaly detection, and completed-not-advanced anomaly detection
+- [x] add-concurrent-claim-tests: Add integration tests for concurrent try_claim, stale-lock anomaly detection, and completed-not-advanced anomaly detection
+  - branch: `concurrent-claim-tests`
+  - pr: #45
