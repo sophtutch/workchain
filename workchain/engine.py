@@ -210,9 +210,21 @@ class WorkflowEngine:
         logger.info("Shutting down instance=%s ...", self._instance_id)
         self._shutdown_event.set()
 
-        # Release all step locks so peers can pick up immediately
-        for (wf_id, step_name), active in list(self._active.items()):
+        # Snapshot active steps before cancelling — _run_step's finally
+        # block pops from _active, so we need the snapshot for lock release.
+        active_snapshot = list(self._active.items())
+
+        # Cancel all active step tasks and await their cleanup
+        for (_wf_id, _step_name), active in active_snapshot:
             active.task.cancel()
+        if active_snapshot:
+            await asyncio.gather(
+                *(a.task for _, a in active_snapshot),
+                return_exceptions=True,
+            )
+
+        # Release all step locks so peers can pick up immediately
+        for (wf_id, step_name), active in active_snapshot:
             released = await self._store.release_step_lock(
                 wf_id, step_name, self._instance_id, active.fence
             )
@@ -294,6 +306,14 @@ class WorkflowEngine:
                             step_name, wf_id,
                         )
                         active.task.cancel()
+                        try:
+                            await asyncio.wait_for(
+                                asyncio.shield(active.task), timeout=5.0,
+                            )
+                        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                            pass
+                        # _run_step's finally block pops from _active;
+                        # remove here as a safety net in case it didn't.
                         self._active.pop((wf_id, step_name), None)
                 except Exception:
                     logger.exception(

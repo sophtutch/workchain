@@ -1,7 +1,8 @@
 ---
 name: heartbeat-cancel-await
 created: 2026-04-04T17:55:58Z
-status: planned
+status: completed
+completed: 2026-04-06T00:00:00Z
 ---
 
 # Await cancelled tasks in heartbeat loop
@@ -36,4 +37,6 @@ In the heartbeat loop, defer removal from `_active` — track cancelled tasks se
 
 ## Tasks
 
-- [ ] await-cancelled-tasks: Add await-with-timeout for cancelled tasks in heartbeat loop and stop()
+- [x] await-cancelled-tasks: Add await-with-timeout for cancelled tasks in heartbeat loop and stop()
+  - branch: `heartbeat-cancel-await`
+  - pr: #46
