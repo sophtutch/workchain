@@ -16,17 +16,31 @@ from mongomock_motor import AsyncMongoMockClient
 # Import steps so decorators register handlers
 from examples.ci_cd_pipeline.steps import (  # noqa: F401
     BuildResult,
+    ComplianceResult,
+    DashboardResult,
     DeployResult,
+    IntegrationTestResult,
+    LicenseAuditResult,
     LintResult,
+    NotifyResult,
     RegistryResult,
-    SmokeTestResult,
+    ReportResult,
+    SecurityScanResult,
     TestResult,
+    VulnReportResult,
     build_artifact,
+    compliance_sign_off,
     deploy_staging,
+    generate_report,
+    license_audit,
     lint_code,
+    notify_team,
     push_to_registry,
-    run_smoke_tests,
-    run_tests,
+    run_integration_tests,
+    run_unit_tests,
+    security_scan,
+    update_dashboard,
+    vulnerability_report,
 )
 from examples.ci_cd_pipeline.workflow import build_workflow
 from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
@@ -57,9 +71,7 @@ async def main() -> None:
     logger.info("=" * 60)
 
     # --- Run the engine until the workflow completes ---
-    # Context dict makes db and store available to step handlers
     async with WorkflowEngine(store, claim_interval=0.5, sweep_interval=1.0, context={"db": db, "store": store}) as engine:
-        # Poll until the workflow reaches a terminal state
         for _ in range(120):  # up to 60 seconds
             await asyncio.sleep(0.5)
             wf = await store.get(workflow_id)
@@ -91,21 +103,42 @@ async def main() -> None:
         if s.name == "lint_code":
             r = cast(LintResult, s.result)
             logger.info("      files_checked=%d, warnings=%d", r.files_checked, r.warnings)
-        elif s.name == "run_tests":
+        elif s.name == "run_unit_tests":
             r = cast(TestResult, s.result)
             logger.info("      passed=%d, failed=%d, coverage=%s%%", r.tests_passed, r.tests_failed, r.coverage)
+        elif s.name == "security_scan":
+            r = cast(SecurityScanResult, s.result)
+            logger.info("      scan_id=%s, vulns=%d", r.scan_id, r.vulnerabilities_found)
+        elif s.name == "run_integration_tests":
+            r = cast(IntegrationTestResult, s.result)
+            logger.info("      passed=%d, migrations=%d", r.tests_passed, r.db_migrations_applied)
+        elif s.name == "license_audit":
+            r = cast(LicenseAuditResult, s.result)
+            logger.info("      packages=%d, violations=%d, approved=%s", r.packages_scanned, r.violations, r.approved)
+        elif s.name == "vulnerability_report":
+            r = cast(VulnReportResult, s.result)
+            logger.info("      report_url=%s, cves=%d", r.report_url, r.cve_count)
         elif s.name == "build_artifact":
             r = cast(BuildResult, s.result)
             logger.info("      build_id=%s, artifact_url=%s", r.build_id, r.artifact_url)
         elif s.name == "push_to_registry":
             r = cast(RegistryResult, s.result)
             logger.info("      image_tag=%s, registry_url=%s", r.image_tag, r.registry_url)
+        elif s.name == "compliance_sign_off":
+            r = cast(ComplianceResult, s.result)
+            logger.info("      approved=%s, sign_off_id=%s", r.approved, r.sign_off_id)
         elif s.name == "deploy_staging":
             r = cast(DeployResult, s.result)
             logger.info("      deployment_id=%s, environment=%s", r.deployment_id, r.environment)
-        elif s.name == "run_smoke_tests":
-            r = cast(SmokeTestResult, s.result)
-            logger.info("      all_passed=%s, checks_run=%d", r.all_passed, r.checks_run)
+        elif s.name == "generate_report":
+            r = cast(ReportResult, s.result)
+            logger.info("      report_url=%s, sections=%d", r.report_url, r.sections)
+        elif s.name == "notify_team":
+            r = cast(NotifyResult, s.result)
+            logger.info("      message_id=%s, channel=%s", r.message_id, r.channel)
+        elif s.name == "update_dashboard":
+            r = cast(DashboardResult, s.result)
+            logger.info("      metrics=%d, dashboard_url=%s", r.metrics_pushed, r.dashboard_url)
 
         if s.result.error:
             logger.info("      error: %s", s.result.error)

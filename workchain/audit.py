@@ -105,6 +105,7 @@ class AuditEvent(BaseModel):
     step_status_before: str | None = None
     is_async: bool | None = None
     idempotent: bool | None = None
+    step_depends_on: list[str] | None = None
 
     # Retry
     attempt: int | None = None
@@ -146,6 +147,10 @@ class AuditEvent(BaseModel):
 class AuditLogger(Protocol):
     """Protocol for audit log backends."""
 
+    def assign_sequence(self, event: AuditEvent) -> None:
+        """Assign a causal sequence number to the event (synchronous, call before scheduling)."""
+        ...
+
     async def emit(self, event: AuditEvent) -> None:
         """Record an audit event."""
         ...
@@ -161,6 +166,9 @@ class AuditLogger(Protocol):
 
 class NullAuditLogger:
     """No-op audit logger for tests and environments that don't need auditing."""
+
+    def assign_sequence(self, _event: AuditEvent) -> None:
+        pass
 
     async def emit(self, _event: AuditEvent) -> None:
         pass
@@ -198,6 +206,10 @@ class MongoAuditLogger:
         self._sequences[workflow_id] = seq
         return seq
 
+    def assign_sequence(self, event: AuditEvent) -> None:
+        """Eagerly assign sequence so causal order is locked in before fire-and-forget."""
+        event.sequence = self._next_sequence(event.workflow_id)
+
     async def emit(self, event: AuditEvent) -> None:
         """Record an audit event (fire-and-forget)."""
         if len(self._pending) >= self._max_pending:
@@ -211,7 +223,8 @@ class MongoAuditLogger:
                 self.dropped_count,
             )
             return
-        event.sequence = self._next_sequence(event.workflow_id)
+        if event.sequence == 0:
+            event.sequence = self._next_sequence(event.workflow_id)
         doc = event.model_dump(mode="python", exclude_none=True)
         doc["_id"] = doc.pop("id")
         task = asyncio.create_task(self._safe_insert(doc))

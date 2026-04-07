@@ -64,25 +64,31 @@ CSS = """\
 
   /* step section: 3-column grid */
   .step-section {
-    display: grid; grid-template-columns: 1fr 140px 360px; gap: 20px;
-    align-items: stretch; padding: 20px 0; border-top: 1px solid #1f2937;
+    display: grid; grid-template-columns: 1fr 260px minmax(360px, 1fr); gap: 20px;
+    align-items: stretch; padding: 20px; border-radius: 10px;
+    margin-bottom: 12px;
+    border: 1px solid #1f2937;
   }
-  .step-section:first-child { border-top: none; }
+  .step-section.sync-step { border-color: #6366f1; }
+  .step-section.async-step { border-color: #f59e0b; }
+  .step-section.discovery { border-color: #34d399; }
   .step-section > .step-flow-panel { height: 100%; box-sizing: border-box; }
   .step-doc { display: flex; flex-direction: column; }
-  .step-doc .panel { flex: 1; margin-bottom: 0; }
+  .step-doc .panel { flex: 1; margin-bottom: 0; display: flex; flex-direction: column; }
+  .step-doc .panel .mongo-doc { flex: 1; }
 
   /* transition column */
   .step-transitions { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
   .tx-block {
     border-left: 3px solid; border-radius: 4px; padding: 5px 8px;
-    flex: 1; display: flex; flex-direction: column; justify-content: center;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    flex: 1 1 0;
   }
   .tx-label {
     font-size: 11px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.04em; opacity: 0.6; margin-bottom: 2px;
+    letter-spacing: 0.04em; opacity: 0.6; white-space: nowrap; flex-shrink: 0;
   }
-  .tx-value { font-size: 13px; font-family: monospace; line-height: 1.3; }
+  .tx-value { font-size: 13px; font-family: monospace; line-height: 1.3; white-space: nowrap; text-align: right; }
   .tx-green  { border-color: #34d399; background: rgba(52,211,153,0.07); color: #34d399; }
   .tx-indigo { border-color: #a5b4fc; background: rgba(165,180,252,0.07); color: #a5b4fc; }
   .tx-amber  { border-color: #fbbf24; background: rgba(251,191,36,0.07); color: #fbbf24; }
@@ -91,7 +97,14 @@ CSS = """\
   .tx-purple { border-color: #c084fc; background: rgba(192,132,252,0.07); color: #c084fc; }
 
   /* full-width section */
-  .full-section { padding: 20px 0; border-top: 1px solid #1f2937; }
+  .full-section {
+    padding: 20px; border-radius: 10px; margin-bottom: 12px;
+    border: 1px solid #1f2937;
+  }
+  .full-section.discovery { border-color: #34d399; }
+  .full-section.completion { border-color: #34d399; }
+  .full-section.failed-wf { border-color: #f87171; }
+  .full-section.cancelled-wf { border-color: #9ca3af; }
 
   /* section label */
   .section-label {
@@ -207,6 +220,128 @@ CSS = """\
   .s-completed { background: rgba(52,211,153,0.1);   color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
   .s-review    { background: rgba(251,191,36,0.1);   color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
   .s-cancelled { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }
+
+  /* dependency graph */
+  .dep-graph {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 1.25rem; margin-bottom: 1.5rem;
+  }
+  .dep-graph .section-label { margin-bottom: 16px; }
+  .dep-flow {
+    display: flex; align-items: center; justify-content: flex-start; overflow-x: auto;
+    padding: 1.5rem 1rem 0.5rem; gap: 0;
+  }
+  .dep-tier {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    position: relative; flex-shrink: 0; padding: 4px 0;
+  }
+  .dep-node {
+    background: #1e1b4b; border: 1px solid #312e81; border-radius: 8px;
+    padding: 0.4em 0.8em 0.4em 2.8em; font-size: 0.85rem; font-weight: 600;
+    color: #c4b5fd; white-space: nowrap; text-align: right;
+    overflow: hidden; text-overflow: ellipsis;
+    width: 130px; min-width: 130px; max-width: 130px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    position: relative; z-index: 1;
+  }
+  .dep-node:not(.terminal) { cursor: pointer; }
+  .dep-node:not(.terminal):hover { border-color: #6366f1; background: #1e1b4bcc; }
+  .dep-node.terminal {
+    background: #111827; border: 2px solid #4b5563; border-radius: 20px;
+    color: #9ca3af; font-weight: 700; padding: 0.4em 0.8em;
+    width: auto; min-width: 80px; max-width: none; text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .dep-node.terminal.start-ok { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.08); }
+  .dep-node.terminal.start-bad { border-color: #f87171; color: #f87171; background: rgba(248,113,113,0.08); }
+  .dep-node.terminal.end-completed { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.08); }
+  .dep-node.terminal.end-failed { border-color: #f87171; color: #f87171; background: rgba(248,113,113,0.08); }
+  .dep-node.terminal.end-cancelled { border-color: #9ca3af; color: #9ca3af; background: rgba(156,163,175,0.08); }
+  .dep-node.terminal.end-review { border-color: #fb923c; color: #fb923c; background: rgba(251,146,60,0.08); }
+  /* connector: horizontal line between tiers */
+  .dep-connector {
+    width: 36px; height: 2px; background: #374151; flex-shrink: 0;
+    position: relative;
+  }
+  .dep-connector::after {
+    content: ''; position: absolute; right: -3px; top: -4px;
+    border: 5px solid transparent; border-left: 6px solid #374151;
+  }
+  /* yellow border around concurrent tiers */
+  .dep-tier.concurrent {
+    border: 2px solid #fbbf24; border-radius: 10px;
+    padding: 12px 10px;
+  }
+  /* lane groups: parallel chains rendered as horizontal rows */
+  .dep-lane-group {
+    border: 2px solid #fbbf24; border-radius: 10px;
+    padding: 12px 10px; display: flex; flex-direction: column;
+    gap: 10px; flex-shrink: 0;
+  }
+  .dep-lane {
+    display: grid; grid-template-columns: var(--lane-cols);
+    align-items: center;
+    border: 1px solid #fbbf2466; border-radius: 8px; padding: 10px 8px;
+  }
+  .dep-lane-fork {
+    display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+    border: 1px solid #fbbf2466; border-radius: 8px; padding: 6px;
+    box-sizing: border-box;
+  }
+  .dep-lane-fork .dep-node {
+    width: auto; min-width: 0; max-width: none;
+    box-sizing: border-box;
+  }
+  .dep-num {
+    position: absolute; left: 0.5em; top: 0.4em;
+    background: rgba(165,180,252,0.15); color: #a5b4fc;
+    font-size: inherit; font-weight: 700; border-radius: 4px; padding: 0 0.2em;
+  }
+  /* state indicators on dependency graph nodes */
+  .dep-state {
+    font-size: 0.65rem; font-weight: 500; margin-top: 3px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: 0.3px;
+  }
+  .state-completed .dep-state { color: #34d399; }
+  .state-failed .dep-state { color: #f87171; }
+  .state-blocked .dep-state { color: #fbbf24; }
+  .state-running .dep-state { color: #60a5fa; }
+  .state-pending .dep-state { color: #6b7280; }
+  .state-needs-review .dep-state { color: #fb923c; }
+
+  /* step dependency info */
+  .dep-info {
+    font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem;
+    display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  }
+  .dep-info code {
+    background: #1e1b4b; padding: 0.1em 0.4em; border-radius: 3px;
+    color: #a5b4fc; font-size: 0.85em;
+  }
+  .dep-info .root-tag {
+    background: rgba(52,211,153,0.12); color: #34d399; padding: 0.15em 0.5em;
+    border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+  }
+
+  /* parallel group wrapper */
+  .parallel-group {
+    border: 2px solid #fbbf24; border-radius: 12px;
+    padding: 16px 20px; margin: 20px 0;
+  }
+  .parallel-group-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; color: #fbbf24; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .parallel-group-label::after {
+    content: ''; flex: 1; height: 1px; background: #fbbf2444;
+  }
+  .parallel-lane {
+    border: 1px solid #374151; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 10px;
+  }
+  .parallel-lane:last-child { margin-bottom: 0; }
 
   /* fade-in */
   @keyframes fadeIn {
@@ -339,6 +474,288 @@ def _group_events(
 
 
 # ---------------------------------------------------------------------------
+# Dependency helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_dep_info(
+    step_groups: dict[int, list[AuditEvent]],
+) -> dict[str, list[str]]:
+    """Build step_name -> depends_on mapping from audit events."""
+    deps: dict[str, list[str]] = {}
+    for idx in sorted(step_groups.keys()):
+        for e in step_groups[idx]:
+            if e.step_name and e.step_depends_on is not None:
+                deps[e.step_name] = e.step_depends_on
+                break
+    return deps
+
+
+def _compute_tiers(
+    step_groups: dict[int, list[AuditEvent]],
+    dep_map: dict[str, list[str]],
+) -> list[list[tuple[int, str]]]:
+    """Compute concurrency tiers — groups of (idx, name) that can run in parallel.
+
+    Returns a list of tiers, each tier is a list of (step_index, step_name) pairs.
+    """
+    if not dep_map:
+        # No dependency info — return sequential tiers
+        result = []
+        for idx in sorted(step_groups.keys()):
+            name = (step_groups[idx][0].step_name or f"step_{idx}") if step_groups[idx] else f"step_{idx}"
+            result.append([(idx, name)])
+        return result
+
+    # Map step names to indices
+    name_to_idx: dict[str, int] = {}
+    for idx in sorted(step_groups.keys()):
+        if step_groups[idx]:
+            name = step_groups[idx][0].step_name or f"step_{idx}"
+            name_to_idx[name] = idx
+
+    # Compute depth of each step in the DAG
+    depths: dict[str, int] = {}
+
+    def _depth(name: str) -> int:
+        if name in depths:
+            return depths[name]
+        parents = dep_map.get(name, [])
+        if not parents:
+            depths[name] = 0
+        else:
+            depths[name] = max(_depth(p) for p in parents if p in dep_map) + 1
+        return depths[name]
+
+    for name in dep_map:
+        _depth(name)
+
+    # Also include steps not in dep_map (no dependency info) at sequential depths
+    all_names = [
+        (step_groups[idx][0].step_name or f"step_{idx}")
+        for idx in sorted(step_groups.keys())
+        if step_groups[idx]
+    ]
+    max_depth = max(depths.values()) if depths else -1
+    for name in all_names:
+        if name not in depths:
+            max_depth += 1
+            depths[name] = max_depth
+
+    # Group by depth
+    tier_map: dict[int, list[tuple[int, str]]] = {}
+    for name, depth in depths.items():
+        idx = name_to_idx.get(name)
+        if idx is not None:
+            tier_map.setdefault(depth, []).append((idx, name))
+
+    # Sort tiers by depth, and within each tier by step index
+    return [sorted(tier_map[d]) for d in sorted(tier_map.keys())]
+
+
+def _compute_lane_groups(
+    dep_map: dict[str, list[str]],
+    tiers: list[list[tuple[int, str]]],
+) -> list[tuple[str, list]]:
+    """Detect consecutive parallel tiers that form independent lanes.
+
+    Lanes support nested parallelism: a single lane can contain sub-tiers
+    with multiple items (fan-out within a lane).  The extension stops when
+    any step in the next tier depends on steps in *multiple* lanes.
+
+    Returns a list of:
+        ("single", [(idx, name)])                          — single-step tier
+        ("parallel", [(idx, name), ...])                   — parallel tier not forming lanes
+        ("lanes", [[sub_tier, ...], ...])                  — lane groups with sub-tiers
+            where each sub_tier is [(idx, name), ...]
+    """
+    result: list[tuple[str, list]] = []
+    i = 0
+    while i < len(tiers):
+        tier = tiers[i]
+        if len(tier) == 1:
+            result.append(("single", tier))
+            i += 1
+            continue
+
+        # Each lane is a list of sub-tiers; first sub-tier has one item.
+        lanes: list[list[list[tuple[int, str]]]] = [[[item]] for item in tier]
+        step_to_lane: dict[str, int] = {item[1]: li for li, item in enumerate(tier)}
+
+        j = i + 1
+        while j < len(tiers):
+            next_tier = tiers[j]
+            # Map each step to exactly one lane via its dependencies.
+            tier_assignments: dict[int, list[tuple[int, str]]] = {}
+            valid = True
+            for item in next_tier:
+                _idx, name = item
+                deps = dep_map.get(name, [])
+                dep_lanes = {step_to_lane[d] for d in deps if d in step_to_lane}
+                if len(dep_lanes) != 1:
+                    valid = False
+                    break
+                lane_idx = dep_lanes.pop()
+                tier_assignments.setdefault(lane_idx, []).append(item)
+
+            if not valid:
+                break
+
+            # Extend each lane with its new sub-tier.
+            for lane_idx, items in tier_assignments.items():
+                lanes[lane_idx].append(items)
+                for _idx, name in items:
+                    step_to_lane[name] = lane_idx
+            j += 1
+
+        if j > i + 1:
+            result.append(("lanes", lanes))
+            i = j
+        else:
+            result.append(("parallel", tier))
+            i += 1
+
+    return result
+
+
+def _compute_step_states(
+    step_groups: dict[int, list[AuditEvent]],
+) -> dict[str, str]:
+    """Determine the final state of each step from audit events."""
+    states: dict[str, str] = {}
+    for _idx, events in step_groups.items():
+        name = events[0].step_name if events else None
+        if not name:
+            continue
+        state = "pending"
+        for e in events:
+            if e.event_type == AuditEventType.STEP_COMPLETED:
+                state = "completed"
+            elif e.event_type == AuditEventType.STEP_FAILED:
+                state = "failed"
+            elif e.event_type == AuditEventType.RECOVERY_NEEDS_REVIEW:
+                state = "needs-review"
+            elif e.event_type == AuditEventType.STEP_BLOCKED and state == "pending":
+                state = "blocked"
+            elif e.event_type == AuditEventType.STEP_RUNNING and state == "pending":
+                state = "running"
+        states[name] = state
+    return states
+
+
+def _dep_node(cls: str, name: str, state: str, step_num: int | None = None) -> str:
+    """Render a single dependency graph node with state indicator."""
+    state_cls = f" state-{state}"
+    label = "needs review" if state == "needs-review" else state
+    num_html = f'<span class="dep-num">{step_num}</span> ' if step_num is not None else ""
+    anchor = f' onclick="document.getElementById(\'step-{_esc(name)}\')?.scrollIntoView({{behavior:\'smooth\',block:\'center\'}})"'
+    return (
+        f'<div class="{cls}{state_cls}"{anchor}>{num_html}{_esc(name)}'
+        f'<div class="dep-state">&rarr; {label}</div></div>\n'
+    )
+
+
+def _render_dependency_graph(
+    dep_map: dict[str, list[str]],
+    tiers: list[list[tuple[int, str]]],
+    step_states: dict[str, str] | None = None,
+    wf_state: str = "pending",
+) -> str:
+    """Render a visual dependency graph as a horizontal flow diagram."""
+    if not tiers:
+        return ""
+
+    states = step_states or {}
+    groups = _compute_lane_groups(dep_map, tiers)
+    parts = ['<div class="dep-graph">\n  <div class="section-label">Dependency Graph</div>\n']
+    parts.append('  <div class="dep-flow">\n')
+
+    # Start node — green if any step progressed, red if workflow failed without progress
+    any_progress = any(s != "pending" for s in states.values())
+    start_cls = " start-ok" if any_progress else (" start-bad" if wf_state in ("failed", "cancelled") else "")
+    parts.append('    <div class="dep-tier">\n')
+    parts.append(f'      <div class="dep-node terminal{start_cls}">START</div>\n')
+    parts.append("    </div>\n")
+
+    for group_type, group_data in groups:
+        parts.append('    <div class="dep-connector"></div>\n')
+
+        if group_type == "single":
+            idx, name = group_data[0]
+            parts.append('    <div class="dep-tier">\n      ')
+            parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+            parts.append("    </div>\n")
+
+        elif group_type == "parallel":
+            parts.append('    <div class="dep-tier concurrent">\n')
+            for idx, name in group_data:
+                parts.append("      ")
+                parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+            parts.append("    </div>\n")
+
+        elif group_type == "lanes":
+            max_depth = max(len(lane) for lane in group_data)
+            cols = " ".join(["130px 36px"] * (max_depth - 1) + ["130px"])
+            parts.append(f'    <div class="dep-lane-group" style="--lane-cols: {cols}">\n')
+            for lane in group_data:
+                parts.append('      <div class="dep-lane">\n')
+                for k, sub_tier in enumerate(lane):
+                    if k > 0:
+                        parts.append('        <div class="dep-connector"></div>\n')
+                    if len(sub_tier) == 1:
+                        idx, name = sub_tier[0]
+                        parts.append("        ")
+                        parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+                    else:
+                        parts.append('        <div class="dep-lane-fork">\n')
+                        for idx, name in sub_tier:
+                            parts.append("          ")
+                            parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+                        parts.append("        </div>\n")
+                parts.append("      </div>\n")
+            parts.append("    </div>\n")
+
+    # End node — styled to reflect workflow outcome
+    end_cls_map = {
+        "completed": "end-completed",
+        "failed": "end-failed",
+        "cancelled": "end-cancelled",
+        "needs_review": "end-review",
+    }
+    end_cls = end_cls_map.get(wf_state, "")
+    end_extra = f" {end_cls}" if end_cls else ""
+    parts.append('    <div class="dep-connector"></div>\n')
+    parts.append('    <div class="dep-tier">\n')
+    parts.append(f'      <div class="dep-node terminal{end_extra}">END</div>\n')
+    parts.append("    </div>\n")
+
+    parts.append("  </div>\n</div>\n")
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Workflow state helper
+# ---------------------------------------------------------------------------
+
+_WF_TERMINAL_EVENTS = {
+    AuditEventType.WORKFLOW_COMPLETED: "completed",
+    AuditEventType.WORKFLOW_FAILED: "failed",
+    AuditEventType.WORKFLOW_CANCELLED: "cancelled",
+}
+
+
+def _workflow_final_state(wf_events: list[AuditEvent]) -> str:
+    """Determine the final workflow state from workflow-level events."""
+    for e in reversed(wf_events):
+        state = _WF_TERMINAL_EVENTS.get(e.event_type)
+        if state:
+            return state
+        if e.event_type == AuditEventType.RECOVERY_NEEDS_REVIEW:
+            return "needs_review"
+    return "pending"
+
+
+# ---------------------------------------------------------------------------
 # Section renderers
 # ---------------------------------------------------------------------------
 
@@ -357,26 +774,9 @@ def _render_summary(events: list[AuditEvent], wf_name: str) -> str:
     if not events:
         return ""
 
-    # Determine final status
-    final_status = "unknown"
-    status_cls = "neutral"
-    for e in reversed(events):
-        if e.event_type == AuditEventType.WORKFLOW_COMPLETED:
-            final_status = "completed"
-            status_cls = "completed"
-            break
-        if e.event_type == AuditEventType.WORKFLOW_FAILED:
-            final_status = "failed"
-            status_cls = "failed"
-            break
-        if e.event_type == AuditEventType.RECOVERY_NEEDS_REVIEW:
-            final_status = "needs_review"
-            status_cls = "review"
-            break
-        if e.event_type == AuditEventType.WORKFLOW_CANCELLED:
-            final_status = "cancelled"
-            status_cls = "neutral"
-            break
+    final_status = _workflow_final_state(events)
+    status_cls_map = {"completed": "completed", "failed": "failed", "needs_review": "review"}
+    status_cls = status_cls_map.get(final_status, "neutral")
 
     # Collect stats
     instances = sorted({e.instance_id for e in events if e.instance_id})
@@ -416,7 +816,7 @@ def _render_discovery(
     step_label = claim.step_name or f"step_{claim.step_index}"
     flow = (
         '      <div class="step-flow-panel">\n'
-        '        <div class="section-label">Discovery</div>\n'
+        '        <div class="section-label">Start</div>\n'
         '        <div class="flow-timeline">\n'
         '          <div class="step-node theme-engine">\n'
         '            <div class="node-header">\n'
@@ -447,13 +847,12 @@ def _render_discovery(
         '      <div class="step-doc">\n'
         '        <div class="panel">\n'
         '          <div class="panel-title">Start Workflow</div>\n'
-        '          <div class="doc-label">workflows collection</div>\n'
         f'          <div class="mongo-doc">{_mongo_doc(doc_fields)}</div>\n'
         "        </div>\n"
         "      </div>\n"
     )
 
-    return f'    <div class="step-section">\n{flow}{tx_col}{doc}    </div>\n'
+    return f'    <div class="step-section discovery">\n{flow}{tx_col}{doc}    </div>\n'
 
 
 def _render_step_section(
@@ -469,18 +868,39 @@ def _render_step_section(
     is_async = any(e.is_async for e in step_events)
     step_num = idx + 1
 
-    # Classify events
-    submitted = [e for e in step_events if e.event_type == AuditEventType.STEP_SUBMITTED]
-    running = [e for e in step_events if e.event_type == AuditEventType.STEP_RUNNING]
-    completed = [e for e in step_events if e.event_type == AuditEventType.STEP_COMPLETED]
-    failed = [e for e in step_events if e.event_type == AuditEventType.STEP_FAILED]
-    blocked = [e for e in step_events if e.event_type == AuditEventType.STEP_BLOCKED]
-    polls = [e for e in step_events if e.event_type == AuditEventType.POLL_CHECKED]
-    poll_timeout = [e for e in step_events if e.event_type == AuditEventType.POLL_TIMEOUT]
-    poll_max = [e for e in step_events if e.event_type == AuditEventType.POLL_MAX_EXCEEDED]
-    lock_released = [e for e in step_events if e.event_type == AuditEventType.LOCK_RELEASED]
-    recovery = [e for e in step_events if e.event_type.value.startswith("recovery_")]
-    advanced = [e for e in step_events if e.event_type == AuditEventType.STEP_ADVANCED]
+    # Classify events (single pass)
+    by_type: dict[AuditEventType, list[AuditEvent]] = {}
+    recovery: list[AuditEvent] = []
+    for e in step_events:
+        if e.event_type.value.startswith("recovery_"):
+            recovery.append(e)
+        by_type.setdefault(e.event_type, []).append(e)
+    submitted = by_type.get(AuditEventType.STEP_SUBMITTED, [])
+    running = by_type.get(AuditEventType.STEP_RUNNING, [])
+    completed = by_type.get(AuditEventType.STEP_COMPLETED, [])
+    failed = by_type.get(AuditEventType.STEP_FAILED, [])
+    blocked = by_type.get(AuditEventType.STEP_BLOCKED, [])
+    polls = by_type.get(AuditEventType.POLL_CHECKED, [])
+    poll_timeout = by_type.get(AuditEventType.POLL_TIMEOUT, [])
+    poll_max = by_type.get(AuditEventType.POLL_MAX_EXCEEDED, [])
+    poll_check_errors = by_type.get(AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, [])
+    lock_released = by_type.get(AuditEventType.LOCK_RELEASED, [])
+    advanced = by_type.get(AuditEventType.STEP_ADVANCED, [])
+
+    # --- Dependency info ---
+    step_deps: list[str] | None = None
+    for e in step_events:
+        if e.step_depends_on is not None:
+            step_deps = e.step_depends_on
+            break
+
+    dep_html = ""
+    if step_deps is not None:
+        if len(step_deps) == 0:
+            dep_html = '<div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>\n'
+        else:
+            dep_names = ", ".join(f"<code>{_esc(d)}</code>" for d in step_deps)
+            dep_html = f'<div class="dep-info">Depends on: {dep_names}</div>\n'
 
     # --- Flow panel ---
     mode = "async" if is_async else "sync"
@@ -605,6 +1025,7 @@ def _render_step_section(
     # Poll timeout / max exceeded
     nodes += [_fail_node("Poll Timeout", pt.error or "Poll timeout") for pt in poll_timeout]
     nodes += [_fail_node("Max Polls Exceeded", pm.error or "Max polls exceeded") for pm in poll_max]
+    nodes += [_fail_node("Check Errors Exceeded", pce.error or "Check errors exceeded") for pce in poll_check_errors]
 
     # Completion or failure
     if completed:
@@ -638,20 +1059,20 @@ def _render_step_section(
     flow_panel = (
         f'      <div class="step-flow-panel">\n'
         f'        <div class="section-label">{label}</div>\n'
-        f'        <div class="flow-timeline">\n'
+        + (f"        {dep_html}" if dep_html else "")
+        + '        <div class="flow-timeline">\n'
         + "".join(nodes)
         + "        </div>\n      </div>\n"
     )
 
     # --- Transition column ---
+    # Show the chronological claim-execute-release lifecycle phases.
     txs = []
-
-    # Lock claimed (per-step claim events)
     claim_events = [e for e in step_events if e.event_type == AuditEventType.STEP_CLAIMED]
-    n_claims = len(claim_events)
+
+    # Phase 1: Initial claim → submit → handler → block/complete
     if claim_events:
-        txs.append(_tx("green", "Locks", f"{n_claims} {'claim' if n_claims == 1 else 'claims'}"))
-        txs.append(_tx("indigo", "Fence Token", f"fence_token &rarr; {claim_events[0].fence_token}"))
+        txs.append(_tx("green", "Lock", f"claim (fence &rarr; {claim_events[0].fence_token})"))
 
     if submitted:
         txs.append(_tx("indigo", "Step Status", "&rarr; submitted"))
@@ -667,27 +1088,37 @@ def _render_step_section(
 
     if blocked:
         txs.append(_tx("amber", "Step Status", "&rarr; blocked"))
+        txs.append(_tx("red", "Lock", "released"))
 
-    # Count all lock releases for this step
-    n_releases = len(lock_released)
-    if blocked:
-        n_releases += 1  # the BLOCKED event itself implies a release
+    # Phase 2: Poll cycles — each is a claim → poll → release
+    for pi, p_evt in enumerate(polls):
+        is_last = pi == len(polls) - 1
+        is_done = is_last and bool(completed)
+        fence = p_evt.fence_token or (claim_events[0].fence_token or 0) + pi + 1
+        pct = f"{p_evt.poll_progress:.0%}" if p_evt.poll_progress is not None else "?"
+        txs.append(_tx("green", "Lock", f"claim (fence &rarr; {fence})"))
+        txs.append(_tx("amber", f"Poll {p_evt.poll_count or pi + 1}", f"check &rarr; {pct}"))
+        if not is_done:
+            txs.append(_tx("red", "Lock", "released"))
 
-    if polls:
-        txs.append(_tx("amber", "Polls", f"{len(polls)} polls"))
-        if len(polls) > 1:
-            txs.append(_tx("indigo", "Fence Token", f"fence_token +{len(polls)}"))
+    # Phase 2b: Poll failure diagnostics
+    for pt in poll_timeout:
+        txs.append(_tx("red", "Poll", "timeout"))
+    for pm in poll_max:
+        txs.append(_tx("red", "Poll", "max exceeded"))
+    for pce in poll_check_errors:
+        txs.append(_tx("red", "Poll", "check errors exceeded"))
 
+    # Phase 3: Terminal state
     if completed:
         txs.append(_tx("green", "Step Status", "&rarr; completed"))
+        txs.append(_tx("red", "Lock", "released"))
     elif failed:
         txs.append(_tx("red", "Step Status", "&rarr; failed"))
+        txs.append(_tx("red", "Lock", "released"))
 
     if advanced:
         txs.append(_tx("purple", "Step Index", f"idx &rarr; {step_num}"))
-
-    if n_releases > 0:
-        txs.append(_tx("red", "Locks", f"{n_releases} released"))
 
     tx_col = f'      <div class="step-transitions">\n{"".join(txs)}      </div>\n'
 
@@ -714,13 +1145,13 @@ def _render_step_section(
         '      <div class="step-doc">\n'
         '        <div class="panel">\n'
         f'          <div class="panel-title">After Step {step_num} &mdash; {_esc(step_name)}</div>\n'
-        f'          <div class="doc-label">changes</div>\n'
         f'          <div class="mongo-doc">{_mongo_doc(doc_fields)}</div>\n'
         "        </div>\n"
         "      </div>\n"
     )
 
-    return f'    <div class="step-section">\n{flow_panel}{tx_col}{doc}    </div>\n'
+    step_cls = "step-section async-step" if is_async else "step-section sync-step"
+    return f'    <div class="{step_cls}" id="step-{_esc(step_name)}">\n{flow_panel}{tx_col}{doc}    </div>\n'
 
 
 def _render_completion(wf_events: list[AuditEvent]) -> str:
@@ -738,13 +1169,13 @@ def _render_completion(wf_events: list[AuditEvent]) -> str:
             if completed.fence_token else ""
         )
         return (
-            '<div class="full-section">\n'
+            '<div class="full-section completion">\n'
             '  <div class="step-flow-panel">\n'
-            '    <div class="section-label">Complete</div>\n'
+            '    <div class="section-label">End</div>\n'
             '    <div class="flow-timeline">\n'
             '      <div class="step-node theme-complete">\n'
             '        <div class="node-header">\n'
-            '          <span class="node-title">Workflow Complete</span>\n'
+            '          <span class="node-title">Workflow End</span>\n'
             f'          {_badge("lock-release", "lock released")}\n'
             f"{fence_badge}"
             f"        </div>\n"
@@ -757,7 +1188,7 @@ def _render_completion(wf_events: list[AuditEvent]) -> str:
         )
     if failed:
         return (
-            '<div class="full-section">\n'
+            '<div class="full-section failed-wf">\n'
             '  <div class="step-flow-panel">\n'
             '    <div class="section-label">Failed</div>\n'
             '    <div class="flow-timeline">\n'
@@ -779,7 +1210,7 @@ def _render_completion(wf_events: list[AuditEvent]) -> str:
     )
     if cancelled:
         return (
-            '<div class="full-section">\n'
+            '<div class="full-section cancelled-wf">\n'
             '  <div class="step-flow-panel">\n'
             '    <div class="section-label">Cancelled</div>\n'
             '    <div class="flow-timeline">\n'
@@ -860,18 +1291,53 @@ def generate_audit_report(events: list[AuditEvent]) -> str:
     if not events:
         return "<html><body><p>No audit events found.</p></body></html>"
 
-    wf_name = events[0].workflow_name
+    wf_name = events[0].workflow_name.replace("_", " ").title()
 
     wf_events, step_groups = _group_events(events)
+    dep_map = _extract_dep_info(step_groups)
+    tiers = _compute_tiers(step_groups, dep_map)
+    step_states = _compute_step_states(step_groups)
+
+    wf_state = _workflow_final_state(wf_events)
 
     sections = [
         _render_header(wf_name),
         _render_summary(events, wf_name),
+        _render_dependency_graph(dep_map, tiers, step_states, wf_state),
         '<div class="main-area">\n',
         _render_discovery(step_groups),
     ]
 
-    sections += [_render_step_section(idx, step_groups[idx]) for idx in sorted(step_groups.keys())]
+    lane_groups = _compute_lane_groups(dep_map, tiers)
+    for group_type, group_data in lane_groups:
+        if group_type == "single":
+            idx, _name = group_data[0]
+            if idx in step_groups:
+                sections.append(_render_step_section(idx, step_groups[idx]))
+        elif group_type == "parallel":
+            group_parts = [
+                '    <div class="parallel-group">\n',
+                '      <div class="parallel-group-label">Parallel execution</div>\n',
+            ]
+            for idx, _name in group_data:
+                if idx in step_groups:
+                    group_parts.append(_render_step_section(idx, step_groups[idx]))
+            group_parts.append("    </div>\n")
+            sections.append("".join(group_parts))
+        elif group_type == "lanes":
+            group_parts = [
+                '    <div class="parallel-group">\n',
+                '      <div class="parallel-group-label">Parallel execution</div>\n',
+            ]
+            for lane in group_data:
+                group_parts.append('      <div class="parallel-lane">\n')
+                for sub_tier in lane:
+                    for idx, _name in sub_tier:
+                        if idx in step_groups:
+                            group_parts.append(_render_step_section(idx, step_groups[idx]))
+                group_parts.append("      </div>\n")
+            group_parts.append("    </div>\n")
+            sections.append("".join(group_parts))
 
     sections.append(_render_completion(wf_events))
     sections.append(_render_state_transitions(events))

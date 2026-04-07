@@ -104,14 +104,21 @@ class MongoWorkflowStore:
             step_status_before=step_status_before,
             is_async=step.is_async if step else None,
             idempotent=step.idempotent if step else None,
+            step_depends_on=step.depends_on if step else None,
             **kwargs,
         )
+        assign = getattr(self._audit, "assign_sequence", None)
+        if assign is not None:
+            assign(event)
         task = asyncio.ensure_future(self._audit.emit(event))
         self._audit_tasks.add(task)
         task.add_done_callback(self._audit_tasks.discard)
 
     async def emit(self, event: AuditEvent) -> None:
         """Public passthrough for events the engine needs to emit directly (e.g. STEP_TIMEOUT, RECOVERY_STARTED)."""
+        assign = getattr(self._audit, "assign_sequence", None)
+        if assign is not None:
+            assign(event)
         task = asyncio.ensure_future(self._audit.emit(event))
         self._audit_tasks.add(task)
         task.add_done_callback(self._audit_tasks.discard)
