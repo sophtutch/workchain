@@ -148,15 +148,14 @@ async def check_database(
 )
 async def provision_database(
     config: DatabaseConfig,
-    results: dict[str, StepResult],
+    _results: dict[str, StepResult],
 ) -> DatabaseResult:
-    """Provision an RDS database instance."""
-    vpc_result = cast(VpcResult, results["create_vpc"])
+    """Provision an RDS database instance (root step — no dependencies)."""
     db_instance_id = f"db-{uuid.uuid4().hex[:12]}"
     endpoint = f"{db_instance_id}.cluster.{config.engine}.amazonaws.com"
     logger.info(
-        "[db] Provisioning %s (%s) in VPC %s -- instance %s",
-        config.engine, config.instance_class, vpc_result.vpc_id, db_instance_id,
+        "[db] Provisioning %s (%s) -- instance %s",
+        config.engine, config.instance_class, db_instance_id,
     )
     return DatabaseResult(
         db_instance_id=db_instance_id,

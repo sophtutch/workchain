@@ -27,8 +27,49 @@ from examples.incident_response import steps as _incident_steps  # noqa: F401
 from examples.incident_response.workflow import build_workflow as build_incident
 from examples.infra_provisioning import steps as _infra_steps  # noqa: F401
 from examples.infra_provisioning.workflow import build_workflow as build_infra
-from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
+from examples.media_processing import steps as _media_steps  # noqa: F401
+from examples.media_processing.workflow import build_workflow as build_media
+from examples.ml_training import steps as _ml_steps  # noqa: F401
+from examples.ml_training.workflow import build_workflow as build_ml
+from workchain import MongoAuditLogger, MongoWorkflowStore, Workflow, WorkflowEngine
 from workchain.audit_report import generate_audit_report
+
+
+def _auto_tags(wf: Workflow) -> list[str]:
+    """Derive feature tags from a Workflow object.
+
+    Note: Workflow._resolve_and_validate_depends_on auto-resolves ``depends_on=None``
+    to the previous step, so we detect "sequential" by checking if the resolved graph
+    is a simple linear chain (step i depends only on step i-1).
+    """
+    tags: list[str] = []
+    is_sequential = all(
+        s.depends_on == ([] if i == 0 else [wf.steps[i - 1].name])
+        for i, s in enumerate(wf.steps)
+    )
+
+    if not is_sequential:
+        dep_map: dict[str, list[str]] = {s.name: s.depends_on or [] for s in wf.steps}
+        depths: dict[str, int] = {}
+        for s in wf.steps:
+            parents = dep_map.get(s.name, [])
+            depths[s.name] = (max(depths.get(p, 0) for p in parents) + 1) if parents else 0
+        tier_counts: dict[int, int] = {}
+        for d in depths.values():
+            tier_counts[d] = tier_counts.get(d, 0) + 1
+        parallel = any(c > 1 for c in tier_counts.values())
+
+        tags.append("step dependencies")
+        if parallel:
+            tags.append("parallel execution")
+    else:
+        tags.append("sequential")
+
+    if any(s.is_async for s in wf.steps):
+        tags.append("async polling")
+    if any(s.retry_policy.max_attempts > 1 for s in wf.steps):
+        tags.append("retry")
+    return tags
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,69 +81,114 @@ logging.basicConfig(
 # Example workflow definitions
 # ---------------------------------------------------------------------------
 
-EXAMPLES = {
-    "customer_onboarding": {
-        "title": "Customer Onboarding",
-        "description": "Validate email, create account, provision resources (async), send welcome email",
-        "steps": 4,
-        "fields": [
-            {"name": "email", "label": "Email", "default": "alice@example.com", "type": "text"},
-        ],
-        "builder": lambda params: build_onboarding(email=params["email"]),
-    },
-    "data_pipeline_etl": {
-        "title": "Data Pipeline ETL",
-        "description": "Extract, validate schema, transform, load to warehouse (async), update catalog",
-        "steps": 5,
-        "fields": [
+_EXAMPLE_DEFS: list[tuple[str, str, str, list[dict], object]] = [
+    (
+        "customer_onboarding",
+        "Customer Onboarding",
+        "Validate email, create account, provision resources (async), send welcome email",
+        [{"name": "email", "label": "Email", "default": "alice@example.com", "type": "text"}],
+        lambda params: build_onboarding(email=params["email"]),
+    ),
+    (
+        "data_pipeline_etl",
+        "Data Pipeline ETL",
+        "Extract, validate schema, transform, load to warehouse (async), update catalog",
+        [
             {"name": "source_uri", "label": "Source URI", "default": "postgres://src/orders", "type": "text"},
             {"name": "target_table", "label": "Target Table", "default": "analytics.orders", "type": "text"},
         ],
-        "builder": lambda params: build_etl(
+        lambda params: build_etl(
             source_uri=params["source_uri"],
             target_table=params["target_table"],
             columns=["id", "amount", "date", "customer_id"],
         ),
-    },
-    "ci_cd_pipeline": {
-        "title": "CI/CD Pipeline",
-        "description": "Lint, test (retry), build artifact (async), push registry, deploy staging (async), smoke tests",
-        "steps": 6,
-        "fields": [
+    ),
+    (
+        "ci_cd_pipeline",
+        "CI/CD Pipeline",
+        "Lint, 3 asymmetric lanes (unit tests / security+compliance / build+deploy), cross-lane join, notify+dashboard",
+        [
             {"name": "repo", "label": "Repository", "default": "myorg/myapp", "type": "text"},
             {"name": "branch", "label": "Branch", "default": "main", "type": "text"},
         ],
-        "builder": lambda params: build_ci_cd(repo=params["repo"], branch=params.get("branch", "main")),
-    },
-    "infra_provisioning": {
-        "title": "Infrastructure Provisioning",
-        "description": "VPC || provision DB (concurrent), deploy app (async), DNS, TLS cert (async), health check",
-        "steps": 6,
-        "fields": [
+        lambda params: build_ci_cd(repo=params["repo"], branch=params.get("branch", "main")),
+    ),
+    (
+        "infra_provisioning",
+        "Infrastructure Provisioning",
+        "VPC || provision DB (concurrent), deploy app (async), DNS, TLS cert (async), health check",
+        [
             {"name": "domain", "label": "Domain", "default": "app.example.com", "type": "text"},
             {"name": "image", "label": "Container Image", "default": "myorg/app:latest", "type": "text"},
             {"name": "region", "label": "Region", "default": "us-east-1", "type": "text"},
         ],
-        "builder": lambda params: build_infra(
+        lambda params: build_infra(
             domain=params["domain"], image=params["image"], region=params.get("region", "us-east-1")
         ),
-    },
-    "incident_response": {
-        "title": "Incident Response",
-        "description": "Create ticket, page on-call (retry), diagnostics, remediate (async), verify, close",
-        "steps": 6,
-        "fields": [
+    ),
+    (
+        "incident_response",
+        "Incident Response",
+        "Create ticket, page on-call (retry), diagnostics, remediate (async), verify, close",
+        [
             {"name": "service_name", "label": "Service", "default": "payment-api", "type": "text"},
             {"name": "severity", "label": "Severity", "default": "high", "type": "text"},
             {"name": "description", "label": "Description", "default": "Elevated error rate on checkout", "type": "text"},
         ],
-        "builder": lambda params: build_incident(
+        lambda params: build_incident(
             service_name=params["service_name"],
             severity=params["severity"],
             description=params["description"],
         ),
-    },
-}
+    ),
+    (
+        "ml_training",
+        "ML Model Training",
+        "Prepare dataset, train/test split, train model (async — times out), evaluate, publish",
+        [
+            {"name": "dataset_name", "label": "Dataset", "default": "imagenet-mini", "type": "text"},
+            {"name": "model_type", "label": "Model", "default": "resnet50", "type": "text"},
+        ],
+        lambda params: build_ml(
+            dataset_name=params["dataset_name"],
+            model_type=params["model_type"],
+        ),
+    ),
+    (
+        "media_processing",
+        "Media Processing",
+        "Ingest, audio branch (extract → normalize || waveform), video branches (transcode → thumbnail), cross-join, HLS package, CDN || catalog",
+        [
+            {"name": "filename", "label": "Filename", "default": "video.mp4", "type": "text"},
+            {"name": "content_type", "label": "Content Type", "default": "video/mp4", "type": "text"},
+        ],
+        lambda params: build_media(
+            filename=params["filename"],
+            content_type=params["content_type"],
+        ),
+    ),
+]
+
+
+def _build_examples() -> dict:
+    """Build EXAMPLES dict with auto-generated tags and step counts."""
+    # Build sample workflows using field defaults to derive tags and step counts
+    examples = {}
+    for key, title, description, fields, builder in _EXAMPLE_DEFS:
+        defaults = {f["name"]: f["default"] for f in fields}
+        sample_wf = builder(defaults)
+        examples[key] = {
+            "title": title,
+            "description": description,
+            "steps": len(sample_wf.steps),
+            "tags": _auto_tags(sample_wf),
+            "fields": fields,
+            "builder": builder,
+        }
+    return examples
+
+
+EXAMPLES = _build_examples()
 
 # ---------------------------------------------------------------------------
 # App lifecycle
@@ -262,7 +348,19 @@ LANDING_HTML = """\
   }
   .card h3 { font-size: 1.25rem; color: #c4b5fd; margin-bottom: 0.35rem; }
   .card .desc { font-size: 0.95rem; color: #6b7280; margin-bottom: 0.75rem; }
-  .card .step-count { font-size: 0.85rem; color: #4b5563; margin-bottom: 0.75rem; }
+  .card .step-count { font-size: 0.85rem; color: #4b5563; margin-bottom: 0.5rem; }
+  .card .tags { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .card .tag {
+    font-size: 0.72rem; font-weight: 600; padding: 0.15em 0.55em;
+    border-radius: 4px; letter-spacing: 0.02em;
+  }
+  .tag-sequential         { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }
+  .tag-async-polling      { background: rgba(251,191,36,0.1);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+  .tag-retry              { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2); }
+  .tag-multi-instance     { background: rgba(99,102,241,0.1);  color: #a5b4fc; border: 1px solid rgba(99,102,241,0.2); }
+  .tag-idempotent         { background: rgba(52,211,153,0.1);  color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
+  .tag-step-dependencies  { background: rgba(192,132,252,0.1); color: #c084fc; border: 1px solid rgba(192,132,252,0.2); }
+  .tag-parallel-execution { background: rgba(56,189,248,0.1);  color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); }
   .field { margin-bottom: 0.6rem; }
   .field label { display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
   .field input {
@@ -326,6 +424,13 @@ LANDING_HTML = """\
 <script>
 const EXAMPLES = EXAMPLES_JSON;
 
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+
 function renderExamples() {
   const container = document.getElementById('examples');
   container.innerHTML = '';
@@ -334,14 +439,19 @@ function renderExamples() {
     card.className = 'card';
     let fieldsHtml = '';
     for (const f of ex.fields) {
-      fieldsHtml += `<div class="field"><label>${f.label}</label><input name="${f.name}" value="${f.default}" data-example="${key}"></div>`;
+      fieldsHtml += `<div class="field"><label>${esc(f.label)}</label><input name="${escAttr(f.name)}" value="${escAttr(f.default)}" data-example="${escAttr(key)}"></div>`;
     }
+    const tagsHtml = (ex.tags || []).map(t => {
+      const cls = 'tag-' + t.replace(/\s+/g, '-');
+      return `<span class="tag ${esc(cls)}">${esc(t)}</span>`;
+    }).join('');
     card.innerHTML = `
-      <h3>${ex.title}</h3>
-      <div class="desc">${ex.description}</div>
+      <h3>${esc(ex.title)}</h3>
+      <div class="desc">${esc(ex.description)}</div>
       <div class="step-count">${ex.steps} steps</div>
+      ${tagsHtml ? `<div class="tags">${tagsHtml}</div>` : ''}
       ${fieldsHtml}
-      <button class="run-btn" onclick="runWorkflow('${key}', this)">Run</button>
+      <button class="run-btn" onclick="runWorkflow('${escAttr(key)}', this)">Run</button>
     `;
     container.appendChild(card);
   }
@@ -446,6 +556,7 @@ async def landing_page():
             "title": ex["title"],
             "description": ex["description"],
             "steps": ex["steps"],
+            "tags": ex.get("tags", []),
             "fields": ex["fields"],
         }
 

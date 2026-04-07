@@ -52,6 +52,7 @@ def build_workflow(
                 name="gather_diagnostics",
                 handler="examples.incident_response.steps.gather_diagnostics",
                 config=config,
+                depends_on=["page_oncall", "create_ticket"],
             ),
             Step(
                 name="apply_remediation",
@@ -76,6 +77,7 @@ def build_workflow(
                 name="close_ticket",
                 handler="examples.incident_response.steps.close_ticket",
                 config=config,
+                depends_on=["verify_resolution", "create_ticket"],
             ),
         ],
     )

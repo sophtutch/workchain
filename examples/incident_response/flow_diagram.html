@@ -37,6 +37,20 @@
   .step-chip.sync  { background: #312e81; color: #a5b4fc; }
   .step-chip.async { background: #451a03; color: #fbbf24; }
 
+  /* feature tags */
+  .feature-tags { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.6rem; }
+  .feature-tag {
+    font-size: 0.7rem; font-weight: 600; padding: 0.2em 0.65em;
+    border-radius: 4px; letter-spacing: 0.03em;
+  }
+  .feature-tag.tag-sequential         { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.2); }
+  .feature-tag.tag-async-polling      { background: rgba(251,191,36,0.1);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+  .feature-tag.tag-retry              { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2); }
+  .feature-tag.tag-multi-instance     { background: rgba(99,102,241,0.1);  color: #a5b4fc; border: 1px solid rgba(99,102,241,0.2); }
+  .feature-tag.tag-idempotent         { background: rgba(52,211,153,0.1);  color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
+  .feature-tag.tag-step-dependencies  { background: rgba(192,132,252,0.1); color: #c084fc; border: 1px solid rgba(192,132,252,0.2); }
+  .feature-tag.tag-parallel-execution { background: rgba(56,189,248,0.1);  color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); }
+
   /* info bar */
   .info-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
   @media (max-width: 900px) { .info-bar { grid-template-columns: repeat(2, 1fr); } }
@@ -64,25 +78,31 @@
 
   /* step section: 3-column grid */
   .step-section {
-    display: grid; grid-template-columns: 1fr 140px 360px; gap: 20px;
-    align-items: stretch; padding: 20px 0; border-top: 1px solid #1f2937;
+    display: grid; grid-template-columns: 1fr 260px minmax(360px, 1fr); gap: 20px;
+    align-items: stretch; padding: 20px; border-radius: 10px;
+    margin-bottom: 12px;
+    border: 1px solid #1f2937;
   }
-  .step-section:first-child { border-top: none; }
+  .step-section.sync-step { border-color: #6366f1; }
+  .step-section.async-step { border-color: #f59e0b; }
+  .step-section.discovery { border-color: #34d399; }
   .step-section > .step-flow-panel { height: 100%; box-sizing: border-box; }
   .step-doc { display: flex; flex-direction: column; }
-  .step-doc .panel { flex: 1; margin-bottom: 0; }
+  .step-doc .panel { flex: 1; margin-bottom: 0; display: flex; flex-direction: column; }
+  .step-doc .panel .mongo-doc { flex: 1; }
 
   /* transition column */
   .step-transitions { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
   .tx-block {
     border-left: 3px solid; border-radius: 4px; padding: 5px 8px;
-    flex: 1; display: flex; flex-direction: column; justify-content: center;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    flex: 1 1 0;
   }
   .tx-label {
-    font-size: 8.5px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.04em; opacity: 0.6; margin-bottom: 2px;
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; opacity: 0.6; white-space: nowrap; flex-shrink: 0;
   }
-  .tx-value { font-size: 10px; font-family: monospace; line-height: 1.3; }
+  .tx-value { font-size: 11px; font-family: monospace; line-height: 1.3; white-space: nowrap; text-align: right; }
   .tx-green  { border-color: #34d399; background: rgba(52,211,153,0.07); color: #34d399; }
   .tx-indigo { border-color: #a5b4fc; background: rgba(165,180,252,0.07); color: #a5b4fc; }
   .tx-amber  { border-color: #fbbf24; background: rgba(251,191,36,0.07); color: #fbbf24; }
@@ -91,7 +111,11 @@
   .tx-purple { border-color: #c084fc; background: rgba(192,132,252,0.07); color: #c084fc; }
 
   /* full-width section */
-  .full-section { padding: 20px 0; border-top: 1px solid #1f2937; }
+  .full-section {
+    padding: 20px; border-radius: 10px; margin-bottom: 12px;
+    border: 1px solid #1f2937;
+  }
+  .full-section.completion { border-color: #34d399; }
 
   /* section label */
   .section-label {
@@ -233,6 +257,121 @@
   .s-completed { background: rgba(52,211,153,0.1);   color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
   .s-review    { background: rgba(251,191,36,0.1);   color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
 
+  /* dependency graph */
+  .dep-graph {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px;
+    padding: 1.25rem; margin-bottom: 1.5rem;
+  }
+  .dep-graph .section-label { margin-bottom: 16px; }
+  .dep-flow {
+    display: flex; align-items: center; justify-content: flex-start; overflow-x: auto;
+    padding: 1.5rem 1rem 0.5rem; gap: 0;
+  }
+  .dep-tier {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    position: relative; flex-shrink: 0; padding: 4px 0;
+  }
+  .dep-node {
+    background: #1e1b4b; border: 1px solid #312e81; border-radius: 8px;
+    padding: 0.4em 0.8em 0.4em 2.8em; font-size: 0.85rem; font-weight: 600;
+    color: #c4b5fd; white-space: nowrap; text-align: right;
+    overflow: hidden; text-overflow: ellipsis;
+    width: 130px; min-width: 130px; max-width: 130px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    position: relative; z-index: 1;
+  }
+  .dep-node:not(.terminal) { cursor: pointer; }
+  .dep-node:not(.terminal):hover { border-color: #6366f1; background: #1e1b4bcc; }
+  .dep-node.terminal {
+    background: #111827; border: 2px solid #4b5563; border-radius: 20px;
+    color: #9ca3af; font-weight: 700; padding: 0.4em 0.8em;
+    width: auto; min-width: 80px; max-width: none; text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  .dep-node.terminal.start-ok { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.08); }
+  .dep-node.terminal.end-completed { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.08); }
+  .dep-node.terminal.end-failed { border-color: #f87171; color: #f87171; background: rgba(248,113,113,0.08); }
+  .dep-connector {
+    width: 36px; height: 2px; background: #374151; flex-shrink: 0;
+    position: relative;
+  }
+  .dep-connector::after {
+    content: ''; position: absolute; right: -3px; top: -4px;
+    border: 5px solid transparent; border-left: 6px solid #374151;
+  }
+  /* yellow border around concurrent tiers */
+  .dep-tier.concurrent {
+    border: 2px solid #fbbf24; border-radius: 10px;
+    padding: 12px 10px;
+  }
+  /* lane groups: parallel chains rendered as horizontal rows */
+  .dep-lane-group {
+    border: 2px solid #fbbf24; border-radius: 10px;
+    padding: 12px 10px; display: flex; flex-direction: column;
+    gap: 10px; flex-shrink: 0;
+  }
+  .dep-lane {
+    display: grid; grid-template-columns: var(--lane-cols);
+    align-items: center;
+    border: 1px solid #fbbf2466; border-radius: 8px; padding: 10px 8px;
+  }
+  .dep-lane-fork {
+    display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+    border: 1px solid #fbbf2466; border-radius: 8px; padding: 6px;
+    box-sizing: border-box;
+  }
+  .dep-lane-fork .dep-node {
+    width: auto; min-width: 0; max-width: none;
+    box-sizing: border-box;
+  }
+  .dep-num {
+    position: absolute; left: 0.5em; top: 0.4em;
+    background: rgba(165,180,252,0.15); color: #a5b4fc;
+    font-size: inherit; font-weight: 700; border-radius: 4px; padding: 0 0.2em;
+  }
+  /* state indicators on dependency graph nodes */
+  .dep-state {
+    font-size: 0.65rem; font-weight: 500; margin-top: 3px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: 0.3px;
+  }
+  .state-completed .dep-state { color: #34d399; }
+  .state-failed .dep-state { color: #f87171; }
+  .state-blocked .dep-state { color: #fbbf24; }
+  .state-running .dep-state { color: #60a5fa; }
+  .state-pending .dep-state { color: #6b7280; }
+  .dep-info {
+    font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem;
+    display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  }
+  .dep-info code {
+    background: #1e1b4b; padding: 0.1em 0.4em; border-radius: 3px;
+    color: #a5b4fc; font-size: 0.85em;
+  }
+  .dep-info .root-tag {
+    background: rgba(52,211,153,0.12); color: #34d399; padding: 0.15em 0.5em;
+    border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+  }
+
+  /* parallel group wrapper */
+  .parallel-group {
+    border: 2px solid #fbbf24; border-radius: 12px;
+    padding: 16px 20px; margin: 20px 0;
+  }
+  .parallel-group-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; color: #fbbf24; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .parallel-group-label::after {
+    content: ''; flex: 1; height: 1px; background: #fbbf2444;
+  }
+  .parallel-lane {
+    border: 1px solid #374151; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 10px;
+  }
+  .parallel-lane:last-child { margin-bottom: 0; }
+
   /* fade-in */
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
@@ -277,6 +416,13 @@
     <span class="step-chip sync">5 &nbsp;verify_resolution</span>
     <span class="step-chip sync">6 &nbsp;close_ticket</span>
   </div>
+  <div class="feature-tags">
+    <span class="feature-tag tag-sequential">sequential</span>
+    <span class="feature-tag tag-async-polling">async polling</span>
+    <span class="feature-tag tag-retry">retry</span>
+    <span class="feature-tag tag-idempotent">idempotent</span>
+    <span class="feature-tag tag-multi-instance">multi-instance</span>
+  </div>
 </div>
 
 <div class="info-bar">
@@ -306,11 +452,48 @@
   </div>
 </div>
 
+<div class="dep-graph">
+  <div class="section-label">Dependency Graph</div>
+  <div class="dep-flow">
+    <div class="dep-tier">
+      <div class="dep-node terminal start-ok">START</div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-create_ticket')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">1</span> create_ticket<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-page_oncall')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">2</span> page_oncall<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-gather_diagnostics')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">3</span> gather_diagnostics<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-apply_remediation')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">4</span> apply_remediation<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-verify_resolution')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">5</span> verify_resolution<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-close_ticket')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">6</span> close_ticket<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node terminal end-completed">END</div>
+    </div>
+  </div>
+</div>
+
 <div class="main-area">
 
-    <div class="step-section">
+    <div class="step-section discovery">
 <div class="step-flow-panel">
-  <div class="section-label">Discovery</div>
+  <div class="section-label">Start</div>
   <div class="flow-timeline">
     <div class="step-node theme-engine">
       <div class="node-header">
@@ -363,9 +546,10 @@
       </div>
     </div>
 
-    <div class="step-section">
+    <div class="step-section sync-step" id="step-create_ticket">
       <div class="step-flow-panel">
         <div class="section-label">Step 1 &mdash; create_ticket (sync)</div>
+        <div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -388,7 +572,7 @@
               <span class="node-title">Advance</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 1</span>
             </div>
-            <div class="node-desc"><code>steps[0].status &rarr; "completed"</code>, <code>current_step_index &rarr; 1</code>.</div>
+            <div class="node-desc"><code>steps[0].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -405,17 +589,12 @@
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
-        <div class="tx-block tx-purple">
-          <div class="tx-label">Step Index</div>
-          <div class="tx-value">idx &rarr; 1</div>
-        </div>
       </div>
       <div class="step-doc">
         <div class="panel">
           <div class="panel-title">After Step 1 &mdash; create_ticket</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"current_step_index"</span>: <span class="num">1</span>,
   <span class="key">"steps[0]"</span>: {
     <span class="key">"handler"</span>: <span class="str">"create_ticket"</span>,
     <span class="key">"name"</span>: <span class="str">"create_ticket"</span>,
@@ -430,9 +609,10 @@
       </div>
     </div>
 
-    <div class="step-section">
+    <div class="step-section sync-step" id="step-page_oncall">
       <div class="step-flow-panel">
         <div class="section-label">Step 2 &mdash; page_oncall (sync, retry:3)</div>
+        <div class="dep-info">Depends on: <code>create_ticket</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -460,7 +640,7 @@
               <span class="node-title">Advance</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 1</span>
             </div>
-            <div class="node-desc"><code>steps[1].status &rarr; "completed"</code>, <code>current_step_index &rarr; 2</code>.</div>
+            <div class="node-desc"><code>steps[1].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -481,17 +661,12 @@
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
-        <div class="tx-block tx-purple">
-          <div class="tx-label">Step Index</div>
-          <div class="tx-value">idx &rarr; 2</div>
-        </div>
       </div>
       <div class="step-doc">
         <div class="panel">
           <div class="panel-title">After Step 2 &mdash; page_oncall</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"current_step_index"</span>: <span class="num">2</span>,
   <span class="key">"steps[1]"</span>: {
     <span class="key">"handler"</span>: <span class="str">"page_oncall"</span>,
     <span class="key">"name"</span>: <span class="str">"page_oncall"</span>,
@@ -507,9 +682,10 @@
       </div>
     </div>
 
-    <div class="step-section">
+    <div class="step-section sync-step" id="step-gather_diagnostics">
       <div class="step-flow-panel">
         <div class="section-label">Step 3 &mdash; gather_diagnostics (sync)</div>
+        <div class="dep-info">Depends on: <code>page_oncall</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -532,7 +708,7 @@
               <span class="node-title">Advance</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 1</span>
             </div>
-            <div class="node-desc"><code>steps[2].status &rarr; "completed"</code>, <code>current_step_index &rarr; 3</code>.</div>
+            <div class="node-desc"><code>steps[2].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -549,17 +725,12 @@
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
-        <div class="tx-block tx-purple">
-          <div class="tx-label">Step Index</div>
-          <div class="tx-value">idx &rarr; 3</div>
-        </div>
       </div>
       <div class="step-doc">
         <div class="panel">
           <div class="panel-title">After Step 3 &mdash; gather_diagnostics</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"current_step_index"</span>: <span class="num">3</span>,
   <span class="key">"steps[2]"</span>: {
     <span class="key">"handler"</span>: <span class="str">"gather_diagnostics"</span>,
     <span class="key">"name"</span>: <span class="str">"gather_diagnostics"</span>,
@@ -577,9 +748,10 @@
       </div>
     </div>
 
-    <div class="step-section">
+    <div class="step-section async-step" id="step-apply_remediation">
       <div class="step-flow-panel">
         <div class="section-label">Step 4 &mdash; apply_remediation (async, poll×3)</div>
+        <div class="dep-info">Depends on: <code>gather_diagnostics</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -627,7 +799,7 @@
               <span class="node-title">Advance</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 5</span> <span class="badge lock-release">lock released</span>
             </div>
-            <div class="node-desc"><code>steps[3].status &rarr; "completed"</code>, <code>current_step_index &rarr; 4</code>.</div>
+            <div class="node-desc"><code>steps[3].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -656,10 +828,6 @@
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
-        <div class="tx-block tx-purple">
-          <div class="tx-label">Step Index</div>
-          <div class="tx-value">idx &rarr; 4</div>
-        </div>
         <div class="tx-block tx-red">
           <div class="tx-label">Locks</div>
           <div class="tx-value">4 released</div>
@@ -670,7 +838,6 @@
           <div class="panel-title">After Step 4 &mdash; apply_remediation</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"current_step_index"</span>: <span class="num">4</span>,
   <span class="key">"fence_token"</span>: <span class="num">5</span>,
   <span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,
   <span class="key">"steps[3]"</span>: {
@@ -689,9 +856,10 @@
       </div>
     </div>
 
-    <div class="step-section">
+    <div class="step-section sync-step" id="step-verify_resolution">
       <div class="step-flow-panel">
         <div class="section-label">Step 5 &mdash; verify_resolution (sync)</div>
+        <div class="dep-info">Depends on: <code>apply_remediation</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-engine">
   <div class="node-header">
@@ -699,7 +867,7 @@
     <span class="badge lock-claim">lock acquired</span>
     <span class="badge fence-badge">fence &rarr; 6</span>
   </div>
-  <div class="node-desc">Sweep discovers workflow at <code>current_step_index: 4</code>, claims lock.</div>
+  <div class="node-desc">Sweep discovers step <code>4</code> ready, claims step lock.</div>
 </div>
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -722,7 +890,7 @@
               <span class="node-title">Advance</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 6</span>
             </div>
-            <div class="node-desc"><code>steps[4].status &rarr; "completed"</code>, <code>current_step_index &rarr; 5</code>.</div>
+            <div class="node-desc"><code>steps[4].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -747,17 +915,12 @@
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
-        <div class="tx-block tx-purple">
-          <div class="tx-label">Step Index</div>
-          <div class="tx-value">idx &rarr; 5</div>
-        </div>
       </div>
       <div class="step-doc">
         <div class="panel">
           <div class="panel-title">After Step 5 &mdash; verify_resolution</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"current_step_index"</span>: <span class="num">5</span>,
   <span class="key">"fence_token"</span>: <span class="num">6</span>,
   <span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,
   <span class="key">"steps[4]"</span>: {
@@ -774,9 +937,10 @@
       </div>
     </div>
 
-    <div class="step-section">
+    <div class="step-section sync-step" id="step-close_ticket">
       <div class="step-flow-panel">
         <div class="section-label">Step 6 &mdash; close_ticket (sync, final step)</div>
+        <div class="dep-info">Depends on: <code>verify_resolution</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -796,10 +960,10 @@
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
-              <span class="node-title">Workflow Complete</span>
+              <span class="node-title">Workflow End</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 6</span> <span class="badge lock-release">lock released</span>
             </div>
-            <div class="node-desc"><code>steps[5].status &rarr; "completed"</code>, <code>current_step_index &rarr; 6</code>. <code>workflow.status &rarr; "completed"</code>.</div>
+            <div class="node-desc"><code>steps[5].status &rarr; "completed"</code>. <code>workflow.status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -817,10 +981,6 @@
           <div class="tx-value">&rarr; completed</div>
         </div>
         <div class="tx-block tx-purple">
-          <div class="tx-label">Step Index</div>
-          <div class="tx-value">idx &rarr; 6</div>
-        </div>
-        <div class="tx-block tx-purple">
           <div class="tx-label">Workflow</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
@@ -834,7 +994,6 @@
           <div class="panel-title">After Step 6 &mdash; close_ticket</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"current_step_index"</span>: <span class="num">6</span>,
   <span class="key">"locked_by"</span>: <span class="kw">null</span>,
   <span class="key">"status"</span>: <span class="str">"completed"</span>,
   <span class="key">"steps[5]"</span>: {
@@ -851,13 +1010,13 @@
       </div>
     </div>
 
-<div class="full-section">
+<div class="full-section completion">
   <div class="step-flow-panel">
-    <div class="section-label">Complete</div>
+    <div class="section-label">End</div>
     <div class="flow-timeline">
       <div class="step-node theme-complete">
         <div class="node-header">
-          <span class="node-title">Workflow Complete</span>
+          <span class="node-title">Workflow End</span>
           <span class="badge lock-release">lock released</span>
           <span class="badge fence-badge">fence_token: 6</span>
         </div>
@@ -962,7 +1121,7 @@
       <tr>
         <td><span class="state-badge s-running">running</span></td>
         <td><span class="state-badge s-running">running</span></td>
-        <td>Step completes, <code>current_step_index</code> advances, next step begins</td>
+        <td>Step completes, dependent steps become ready for claiming</td>
       </tr>
       <tr>
         <td><span class="state-badge s-running">running</span></td>

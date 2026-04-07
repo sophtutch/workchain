@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Infrastructure Provisioning &mdash; Flow Diagram</title>
+<title>Media Processing &mdash; Flow Diagram</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -402,25 +402,31 @@
 <body>
 
 <div class="page-header">
-  <h1>Infrastructure Provisioning &mdash; Flow Diagram</h1>
-  <div class="subtitle">VPC • Database • App Deploy • DNS • TLS • Health Check • Parallel roots with dependency join</div>
+  <h1>Media Processing &mdash; Flow Diagram</h1>
+  <div class="subtitle">Nested parallelism • 3-wide root fan-out • Nested audio sub-branch • Cross-branch joins • 6 execution tiers</div>
 </div>
 
 <div class="example-banner">
-  <div class="wf-name">Workflow: <code>infra_provisioning</code></div>
+  <div class="wf-name">Workflow: <code>media_processing</code></div>
   <div class="step-chips">
-    <span class="step-chip sync">1 &nbsp;create_vpc</span>
-    <span class="step-chip async">2 &nbsp;provision_database</span>
-    <span class="step-chip async">3 &nbsp;deploy_application</span>
-    <span class="step-chip sync">4 &nbsp;configure_dns</span>
-    <span class="step-chip async">5 &nbsp;issue_tls_cert</span>
-    <span class="step-chip sync">6 &nbsp;health_check</span>
+    <span class="step-chip sync">1 &nbsp;ingest_upload</span>
+    <span class="step-chip sync">2 &nbsp;extract_audio</span>
+    <span class="step-chip async">3 &nbsp;transcode_720p</span>
+    <span class="step-chip async">4 &nbsp;transcode_1080p</span>
+    <span class="step-chip sync">5 &nbsp;normalize_audio</span>
+    <span class="step-chip sync">6 &nbsp;generate_waveform</span>
+    <span class="step-chip sync">7 &nbsp;thumbnail_720p</span>
+    <span class="step-chip sync">8 &nbsp;thumbnail_1080p</span>
+    <span class="step-chip sync">9 &nbsp;detect_faces</span>
+    <span class="step-chip sync">10 &nbsp;generate_subtitles</span>
+    <span class="step-chip sync">11 &nbsp;package_hls</span>
+    <span class="step-chip sync">12 &nbsp;publish_cdn</span>
+    <span class="step-chip sync">13 &nbsp;update_catalog</span>
   </div>
   <div class="feature-tags">
     <span class="feature-tag tag-step-dependencies">step dependencies</span>
     <span class="feature-tag tag-parallel-execution">parallel execution</span>
     <span class="feature-tag tag-async-polling">async polling</span>
-    <span class="feature-tag tag-idempotent">idempotent</span>
     <span class="feature-tag tag-multi-instance">multi-instance</span>
   </div>
 </div>
@@ -459,25 +465,43 @@
       <div class="dep-node terminal start-ok">START</div>
     </div>
     <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-ingest_upload')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">1</span> ingest_upload<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-lane-group" style="--lane-cols: 130px 36px 130px">
+      <div class="dep-lane">
+        <div class="dep-node state-completed" onclick="document.getElementById('step-extract_audio')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">2</span> extract_audio<div class="dep-state">&rarr; completed</div></div>
+        <div class="dep-connector"></div>
+        <div class="dep-lane-fork">
+          <div class="dep-node state-completed" onclick="document.getElementById('step-normalize_audio')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">5</span> normalize_audio<div class="dep-state">&rarr; completed</div></div>
+          <div class="dep-node state-completed" onclick="document.getElementById('step-generate_waveform')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">6</span> generate_waveform<div class="dep-state">&rarr; completed</div></div>
+        </div>
+      </div>
+      <div class="dep-lane">
+        <div class="dep-node state-completed" onclick="document.getElementById('step-transcode_720p')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">3</span> transcode_720p<div class="dep-state">&rarr; completed</div></div>
+        <div class="dep-connector"></div>
+        <div class="dep-node state-completed" onclick="document.getElementById('step-thumbnail_720p')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">7</span> thumbnail_720p<div class="dep-state">&rarr; completed</div></div>
+      </div>
+      <div class="dep-lane">
+        <div class="dep-node state-completed" onclick="document.getElementById('step-transcode_1080p')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">4</span> transcode_1080p<div class="dep-state">&rarr; completed</div></div>
+        <div class="dep-connector"></div>
+        <div class="dep-node state-completed" onclick="document.getElementById('step-thumbnail_1080p')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">8</span> thumbnail_1080p<div class="dep-state">&rarr; completed</div></div>
+      </div>
+    </div>
+    <div class="dep-connector"></div>
     <div class="dep-tier concurrent">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-create_vpc')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">1</span> create_vpc<div class="dep-state">&rarr; completed</div></div>
-      <div class="dep-node state-completed" onclick="document.getElementById('step-provision_database')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">2</span> provision_database<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-detect_faces')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">9</span> detect_faces<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-generate_subtitles')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">10</span> generate_subtitles<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-deploy_application')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">3</span> deploy_application<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-package_hls')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">11</span> package_hls<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
-    <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-configure_dns')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">4</span> configure_dns<div class="dep-state">&rarr; completed</div></div>
-    </div>
-    <div class="dep-connector"></div>
-    <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-issue_tls_cert')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">5</span> issue_tls_cert<div class="dep-state">&rarr; completed</div></div>
-    </div>
-    <div class="dep-connector"></div>
-    <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-health_check')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">6</span> health_check<div class="dep-state">&rarr; completed</div></div>
+    <div class="dep-tier concurrent">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-publish_cdn')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">12</span> publish_cdn<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-update_catalog')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">13</span> update_catalog<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
@@ -508,7 +532,7 @@
         <span class="badge fence-badge">fence_token &rarr; 1</span>
       </div>
       <div class="node-desc">
-        Atomic <code>findOneAndUpdate</code> &mdash; sets <code>locked_by: "inst_a1"</code>, <code>status: "running"</code>, increments <code>fence_token</code>. Only one instance wins.
+        Atomic <code>findOneAndUpdate</code> &mdash; sets <code>locked_by: "worker-1"</code>, <code>status: "running"</code>, increments <code>fence_token</code>. Only one instance wins.
       </div>
     </div>
   </div>
@@ -532,10 +556,10 @@
           <div class="panel-title">Start Workflow</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"_id"</span>: <span class="str">"wf_infra_..."</span>,
+  <span class="key">"_id"</span>: <span class="str">"wf_media_..."</span>,
   <span class="key">"fence_token"</span>: <span class="num">1</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"inst_a1"</span>,
-  <span class="key">"name"</span>: <span class="str">"infra_provisioning"</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"worker-1"</span>,
+  <span class="key">"name"</span>: <span class="str">"media_processing"</span>,
   <span class="key">"status"</span>: <span class="str">"running"</span>,
   <span class="key">"steps"</span>: []
 }</pre></div>
@@ -543,13 +567,9 @@
       </div>
     </div>
 
-    <div class="parallel-group">
-
-      <div class="parallel-group-label">Parallel execution</div>
-
-    <div class="step-section sync-step" id="step-create_vpc">
+    <div class="step-section sync-step" id="step-ingest_upload">
       <div class="step-flow-panel">
-        <div class="section-label">Step 1 &mdash; create_vpc (sync)</div>
+        <div class="section-label">Step 1 &mdash; ingest_upload (sync)</div>
         <div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
@@ -563,10 +583,10 @@
 </div>
           <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">create_vpc()</span>
+              <span class="node-title">ingest_upload()</span>
               <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Creates VPC and subnets. Returns <code>{"vpc_id": "vpc-abc123"}</code>.</div>
+            <div class="node-desc">Validates and stores raw upload. Returns <code>{"asset_id": "asset-b7e2", "duration_seconds": 245.3}</code>.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
@@ -593,18 +613,16 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 1 &mdash; create_vpc</div>
+          <div class="panel-title">After Step 1 &mdash; ingest_upload</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
   <span class="key">"steps[0]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"create_vpc"</span>,
-    <span class="key">"name"</span>: <span class="str">"create_vpc"</span>,
+    <span class="key">"handler"</span>: <span class="str">"ingest_upload"</span>,
+    <span class="key">"name"</span>: <span class="str">"ingest_upload"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"vpc_id"</span>: <span class="str">"vpc-abc123"</span>,
-      <span class="key">"subnet_ids"</span>: [
-        <span class="str">"subnet-1a"</span>,
-        <span class="str">"subnet-2b"</span>
-      ]
+      <span class="key">"asset_id"</span>: <span class="str">"asset-b7e2"</span>,
+      <span class="key">"storage_path"</span>: <span class="str">"/uploads/asset-b7e2/video.mp4"</span>,
+      <span class="key">"duration_seconds"</span>: <span class="num">245.3</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -613,10 +631,16 @@
       </div>
     </div>
 
-    <div class="step-section async-step" id="step-provision_database">
+    <div class="parallel-group">
+
+      <div class="parallel-group-label">Parallel execution</div>
+
+      <div class="parallel-lane">
+
+    <div class="step-section sync-step" id="step-extract_audio">
       <div class="step-flow-panel">
-        <div class="section-label">Step 2 &mdash; provision_database (async, poll×3)</div>
-        <div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>
+        <div class="section-label">Step 2 &mdash; extract_audio (sync)</div>
+        <div class="dep-info">Depends on: <code>ingest_upload</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -627,12 +651,222 @@
     <code>steps[1].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
   </div>
 </div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">extract_audio()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Strips audio track from video. Returns <code>{"audio_path": "/processed/.../audio.aac"}</code>.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 1</span>
+            </div>
+            <div class="node-desc"><code>steps[1].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 2 &mdash; extract_audio</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"steps[1]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"extract_audio"</span>,
+    <span class="key">"name"</span>: <span class="str">"extract_audio"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"audio_path"</span>: <span class="str">"/processed/asset-b7e2/audio.aac"</span>,
+      <span class="key">"codec"</span>: <span class="str">"aac"</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-section sync-step" id="step-normalize_audio">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 5 &mdash; normalize_audio (sync)</div>
+        <div class="dep-info">Depends on: <code>extract_audio</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-engine">
+  <div class="node-header">
+    <span class="node-title">Fast Sweep &rarr; try_claim()</span>
+    <span class="badge lock-claim">lock acquired</span>
+    <span class="badge fence-badge">fence &rarr; 10</span>
+  </div>
+  <div class="node-desc">Sweep discovers step <code>4</code> ready, claims step lock.</div>
+</div>
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[4].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">normalize_audio()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Normalizes audio levels to -1.5 dB peak. Returns <code>{"normalized_path": "..._norm.aac"}</code>.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
+            </div>
+            <div class="node-desc"><code>steps[4].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-green">
+          <div class="tx-label">Locks</div>
+          <div class="tx-value">1 claim</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Fence Token</div>
+          <div class="tx-value">fence_token &rarr; 10</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 5 &mdash; normalize_audio</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"fence_token"</span>: <span class="num">10</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"worker-2"</span>,
+  <span class="key">"steps[4]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"normalize_audio"</span>,
+    <span class="key">"name"</span>: <span class="str">"normalize_audio"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"normalized_path"</span>: <span class="str">"/processed/asset-b7e2/audio_norm.aac"</span>,
+      <span class="key">"peak_db"</span>: <span class="num">-1.5</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-section sync-step" id="step-generate_waveform">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 6 &mdash; generate_waveform (sync)</div>
+        <div class="dep-info">Depends on: <code>extract_audio</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[5].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">generate_waveform()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Generates audio waveform visualization. Returns <code>{"waveform_url": ".../waveform.png"}</code>.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
+            </div>
+            <div class="node-desc"><code>steps[5].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 6 &mdash; generate_waveform</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"steps[5]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"generate_waveform"</span>,
+    <span class="key">"name"</span>: <span class="str">"generate_waveform"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"waveform_url"</span>: <span class="str">"/processed/asset-b7e2/waveform.png"</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+      </div>
+
+      <div class="parallel-lane">
+
+    <div class="step-section async-step" id="step-transcode_720p">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 3 &mdash; transcode_720p (async, poll×2)</div>
+        <div class="dep-info">Depends on: <code>ingest_upload</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[2].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
           <div class="step-node theme-async">
             <div class="node-header">
-              <span class="node-title">provision_database()</span>
+              <span class="node-title">transcode_720p()</span>
               <span class="badge engine-action">async submit</span>
             </div>
-            <div class="node-desc">Provisions RDS database instance. Returns <code>{"db_instance_id": "db-xyz"}</code>.</div>
+            <div class="node-desc">Submits 720p transcode job. Returns <code>{"job_id": "tx-720-c3d1"}</code>.</div>
           </div>
 <div class="step-node theme-async">
   <div class="node-header">
@@ -651,24 +885,213 @@
             </div>
             <div class="node-desc">Fast sweep rediscovers workflow when <code>next_poll_at &le; now</code>. Different instances claim each poll.</div>
             <div class="poll-track">
-              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 3</span><span class="poll-instance">inst_a1</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">25%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:25%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
-              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot pending"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 4</span><span class="poll-instance">inst_b2</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">60%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:60%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
-              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 3</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 5</span><span class="poll-instance">inst_c3</span></div>
+              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 3</span><span class="poll-instance">worker-1</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">50%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:50%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
+              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 4</span><span class="poll-instance">worker-2</span></div>
               <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#34d399;">100%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:100%; background:#34d399;"></div></div></div>
             </div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
               <span class="node-title">Advance</span>
-              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 5</span> <span class="badge lock-release">lock released</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 4</span> <span class="badge lock-release">lock released</span>
             </div>
-            <div class="node-desc"><code>steps[1].status &rarr; "completed"</code>.</div>
+            <div class="node-desc"><code>steps[2].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
       <div class="step-transitions">
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-amber">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">async submit</div>
+        </div>
+        <div class="tx-block tx-amber">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; blocked</div>
+        </div>
+        <div class="tx-block tx-amber">
+          <div class="tx-label">Polls</div>
+          <div class="tx-value">2 polls</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Fence Token</div>
+          <div class="tx-value">fence_token +2</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+        <div class="tx-block tx-red">
+          <div class="tx-label">Locks</div>
+          <div class="tx-value">3 released</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 3 &mdash; transcode_720p</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"fence_token"</span>: <span class="num">4</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"worker-2"</span>,
+  <span class="key">"steps[2]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"transcode_720p"</span>,
+    <span class="key">"name"</span>: <span class="str">"transcode_720p"</span>,
+    <span class="key">"is_async"</span>: <span class="kw">true</span>,
+    <span class="key">"poll_count"</span>: <span class="num">2</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"job_id"</span>: <span class="str">"tx-720-c3d1"</span>,
+      <span class="key">"output_path"</span>: <span class="str">"/processed/asset-b7e2/720p.mp4"</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-section sync-step" id="step-thumbnail_720p">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 7 &mdash; thumbnail_720p (sync)</div>
+        <div class="dep-info">Depends on: <code>transcode_720p</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[6].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">thumbnail_720p()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Extracts poster thumbnail from 720p transcode. Returns <code>{"thumbnail_url": "..."}</code>.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
+            </div>
+            <div class="node-desc"><code>steps[6].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 7 &mdash; thumbnail_720p</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"steps[6]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"thumbnail_720p"</span>,
+    <span class="key">"name"</span>: <span class="str">"thumbnail_720p"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"thumbnail_url"</span>: <span class="str">"/processed/asset-b7e2/thumb_720p.jpg"</span>,
+      <span class="key">"dimensions"</span>: <span class="str">"1280x720"</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+      </div>
+
+      <div class="parallel-lane">
+
+    <div class="step-section async-step" id="step-transcode_1080p">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 4 &mdash; transcode_1080p (async, poll×3)</div>
+        <div class="dep-info">Depends on: <code>ingest_upload</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-engine">
+  <div class="node-header">
+    <span class="node-title">Fast Sweep &rarr; try_claim()</span>
+    <span class="badge lock-claim">lock acquired</span>
+    <span class="badge fence-badge">fence &rarr; 5</span>
+  </div>
+  <div class="node-desc">Sweep discovers step <code>3</code> ready, claims step lock.</div>
+</div>
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[3].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-async">
+            <div class="node-header">
+              <span class="node-title">transcode_1080p()</span>
+              <span class="badge engine-action">async submit</span>
+            </div>
+            <div class="node-desc">Submits 1080p transcode job. Returns <code>{"job_id": "tx-1080-d4e2"}</code>.</div>
+          </div>
+<div class="step-node theme-async">
+  <div class="node-header">
+    <span class="node-title">BLOCKED</span>
+    <span class="badge lock-release">lock released</span>
+    <span class="badge status-badge">next_poll_at set</span>
+  </div>
+  <div class="node-desc">
+    Lock released. Workflow available for any instance to claim on next sweep.
+  </div>
+</div>
+          <div class="step-node theme-engine">
+            <div class="node-header">
+              <span class="node-title">Claim-Poll-Release Cycle</span>
+              <span class="badge engine-action">engine loop</span>
+            </div>
+            <div class="node-desc">Fast sweep rediscovers workflow when <code>next_poll_at &le; now</code>. Different instances claim each poll.</div>
+            <div class="poll-track">
+              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 7</span><span class="poll-instance">worker-2</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">33%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:33%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
+              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot pending"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 8</span><span class="poll-instance">worker-3</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">66%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:66%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
+              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 3</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 9</span><span class="poll-instance">worker-1</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#34d399;">100%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:100%; background:#34d399;"></div></div></div>
+            </div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 9</span> <span class="badge lock-release">lock released</span>
+            </div>
+            <div class="node-desc"><code>steps[3].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-green">
+          <div class="tx-label">Locks</div>
+          <div class="tx-value">1 claim</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Fence Token</div>
+          <div class="tx-value">fence_token &rarr; 5</div>
+        </div>
         <div class="tx-block tx-indigo">
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; submitted</div>
@@ -700,144 +1123,19 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 2 &mdash; provision_database</div>
-          <div class="doc-label">workflows collection</div>
-          <div class="mongo-doc"><pre>{
-  <span class="key">"fence_token"</span>: <span class="num">5</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,
-  <span class="key">"steps[1]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"provision_database"</span>,
-    <span class="key">"name"</span>: <span class="str">"provision_database"</span>,
-    <span class="key">"is_async"</span>: <span class="kw">true</span>,
-    <span class="key">"poll_count"</span>: <span class="num">3</span>,
-    <span class="key">"result"</span>: {
-      <span class="key">"db_instance_id"</span>: <span class="str">"db-xyz"</span>,
-      <span class="key">"endpoint"</span>: <span class="str">"db-xyz.rds.amazonaws.com"</span>,
-      <span class="key">"port"</span>: <span class="num">5432</span>
-    },
-    <span class="key">"status"</span>: <span class="str">"completed"</span>
-  }
-}</pre></div>
-        </div>
-      </div>
-    </div>
-
-    </div>
-
-    <div class="step-section async-step" id="step-deploy_application">
-      <div class="step-flow-panel">
-        <div class="section-label">Step 3 &mdash; deploy_application (async, poll×2)</div>
-        <div class="dep-info">Depends on: <code>create_vpc</code>, <code>provision_database</code></div>
-        <div class="flow-timeline">
-<div class="step-node theme-engine">
-  <div class="node-header">
-    <span class="node-title">Fast Sweep &rarr; try_claim()</span>
-    <span class="badge lock-claim">lock acquired</span>
-    <span class="badge fence-badge">fence &rarr; 6</span>
-  </div>
-  <div class="node-desc">Sweep discovers step <code>2</code> ready, claims step lock.</div>
-</div>
-<div class="step-node theme-submit">
-  <div class="node-header">
-    <span class="node-title">Write-Ahead</span>
-    <span class="badge status-badge">SUBMITTED</span>
-  </div>
-  <div class="node-desc">
-    <code>steps[2].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
-  </div>
-</div>
-          <div class="step-node theme-async">
-            <div class="node-header">
-              <span class="node-title">deploy_application()</span>
-              <span class="badge engine-action">async submit</span>
-            </div>
-            <div class="node-desc">Deploys application containers. Returns <code>{"deployment_id": "dep-k8s-01"}</code>.</div>
-          </div>
-<div class="step-node theme-async">
-  <div class="node-header">
-    <span class="node-title">BLOCKED</span>
-    <span class="badge lock-release">lock released</span>
-    <span class="badge status-badge">next_poll_at set</span>
-  </div>
-  <div class="node-desc">
-    Lock released. Workflow available for any instance to claim on next sweep.
-  </div>
-</div>
-          <div class="step-node theme-engine">
-            <div class="node-header">
-              <span class="node-title">Claim-Poll-Release Cycle</span>
-              <span class="badge engine-action">engine loop</span>
-            </div>
-            <div class="node-desc">Fast sweep rediscovers workflow when <code>next_poll_at &le; now</code>. Different instances claim each poll.</div>
-            <div class="poll-track">
-              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 8</span><span class="poll-instance">inst_a1</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">50%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:50%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
-              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 9</span><span class="poll-instance">inst_b2</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#34d399;">100%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:100%; background:#34d399;"></div></div></div>
-            </div>
-          </div>
-          <div class="step-node theme-complete">
-            <div class="node-header">
-              <span class="node-title">Advance</span>
-              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 9</span> <span class="badge lock-release">lock released</span>
-            </div>
-            <div class="node-desc"><code>steps[2].status &rarr; "completed"</code>.</div>
-          </div>
-        </div>
-      </div>
-      <div class="step-transitions">
-        <div class="tx-block tx-green">
-          <div class="tx-label">Locks</div>
-          <div class="tx-value">1 claim</div>
-        </div>
-        <div class="tx-block tx-indigo">
-          <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token &rarr; 6</div>
-        </div>
-        <div class="tx-block tx-indigo">
-          <div class="tx-label">Step Status</div>
-          <div class="tx-value">&rarr; submitted</div>
-        </div>
-        <div class="tx-block tx-amber">
-          <div class="tx-label">Handler</div>
-          <div class="tx-value">async submit</div>
-        </div>
-        <div class="tx-block tx-amber">
-          <div class="tx-label">Step Status</div>
-          <div class="tx-value">&rarr; blocked</div>
-        </div>
-        <div class="tx-block tx-amber">
-          <div class="tx-label">Polls</div>
-          <div class="tx-value">2 polls</div>
-        </div>
-        <div class="tx-block tx-indigo">
-          <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token +2</div>
-        </div>
-        <div class="tx-block tx-green">
-          <div class="tx-label">Step Status</div>
-          <div class="tx-value">&rarr; completed</div>
-        </div>
-        <div class="tx-block tx-red">
-          <div class="tx-label">Locks</div>
-          <div class="tx-value">3 released</div>
-        </div>
-      </div>
-      <div class="step-doc">
-        <div class="panel">
-          <div class="panel-title">After Step 3 &mdash; deploy_application</div>
+          <div class="panel-title">After Step 4 &mdash; transcode_1080p</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
   <span class="key">"fence_token"</span>: <span class="num">9</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"inst_b2"</span>,
-  <span class="key">"steps[2]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"deploy_application"</span>,
-    <span class="key">"name"</span>: <span class="str">"deploy_application"</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"worker-1"</span>,
+  <span class="key">"steps[3]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"transcode_1080p"</span>,
+    <span class="key">"name"</span>: <span class="str">"transcode_1080p"</span>,
     <span class="key">"is_async"</span>: <span class="kw">true</span>,
-    <span class="key">"poll_count"</span>: <span class="num">2</span>,
+    <span class="key">"poll_count"</span>: <span class="num">3</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"deployment_id"</span>: <span class="str">"dep-k8s-01"</span>,
-      <span class="key">"replicas_ready"</span>: <span class="num">2</span>
+      <span class="key">"job_id"</span>: <span class="str">"tx-1080-d4e2"</span>,
+      <span class="key">"output_path"</span>: <span class="str">"/processed/asset-b7e2/1080p.mp4"</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -846,53 +1144,37 @@
       </div>
     </div>
 
-    <div class="step-section sync-step" id="step-configure_dns">
+    <div class="step-section sync-step" id="step-thumbnail_1080p">
       <div class="step-flow-panel">
-        <div class="section-label">Step 4 &mdash; configure_dns (sync)</div>
-        <div class="dep-info">Depends on: <code>deploy_application</code></div>
+        <div class="section-label">Step 8 &mdash; thumbnail_1080p (sync)</div>
+        <div class="dep-info">Depends on: <code>transcode_1080p</code></div>
         <div class="flow-timeline">
-<div class="step-node theme-engine">
-  <div class="node-header">
-    <span class="node-title">Fast Sweep &rarr; try_claim()</span>
-    <span class="badge lock-claim">lock acquired</span>
-    <span class="badge fence-badge">fence &rarr; 10</span>
-  </div>
-  <div class="node-desc">Sweep discovers step <code>3</code> ready, claims step lock.</div>
-</div>
 <div class="step-node theme-submit">
   <div class="node-header">
     <span class="node-title">Write-Ahead</span>
     <span class="badge status-badge">SUBMITTED</span>
   </div>
   <div class="node-desc">
-    <code>steps[3].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+    <code>steps[7].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
   </div>
 </div>
           <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">configure_dns()</span>
+              <span class="node-title">thumbnail_1080p()</span>
               <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Creates DNS records for the application. Returns <code>{"fqdn": "app.example.com"}</code>.</div>
+            <div class="node-desc">Extracts poster thumbnail from 1080p transcode. Returns <code>{"thumbnail_url": "..."}</code>.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
               <span class="node-title">Advance</span>
               <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
             </div>
-            <div class="node-desc"><code>steps[3].status &rarr; "completed"</code>.</div>
+            <div class="node-desc"><code>steps[7].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
       <div class="step-transitions">
-        <div class="tx-block tx-green">
-          <div class="tx-label">Locks</div>
-          <div class="tx-value">1 claim</div>
-        </div>
-        <div class="tx-block tx-indigo">
-          <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token &rarr; 10</div>
-        </div>
         <div class="tx-block tx-indigo">
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; submitted</div>
@@ -908,17 +1190,15 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 4 &mdash; configure_dns</div>
+          <div class="panel-title">After Step 8 &mdash; thumbnail_1080p</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"fence_token"</span>: <span class="num">10</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"inst_c3"</span>,
-  <span class="key">"steps[3]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"configure_dns"</span>,
-    <span class="key">"name"</span>: <span class="str">"configure_dns"</span>,
+  <span class="key">"steps[7]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"thumbnail_1080p"</span>,
+    <span class="key">"name"</span>: <span class="str">"thumbnail_1080p"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"record_id"</span>: <span class="str">"rec-dns-01"</span>,
-      <span class="key">"fqdn"</span>: <span class="str">"app.example.com"</span>
+      <span class="key">"thumbnail_url"</span>: <span class="str">"/processed/asset-b7e2/thumb_1080p.jpg"</span>,
+      <span class="key">"dimensions"</span>: <span class="str">"1920x1080"</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -927,10 +1207,18 @@
       </div>
     </div>
 
-    <div class="step-section async-step" id="step-issue_tls_cert">
+      </div>
+
+    </div>
+
+    <div class="parallel-group">
+
+      <div class="parallel-group-label">Parallel execution</div>
+
+    <div class="step-section sync-step" id="step-detect_faces">
       <div class="step-flow-panel">
-        <div class="section-label">Step 5 &mdash; issue_tls_cert (async, poll×2)</div>
-        <div class="dep-info">Depends on: <code>configure_dns</code></div>
+        <div class="section-label">Step 9 &mdash; detect_faces (sync)</div>
+        <div class="dep-info">Depends on: <code>thumbnail_720p</code>, <code>thumbnail_1080p</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -938,45 +1226,22 @@
     <span class="badge status-badge">SUBMITTED</span>
   </div>
   <div class="node-desc">
-    <code>steps[4].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+    <code>steps[8].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
   </div>
 </div>
-          <div class="step-node theme-async">
+          <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">issue_tls_cert()</span>
-              <span class="badge engine-action">async submit</span>
+              <span class="node-title">detect_faces()</span>
+              <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Requests TLS certificate from CA. Returns <code>{"certificate_arn": "arn:aws:acm:..."}</code>.</div>
-          </div>
-<div class="step-node theme-async">
-  <div class="node-header">
-    <span class="node-title">BLOCKED</span>
-    <span class="badge lock-release">lock released</span>
-    <span class="badge status-badge">next_poll_at set</span>
-  </div>
-  <div class="node-desc">
-    Lock released. Workflow available for any instance to claim on next sweep.
-  </div>
-</div>
-          <div class="step-node theme-engine">
-            <div class="node-header">
-              <span class="node-title">Claim-Poll-Release Cycle</span>
-              <span class="badge engine-action">engine loop</span>
-            </div>
-            <div class="node-desc">Fast sweep rediscovers workflow when <code>next_poll_at &le; now</code>. Different instances claim each poll.</div>
-            <div class="poll-track">
-              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 12</span><span class="poll-instance">inst_a1</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">50%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:50%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
-              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 13</span><span class="poll-instance">inst_b2</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#34d399;">100%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:100%; background:#34d399;"></div></div></div>
-            </div>
+            <div class="node-desc">Runs face detection across both resolution thumbnails. Returns <code>{"faces_found": 3}</code>.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
               <span class="node-title">Advance</span>
-              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 13</span> <span class="badge lock-release">lock released</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
             </div>
-            <div class="node-desc"><code>steps[4].status &rarr; "completed"</code>.</div>
+            <div class="node-desc"><code>steps[8].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -985,46 +1250,33 @@
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; submitted</div>
         </div>
-        <div class="tx-block tx-amber">
-          <div class="tx-label">Handler</div>
-          <div class="tx-value">async submit</div>
-        </div>
-        <div class="tx-block tx-amber">
-          <div class="tx-label">Step Status</div>
-          <div class="tx-value">&rarr; blocked</div>
-        </div>
-        <div class="tx-block tx-amber">
-          <div class="tx-label">Polls</div>
-          <div class="tx-value">2 polls</div>
-        </div>
         <div class="tx-block tx-indigo">
-          <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token +2</div>
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
         </div>
         <div class="tx-block tx-green">
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
         </div>
-        <div class="tx-block tx-red">
-          <div class="tx-label">Locks</div>
-          <div class="tx-value">3 released</div>
-        </div>
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 5 &mdash; issue_tls_cert</div>
+          <div class="panel-title">After Step 9 &mdash; detect_faces</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"fence_token"</span>: <span class="num">13</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"inst_b2"</span>,
-  <span class="key">"steps[4]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"issue_tls_cert"</span>,
-    <span class="key">"name"</span>: <span class="str">"issue_tls_cert"</span>,
-    <span class="key">"is_async"</span>: <span class="kw">true</span>,
-    <span class="key">"poll_count"</span>: <span class="num">2</span>,
+  <span class="key">"steps[8]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"detect_faces"</span>,
+    <span class="key">"name"</span>: <span class="str">"detect_faces"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"certificate_arn"</span>: <span class="str">"arn:aws:acm:us-east-1:cert/abc"</span>,
-      <span class="key">"valid_until"</span>: <span class="str">"2027-04-01"</span>
+      <span class="key">"faces_found"</span>: <span class="num">3</span>,
+      <span class="key">"bounding_boxes"</span>: [
+        {
+          <span class="key">"x"</span>: <span class="num">45</span>,
+          <span class="key">"y"</span>: <span class="num">20</span>,
+          <span class="key">"w"</span>: <span class="num">50</span>,
+          <span class="key">"h"</span>: <span class="num">50</span>
+        }
+      ]
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -1033,53 +1285,233 @@
       </div>
     </div>
 
-    <div class="step-section sync-step" id="step-health_check">
+    <div class="step-section sync-step" id="step-generate_subtitles">
       <div class="step-flow-panel">
-        <div class="section-label">Step 6 &mdash; health_check (sync, final step)</div>
-        <div class="dep-info">Depends on: <code>issue_tls_cert</code></div>
+        <div class="section-label">Step 10 &mdash; generate_subtitles (sync)</div>
+        <div class="dep-info">Depends on: <code>normalize_audio</code></div>
         <div class="flow-timeline">
-<div class="step-node theme-engine">
-  <div class="node-header">
-    <span class="node-title">Fast Sweep &rarr; try_claim()</span>
-    <span class="badge lock-claim">lock acquired</span>
-    <span class="badge fence-badge">fence &rarr; 14</span>
-  </div>
-  <div class="node-desc">Sweep discovers step <code>5</code> ready, claims step lock.</div>
-</div>
 <div class="step-node theme-submit">
   <div class="node-header">
     <span class="node-title">Write-Ahead</span>
     <span class="badge status-badge">SUBMITTED</span>
   </div>
   <div class="node-desc">
-    <code>steps[5].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+    <code>steps[9].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
   </div>
 </div>
           <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">health_check()</span>
+              <span class="node-title">generate_subtitles()</span>
               <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Verifies application health endpoint returns 200. Confirms end-to-end provisioning.</div>
+            <div class="node-desc">Auto-generates subtitles via speech-to-text on normalized audio. Returns <code>{"segments": 142}</code>.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
-              <span class="node-title">Workflow End</span>
-              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 14</span> <span class="badge lock-release">lock released</span>
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
             </div>
-            <div class="node-desc"><code>steps[5].status &rarr; "completed"</code>. <code>workflow.status &rarr; "completed"</code>.</div>
+            <div class="node-desc"><code>steps[9].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
       <div class="step-transitions">
-        <div class="tx-block tx-green">
-          <div class="tx-label">Locks</div>
-          <div class="tx-value">1 claim</div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
         </div>
         <div class="tx-block tx-indigo">
-          <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token &rarr; 14</div>
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
         </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 10 &mdash; generate_subtitles</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"steps[9]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"generate_subtitles"</span>,
+    <span class="key">"name"</span>: <span class="str">"generate_subtitles"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"subtitle_path"</span>: <span class="str">"/processed/asset-b7e2/subtitles.vtt"</span>,
+      <span class="key">"language"</span>: <span class="str">"en"</span>,
+      <span class="key">"segments"</span>: <span class="num">142</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+    <div class="step-section sync-step" id="step-package_hls">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 11 &mdash; package_hls (sync)</div>
+        <div class="dep-info">Depends on: <code>detect_faces</code>, <code>generate_subtitles</code>, <code>generate_waveform</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[10].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">package_hls()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Packages video, audio, subtitles, face data, and waveform into HLS streaming format.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
+            </div>
+            <div class="node-desc"><code>steps[10].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 11 &mdash; package_hls</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"steps[10]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"package_hls"</span>,
+    <span class="key">"name"</span>: <span class="str">"package_hls"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"manifest_url"</span>: <span class="str">"/processed/asset-b7e2/master.m3u8"</span>,
+      <span class="key">"segment_count"</span>: <span class="num">187</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="parallel-group">
+
+      <div class="parallel-group-label">Parallel execution</div>
+
+    <div class="step-section sync-step" id="step-publish_cdn">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 12 &mdash; publish_cdn (sync)</div>
+        <div class="dep-info">Depends on: <code>package_hls</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[11].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">publish_cdn()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Pushes HLS package to CDN. Returns <code>{"cdn_url": "https://cdn.example.com/..."}</code>.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span>
+            </div>
+            <div class="node-desc"><code>steps[11].status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 12 &mdash; publish_cdn</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"steps[11]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"publish_cdn"</span>,
+    <span class="key">"name"</span>: <span class="str">"publish_cdn"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"cdn_url"</span>: <span class="str">"https://cdn.example.com/asset-b7e2"</span>,
+      <span class="key">"cache_key"</span>: <span class="str">"ck-9f3a"</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-section sync-step" id="step-update_catalog">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 13 &mdash; update_catalog (sync)</div>
+        <div class="dep-info">Depends on: <code>package_hls</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[12].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">update_catalog()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Registers processed media in catalog. Returns <code>{"catalog_id": "cat-e7f1"}</code>.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Workflow End</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 10</span> <span class="badge lock-release">lock released</span>
+            </div>
+            <div class="node-desc"><code>steps[12].status &rarr; "completed"</code>. <code>workflow.status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
         <div class="tx-block tx-indigo">
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; submitted</div>
@@ -1103,25 +1535,25 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 6 &mdash; health_check</div>
+          <div class="panel-title">After Step 13 &mdash; update_catalog</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"fence_token"</span>: <span class="num">14</span>,
   <span class="key">"locked_by"</span>: <span class="kw">null</span>,
   <span class="key">"status"</span>: <span class="str">"completed"</span>,
-  <span class="key">"steps[5]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"health_check"</span>,
-    <span class="key">"name"</span>: <span class="str">"health_check"</span>,
+  <span class="key">"steps[12]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"update_catalog"</span>,
+    <span class="key">"name"</span>: <span class="str">"update_catalog"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"status_code"</span>: <span class="num">200</span>,
-      <span class="key">"response_time_ms"</span>: <span class="num">45.2</span>,
-      <span class="key">"healthy"</span>: <span class="kw">true</span>
+      <span class="key">"catalog_id"</span>: <span class="str">"cat-e7f1"</span>,
+      <span class="key">"indexed"</span>: <span class="kw">true</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
 }</pre></div>
         </div>
       </div>
+    </div>
+
     </div>
 
 <div class="full-section completion">
@@ -1132,10 +1564,10 @@
         <div class="node-header">
           <span class="node-title">Workflow End</span>
           <span class="badge lock-release">lock released</span>
-          <span class="badge fence-badge">fence_token: 14</span>
+          <span class="badge fence-badge">fence_token: 10</span>
         </div>
         <div class="node-desc">
-          <code>workflow.status &rarr; "completed"</code>. All 6 steps finished. Lock released. No further sweeps will pick this workflow up.
+          <code>workflow.status &rarr; "completed"</code>. All 13 steps finished. Lock released. No further sweeps will pick this workflow up.
         </div>
       </div>
     </div>

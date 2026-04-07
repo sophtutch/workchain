@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Customer Onboarding &mdash; Flow Diagram</title>
+<title>ML Model Training &mdash; Flow Diagram</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -402,22 +402,22 @@
 <body>
 
 <div class="page-header">
-  <h1>Customer Onboarding &mdash; Flow Diagram</h1>
-  <div class="subtitle">Sweep-only discovery • Claim-poll-release for async steps • MongoDB as sole state store • Multi-instance safe</div>
+  <h1>ML Model Training &mdash; Flow Diagram</h1>
+  <div class="subtitle">Dataset • Split • Train (async — poll timeout) • Evaluate • Publish • Demonstrates poll failure path</div>
 </div>
 
 <div class="example-banner">
-  <div class="wf-name">Workflow: <code>customer_onboarding</code></div>
+  <div class="wf-name">Workflow: <code>ml_training</code></div>
   <div class="step-chips">
-    <span class="step-chip sync">1 &nbsp;validate_email</span>
-    <span class="step-chip sync">2 &nbsp;create_account</span>
-    <span class="step-chip async">3 &nbsp;provision_resources</span>
-    <span class="step-chip sync">4 &nbsp;send_welcome_email</span>
+    <span class="step-chip sync">1 &nbsp;prepare_dataset</span>
+    <span class="step-chip sync">2 &nbsp;split_train_test</span>
+    <span class="step-chip async">3 &nbsp;train_model</span>
+    <span class="step-chip sync">4 &nbsp;evaluate_model</span>
+    <span class="step-chip sync">5 &nbsp;publish_model</span>
   </div>
   <div class="feature-tags">
     <span class="feature-tag tag-sequential">sequential</span>
     <span class="feature-tag tag-async-polling">async polling</span>
-    <span class="feature-tag tag-retry">retry</span>
     <span class="feature-tag tag-multi-instance">multi-instance</span>
   </div>
 </div>
@@ -457,19 +457,23 @@
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-validate_email')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">1</span> validate_email<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-prepare_dataset')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">1</span> prepare_dataset<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-create_account')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">2</span> create_account<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-split_train_test')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">2</span> split_train_test<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-provision_resources')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">3</span> provision_resources<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-train_model')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">3</span> train_model<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
-      <div class="dep-node state-completed" onclick="document.getElementById('step-send_welcome_email')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">4</span> send_welcome_email<div class="dep-state">&rarr; completed</div></div>
+      <div class="dep-node state-completed" onclick="document.getElementById('step-evaluate_model')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">4</span> evaluate_model<div class="dep-state">&rarr; completed</div></div>
+    </div>
+    <div class="dep-connector"></div>
+    <div class="dep-tier">
+      <div class="dep-node state-completed" onclick="document.getElementById('step-publish_model')?.scrollIntoView({behavior:'smooth',block:'center'})"><span class="dep-num">5</span> publish_model<div class="dep-state">&rarr; completed</div></div>
     </div>
     <div class="dep-connector"></div>
     <div class="dep-tier">
@@ -500,7 +504,7 @@
         <span class="badge fence-badge">fence_token &rarr; 1</span>
       </div>
       <div class="node-desc">
-        Atomic <code>findOneAndUpdate</code> &mdash; sets <code>locked_by: "host1-a3f2"</code>, <code>status: "running"</code>, increments <code>fence_token</code>. Only one instance wins.
+        Atomic <code>findOneAndUpdate</code> &mdash; sets <code>locked_by: "gpu-node-1"</code>, <code>status: "running"</code>, increments <code>fence_token</code>. Only one instance wins.
       </div>
     </div>
   </div>
@@ -524,10 +528,10 @@
           <div class="panel-title">Start Workflow</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"_id"</span>: <span class="str">"wf_custom..."</span>,
+  <span class="key">"_id"</span>: <span class="str">"wf_ml_tra..."</span>,
   <span class="key">"fence_token"</span>: <span class="num">1</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"host1-a3f2"</span>,
-  <span class="key">"name"</span>: <span class="str">"customer_onboarding"</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"gpu-node-1"</span>,
+  <span class="key">"name"</span>: <span class="str">"ml_training"</span>,
   <span class="key">"status"</span>: <span class="str">"running"</span>,
   <span class="key">"steps"</span>: []
 }</pre></div>
@@ -535,9 +539,9 @@
       </div>
     </div>
 
-    <div class="step-section sync-step" id="step-validate_email">
+    <div class="step-section sync-step" id="step-prepare_dataset">
       <div class="step-flow-panel">
-        <div class="section-label">Step 1 &mdash; validate_email (sync, retry:3)</div>
+        <div class="section-label">Step 1 &mdash; prepare_dataset (sync)</div>
         <div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
@@ -551,10 +555,10 @@
 </div>
           <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">validate_email()</span>
+              <span class="node-title">prepare_dataset()</span>
               <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Handler validates email format. Returns <code>{"validated": true, "email": "user@co.com"}</code>.</div>
+            <div class="node-desc">Downloads and cleans training data. Returns <code>{"dataset_id": "ds-3f2a", "record_count": 50000}</code>.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
@@ -581,15 +585,15 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 1 &mdash; validate_email</div>
+          <div class="panel-title">After Step 1 &mdash; prepare_dataset</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
   <span class="key">"steps[0]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"validate_email"</span>,
-    <span class="key">"name"</span>: <span class="str">"validate_email"</span>,
+    <span class="key">"handler"</span>: <span class="str">"prepare_dataset"</span>,
+    <span class="key">"name"</span>: <span class="str">"prepare_dataset"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"validated"</span>: <span class="kw">true</span>,
-      <span class="key">"email"</span>: <span class="str">"user@co.com"</span>
+      <span class="key">"dataset_id"</span>: <span class="str">"ds-3f2a"</span>,
+      <span class="key">"record_count"</span>: <span class="num">50000</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -598,10 +602,10 @@
       </div>
     </div>
 
-    <div class="step-section sync-step" id="step-create_account">
+    <div class="step-section sync-step" id="step-split_train_test">
       <div class="step-flow-panel">
-        <div class="section-label">Step 2 &mdash; create_account (sync, retry:5, exponential backoff)</div>
-        <div class="dep-info">Depends on: <code>validate_email</code></div>
+        <div class="section-label">Step 2 &mdash; split_train_test (sync, 80/20 split)</div>
+        <div class="dep-info">Depends on: <code>prepare_dataset</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -614,17 +618,10 @@
 </div>
           <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">create_account()</span>
+              <span class="node-title">split_train_test()</span>
               <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Creates user account in the database. Exponential backoff with <code>wait_multiplier: 2.0</code>.</div>
-            <div class="retry-track">
-              <div class="retry-item"><span class="retry-dot fail"></span><span style="color:#f87171;">Attempt 1</span><span style="color:#6b7280;"> &mdash; failed</span></div>
-              <div class="retry-item"><span class="retry-wait">wait 1.0s</span></div>
-              <div class="retry-item"><span class="retry-dot fail"></span><span style="color:#f87171;">Attempt 2</span><span style="color:#6b7280;"> &mdash; failed</span></div>
-              <div class="retry-item"><span class="retry-wait">wait 2.0s</span></div>
-              <div class="retry-item"><span class="retry-dot ok"></span><span style="color:#34d399;">Attempt 3</span><span style="color:#6b7280;"> &mdash; success</span></div>
-            </div>
+            <div class="node-desc">Partitions dataset into train/test. Returns <code>{"train_count": 40000, "test_count": 10000}</code>.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
@@ -644,10 +641,6 @@
           <div class="tx-label">Handler</div>
           <div class="tx-value">sync exec</div>
         </div>
-        <div class="tx-block tx-red">
-          <div class="tx-label">Retries</div>
-          <div class="tx-value">2 retries</div>
-        </div>
         <div class="tx-block tx-green">
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; completed</div>
@@ -655,15 +648,15 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 2 &mdash; create_account</div>
+          <div class="panel-title">After Step 2 &mdash; split_train_test</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
   <span class="key">"steps[1]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"create_account"</span>,
-    <span class="key">"name"</span>: <span class="str">"create_account"</span>,
-    <span class="key">"attempt"</span>: <span class="num">3</span>,
+    <span class="key">"handler"</span>: <span class="str">"split_train_test"</span>,
+    <span class="key">"name"</span>: <span class="str">"split_train_test"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"user_id"</span>: <span class="str">"acc_7x9"</span>
+      <span class="key">"train_count"</span>: <span class="num">40000</span>,
+      <span class="key">"test_count"</span>: <span class="num">10000</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -672,10 +665,10 @@
       </div>
     </div>
 
-    <div class="step-section async-step" id="step-provision_resources">
+    <div class="step-section async-step" id="step-train_model">
       <div class="step-flow-panel">
-        <div class="section-label">Step 3 &mdash; provision_resources (async, poll×3, interval=2.0s, backoff=1.5×, timeout=60s)</div>
-        <div class="dep-info">Depends on: <code>create_account</code></div>
+        <div class="section-label">Step 3 &mdash; train_model (async, poll timeout=15s, max_polls=20)</div>
+        <div class="dep-info">Depends on: <code>split_train_test</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-submit">
   <div class="node-header">
@@ -688,10 +681,10 @@
 </div>
           <div class="step-node theme-async">
             <div class="node-header">
-              <span class="node-title">provision_resources()</span>
+              <span class="node-title">train_model()</span>
               <span class="badge engine-action">async submit</span>
             </div>
-            <div class="node-desc">Handler starts provisioning job. Returns <code>{"job_id": "prov_42"}</code>. Step &rarr; <code>BLOCKED</code>.</div>
+            <div class="node-desc">Submits training job. Completeness check always returns <code>complete=False</code> — loss never converges. Poll timeout fires after 15s.</div>
           </div>
 <div class="step-node theme-async">
   <div class="node-header">
@@ -710,18 +703,20 @@
             </div>
             <div class="node-desc">Fast sweep rediscovers workflow when <code>next_poll_at &le; now</code>. Different instances claim each poll.</div>
             <div class="poll-track">
-              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 3</span><span class="poll-instance">host1-a3f2</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">33%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:33%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
-              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot pending"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 4</span><span class="poll-instance">host2-b7e1</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">66%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:66%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
-              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 3</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 5</span><span class="poll-instance">host3-c4d9</span></div>
-              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#34d399;">100%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:100%; background:#34d399;"></div></div></div>
+              <div class="poll-item"><span class="poll-dot pending"></span><span><strong>Poll 1</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 3</span><span class="poll-instance">gpu-node-1</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">10%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:10%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
+              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot pending"></span><span><strong>Poll 2</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 4</span><span class="poll-instance">gpu-node-2</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">10%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:10%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
+              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot pending"></span><span><strong>Poll 3</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 5</span><span class="poll-instance">gpu-node-1</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#fbbf24;">10%</span><div class="poll-progress"><div class="poll-progress-fill" style="width:10%;"></div></div><span class="badge lock-release" style="font-size:0.6rem;">release</span></div>
+              <div class="poll-item" style="margin-top:0.3rem;"><span class="poll-dot done"></span><span><strong>Poll 4</strong></span><span class="badge lock-claim" style="font-size:0.6rem;">claim</span><span class="badge fence-badge" style="font-size:0.6rem;">fence &rarr; 6</span><span class="poll-instance">gpu-node-2</span></div>
+              <div class="poll-item" style="padding-left:1rem;"><span style="color:#9ca3af;">completeness_check &rarr;</span><span style="color:#34d399;">TIMEOUT</span><div class="poll-progress"><div class="poll-progress-fill" style="width:TIMEOUT;"></div></div></div>
             </div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
               <span class="node-title">Advance</span>
-              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 5</span> <span class="badge lock-release">lock released</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 6</span> <span class="badge lock-release">lock released</span>
             </div>
             <div class="node-desc"><code>steps[2].status &rarr; "completed"</code>.</div>
           </div>
@@ -742,11 +737,11 @@
         </div>
         <div class="tx-block tx-amber">
           <div class="tx-label">Polls</div>
-          <div class="tx-value">3 polls</div>
+          <div class="tx-value">4 polls</div>
         </div>
         <div class="tx-block tx-indigo">
           <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token +3</div>
+          <div class="tx-value">fence_token +4</div>
         </div>
         <div class="tx-block tx-green">
           <div class="tx-label">Step Status</div>
@@ -754,23 +749,23 @@
         </div>
         <div class="tx-block tx-red">
           <div class="tx-label">Locks</div>
-          <div class="tx-value">4 released</div>
+          <div class="tx-value">5 released</div>
         </div>
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 3 &mdash; provision_resources</div>
+          <div class="panel-title">After Step 3 &mdash; train_model</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"fence_token"</span>: <span class="num">5</span>,
-  <span class="key">"locked_by"</span>: <span class="str">"host3-c4d9"</span>,
+  <span class="key">"fence_token"</span>: <span class="num">6</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"gpu-node-2"</span>,
   <span class="key">"steps[2]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"provision_resources"</span>,
-    <span class="key">"name"</span>: <span class="str">"provision_resources"</span>,
+    <span class="key">"handler"</span>: <span class="str">"train_model"</span>,
+    <span class="key">"name"</span>: <span class="str">"train_model"</span>,
     <span class="key">"is_async"</span>: <span class="kw">true</span>,
-    <span class="key">"poll_count"</span>: <span class="num">3</span>,
+    <span class="key">"poll_count"</span>: <span class="num">4</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"job_id"</span>: <span class="str">"prov_42"</span>
+      <span class="key">"job_id"</span>: <span class="str">"train-a8c2"</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -779,16 +774,16 @@
       </div>
     </div>
 
-    <div class="step-section sync-step" id="step-send_welcome_email">
+    <div class="step-section sync-step" id="step-evaluate_model">
       <div class="step-flow-panel">
-        <div class="section-label">Step 4 &mdash; send_welcome_email (sync)</div>
-        <div class="dep-info">Depends on: <code>provision_resources</code></div>
+        <div class="section-label">Step 4 &mdash; evaluate_model (sync (never reached))</div>
+        <div class="dep-info">Depends on: <code>train_model</code></div>
         <div class="flow-timeline">
 <div class="step-node theme-engine">
   <div class="node-header">
     <span class="node-title">Fast Sweep &rarr; try_claim()</span>
     <span class="badge lock-claim">lock acquired</span>
-    <span class="badge fence-badge">fence &rarr; 6</span>
+    <span class="badge fence-badge">fence &rarr; 7</span>
   </div>
   <div class="node-desc">Sweep discovers step <code>3</code> ready, claims step lock.</div>
 </div>
@@ -803,17 +798,17 @@
 </div>
           <div class="step-node theme-sync">
             <div class="node-header">
-              <span class="node-title">send_welcome_email()</span>
+              <span class="node-title">evaluate_model()</span>
               <span class="badge engine-action">sync exec</span>
             </div>
-            <div class="node-desc">Sends welcome email via SMTP. Returns <code>{"email_sent": true}</code>.</div>
+            <div class="node-desc">Evaluates model accuracy on test split. <strong>Not reached</strong> — train_model fails via poll timeout.</div>
           </div>
           <div class="step-node theme-complete">
             <div class="node-header">
-              <span class="node-title">Workflow End</span>
-              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 6</span> <span class="badge lock-release">lock released</span>
+              <span class="node-title">Advance</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 7</span>
             </div>
-            <div class="node-desc"><code>steps[3].status &rarr; "completed"</code>. <code>workflow.status &rarr; "completed"</code>.</div>
+            <div class="node-desc"><code>steps[3].status &rarr; "completed"</code>.</div>
           </div>
         </div>
       </div>
@@ -824,8 +819,73 @@
         </div>
         <div class="tx-block tx-indigo">
           <div class="tx-label">Fence Token</div>
-          <div class="tx-value">fence_token &rarr; 6</div>
+          <div class="tx-value">fence_token &rarr; 7</div>
         </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; submitted</div>
+        </div>
+        <div class="tx-block tx-indigo">
+          <div class="tx-label">Handler</div>
+          <div class="tx-value">sync exec</div>
+        </div>
+        <div class="tx-block tx-green">
+          <div class="tx-label">Step Status</div>
+          <div class="tx-value">&rarr; completed</div>
+        </div>
+      </div>
+      <div class="step-doc">
+        <div class="panel">
+          <div class="panel-title">After Step 4 &mdash; evaluate_model</div>
+          <div class="doc-label">workflows collection</div>
+          <div class="mongo-doc"><pre>{
+  <span class="key">"fence_token"</span>: <span class="num">7</span>,
+  <span class="key">"locked_by"</span>: <span class="str">"gpu-node-3"</span>,
+  <span class="key">"steps[3]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"evaluate_model"</span>,
+    <span class="key">"name"</span>: <span class="str">"evaluate_model"</span>,
+    <span class="key">"result"</span>: {
+      <span class="key">"accuracy"</span>: <span class="num">0.92</span>,
+      <span class="key">"f1_score"</span>: <span class="num">0.89</span>
+    },
+    <span class="key">"status"</span>: <span class="str">"completed"</span>
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-section sync-step" id="step-publish_model">
+      <div class="step-flow-panel">
+        <div class="section-label">Step 5 &mdash; publish_model (sync (never reached))</div>
+        <div class="dep-info">Depends on: <code>evaluate_model</code></div>
+        <div class="flow-timeline">
+<div class="step-node theme-submit">
+  <div class="node-header">
+    <span class="node-title">Write-Ahead</span>
+    <span class="badge status-badge">SUBMITTED</span>
+  </div>
+  <div class="node-desc">
+    <code>steps[4].status &rarr; "submitted"</code> persisted to MongoDB <em>before</em> handler executes. Crash-safe boundary.
+  </div>
+</div>
+          <div class="step-node theme-sync">
+            <div class="node-header">
+              <span class="node-title">publish_model()</span>
+              <span class="badge engine-action">sync exec</span>
+            </div>
+            <div class="node-desc">Publishes trained model to registry. <strong>Not reached</strong> — workflow fails at train_model.</div>
+          </div>
+          <div class="step-node theme-complete">
+            <div class="node-header">
+              <span class="node-title">Workflow End</span>
+              <span class="badge status-badge">COMPLETED</span> <span class="badge fence-badge">fence_token: 7</span> <span class="badge lock-release">lock released</span>
+            </div>
+            <div class="node-desc"><code>steps[4].status &rarr; "completed"</code>. <code>workflow.status &rarr; "completed"</code>.</div>
+          </div>
+        </div>
+      </div>
+      <div class="step-transitions">
         <div class="tx-block tx-indigo">
           <div class="tx-label">Step Status</div>
           <div class="tx-value">&rarr; submitted</div>
@@ -849,17 +909,17 @@
       </div>
       <div class="step-doc">
         <div class="panel">
-          <div class="panel-title">After Step 4 &mdash; send_welcome_email</div>
+          <div class="panel-title">After Step 5 &mdash; publish_model</div>
           <div class="doc-label">workflows collection</div>
           <div class="mongo-doc"><pre>{
-  <span class="key">"fence_token"</span>: <span class="num">6</span>,
   <span class="key">"locked_by"</span>: <span class="kw">null</span>,
   <span class="key">"status"</span>: <span class="str">"completed"</span>,
-  <span class="key">"steps[3]"</span>: {
-    <span class="key">"handler"</span>: <span class="str">"send_welcome_email"</span>,
-    <span class="key">"name"</span>: <span class="str">"send_welcome_email"</span>,
+  <span class="key">"steps[4]"</span>: {
+    <span class="key">"handler"</span>: <span class="str">"publish_model"</span>,
+    <span class="key">"name"</span>: <span class="str">"publish_model"</span>,
     <span class="key">"result"</span>: {
-      <span class="key">"email_sent"</span>: <span class="kw">true</span>
+      <span class="key">"model_uri"</span>: <span class="str">"registry/models/train-a8c2"</span>,
+      <span class="key">"version"</span>: <span class="str">"1.0.0"</span>
     },
     <span class="key">"status"</span>: <span class="str">"completed"</span>
   }
@@ -876,10 +936,10 @@
         <div class="node-header">
           <span class="node-title">Workflow End</span>
           <span class="badge lock-release">lock released</span>
-          <span class="badge fence-badge">fence_token: 6</span>
+          <span class="badge fence-badge">fence_token: 7</span>
         </div>
         <div class="node-desc">
-          <code>workflow.status &rarr; "completed"</code>. All 4 steps finished. Lock released. No further sweeps will pick this workflow up.
+          <code>workflow.status &rarr; "completed"</code>. All 5 steps finished. Lock released. No further sweeps will pick this workflow up.
         </div>
       </div>
     </div>

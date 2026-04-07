@@ -176,6 +176,7 @@ class WorkflowEngine:
             step_status=step.status.value if step else None,
             is_async=step.is_async if step else None,
             idempotent=step.idempotent if step else None,
+            step_depends_on=step.depends_on if step else None,
             **kwargs,
         )
         await self._store.emit(event)
@@ -310,7 +311,7 @@ class WorkflowEngine:
                             await asyncio.wait_for(
                                 asyncio.shield(active.task), timeout=5.0,
                             )
-                        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                        except (TimeoutError, asyncio.CancelledError, Exception):
                             pass
                         # _run_step's finally block pops from _active;
                         # remove here as a safety net in case it didn't.
@@ -742,6 +743,7 @@ class WorkflowEngine:
         now = datetime.now(UTC)
         wf_id = wf.id
         key = (wf_id, step_name)
+        step_idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), None)
 
         # --- Check timeout ---
         poll_started_at = step.poll_started_at or now
@@ -763,11 +765,17 @@ class WorkflowEngine:
                 wf = await self._store.fail_step_by_name(
                     wf_id, step_name, step_fence,
                     result=fail_result,
-                    audit_event_type=AuditEventType.POLL_TIMEOUT,
                     step_status_before=StepStatus.BLOCKED.value,
                     poll_elapsed_seconds=elapsed,
                 )
                 if wf:
+                    await self._emit_event(
+                        AuditEventType.POLL_TIMEOUT, wf,
+                        step=wf.step_by_name(step_name), idx=step_idx,
+                        step_fence_token=step_fence,
+                        error=f"Poll timeout after {elapsed:.1f}s",
+                        poll_elapsed_seconds=elapsed,
+                    )
                     await self._store.try_fail_workflow(wf_id)
                 return "failed"
 
@@ -781,11 +789,17 @@ class WorkflowEngine:
             wf = await self._store.fail_step_by_name(
                 wf_id, step_name, step_fence,
                 result=fail_result,
-                audit_event_type=AuditEventType.POLL_MAX_EXCEEDED,
                 step_status_before=StepStatus.BLOCKED.value,
                 poll_count=step.poll_count,
             )
             if wf:
+                await self._emit_event(
+                    AuditEventType.POLL_MAX_EXCEEDED, wf,
+                    step=wf.step_by_name(step_name), idx=step_idx,
+                    step_fence_token=step_fence,
+                    error=f"Exceeded max poll count ({policy.max_polls})",
+                    poll_count=step.poll_count,
+                )
                 await self._store.try_fail_workflow(wf_id)
             return "failed"
 
@@ -814,13 +828,18 @@ class WorkflowEngine:
             wf = await self._store.fail_step_by_name(
                 wf_id, step_name, step_fence,
                 result=fail_result,
-                audit_event_type=AuditEventType.POLL_CHECK_ERRORS_EXCEEDED,
                 step_status_before=StepStatus.BLOCKED.value,
                 poll_count=step.poll_count,
             )
             if wf:
+                await self._emit_event(
+                    AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, wf,
+                    step=wf.step_by_name(step_name), idx=step_idx,
+                    step_fence_token=step_fence,
+                    error=traceback.format_exc(),
+                    poll_count=step.poll_count,
+                )
                 await self._store.try_fail_workflow(wf_id)
-            self._active.pop(key, None)
             return "failed"
 
         # --- Parse check result (outside retry block to avoid masking) ---
@@ -842,11 +861,18 @@ class WorkflowEngine:
                 last_poll_at=now,
                 last_poll_progress=poll_progress,
                 last_poll_message=poll_message,
-                audit_event_type=AuditEventType.POLL_CHECKED,
                 step_status_before=StepStatus.BLOCKED.value,
             )
             if wf is None:
                 return "lost_lock"
+            await self._emit_event(
+                AuditEventType.POLL_CHECKED, wf,
+                step=wf.step_by_name(step_name), idx=step_idx,
+                step_fence_token=step_fence,
+                poll_count=new_poll_count,
+                poll_progress=poll_progress,
+                poll_message=poll_message,
+            )
 
             logger.info(
                 "Step %s completeness check passed (polls=%d)",
