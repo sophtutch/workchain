@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from motor.motor_asyncio import AsyncIOMotorClient
+from mongomock_motor import AsyncMongoMockClient
 
 # Import steps so decorators register handlers
 from examples.data_pipeline_etl import steps as _steps  # noqa: F401
@@ -26,11 +26,8 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     # ---- Mongo setup (mongomock for local demo) ----
-    mongo_client: AsyncIOMotorClient = AsyncIOMotorClient(
-        "mongodb://localhost:27017",
-        # mongomock-motor intercepts this when installed
-    )
-    db = mongo_client["etl_demo"]
+    client = AsyncMongoMockClient()
+    db = client["etl_demo"]
     audit = MongoAuditLogger(db)
     store = MongoWorkflowStore(db, lock_ttl_seconds=15, audit_logger=audit, instance_id="etl-demo")
 
