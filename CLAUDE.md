@@ -73,6 +73,44 @@ workchain/
 - Framework-agnostic: works with FastAPI, CLI scripts, or bare asyncio
 - Context values should be accessed with `cast()` for type safety
 
+## Python style guide
+
+### Module and method size
+- **Target: ≤500 lines per module, ≤80 lines per function/method.** Files above 500 lines become hard to navigate; methods above 80 lines become hard to reason about.
+- **Current debt:** `engine.py` (1,025 lines), `store.py` (1,089 lines), and `audit_report.py` (1,358 lines) exceed this. Do not make them larger — extract when adding functionality. Key offenders: `_poll_once` (218 lines), `_run_step` (169 lines), `_recover_step` (125 lines), `_render_step_section` (299 lines).
+- When a method grows past ~80 lines, extract a well-named private helper. The engine and store already do this well in most places (e.g. `_build_results`, `_wrap_handler_return`, `_fenced_step_update_by_name`).
+- Use `# ---------------------------------------------------------------------------` section dividers between logical groups within a module (already used in `engine.py` and `store.py` — maintain this pattern).
+
+### Type annotations
+- Every module starts with `from __future__ import annotations` (already enforced across the codebase).
+- Use modern generics: `list[str]`, `dict[str, StepResult]` — never `typing.List` or `typing.Dict`.
+- All function signatures must be fully typed. Avoid `Any` unless truly unavoidable (acceptable for `_call_handler`'s dynamic dispatch).
+- Use `cast()` when accessing specific result types from the `results` dict — never downcast via indexing alone.
+
+### Docstrings
+- **Required** on every public function, class, method, and decorator. Use Google style (Args/Returns/Raises sections).
+- **Current debt:** `store.py` has 17 public methods without docstrings; `models.py` has no class docstrings on `Step`, `Workflow`, `StepStatus`, `WorkflowStatus`; decorators `step()`, `async_step()`, `completeness_check()` lack docstrings. Add docstrings when touching these.
+- Private methods (`_name`) need a docstring if their purpose is not obvious from name + context.
+
+### Naming
+- `snake_case` for functions, methods, variables, parameters.
+- `PascalCase` for classes, models, enums.
+- `UPPER_SNAKE_CASE` for module-level constants.
+- Internal variables: be descriptive (`claimable_steps`, `fenced_update`, `next_poll_at`). Avoid cryptic abbreviations except where already established (`ttl`, `id`, `wf`).
+
+### Async and concurrency
+- Never block the event loop — no `time.sleep`, no synchronous I/O. Use `asyncio.sleep`.
+- Heartbeat and sweep loops must be cancellation-safe (handle `CancelledError` gracefully).
+- All MongoDB writes go through `MongoWorkflowStore` methods — never raw `collection.update_one` outside the store.
+
+### Error handling
+- No bare `except:`. Always catch specific exceptions or `except Exception:` with `logger.exception()`.
+- Retry logic: use `retry.py` utilities or the `retry=` parameter on decorators — never manual retry loops.
+- On step failure: populate `StepResult.error` and `StepResult.error_traceback`.
+
+### Dependencies
+- Keep the library lightweight. Never add new third-party dependencies without explicit justification. Current runtime deps: `pydantic`, `motor`, `tenacity`.
+
 ## Conventions
 
 - Step result and config fields must be JSON-serializable.
@@ -111,10 +149,10 @@ The **store** emits structured `AuditEvent` objects for every MongoDB write that
 
 ## Flow diagram generation
 
-`examples/generate_diagrams.py` generates self-contained `flow_diagram.html` files for all 5 example workflows. Each HTML file shows the complete step execution flow with retry scenarios, polling phases, instance claim/release cycles, fence token progression, and MongoDB document diffs.
+`examples/generate_diagrams.py` generates self-contained `flow_diagram.html` files for all 7 example workflows. Each HTML file shows the complete step execution flow with retry scenarios, polling phases, instance claim/release cycles, fence token progression, and MongoDB document diffs.
 
 ```bash
 python examples/generate_diagrams.py
 ```
 
-The generator uses Python dataclasses (`WorkflowData`, `StepData`, `RetryScenario`, `PollScenario`) to define per-example data, and renders all 5 files from a shared CSS/HTML template with no external dependencies.
+The generator uses Python dataclasses (`WorkflowData`, `StepData`, `RetryScenario`, `PollScenario`) to define per-example data, and renders all 7 files from a shared CSS/HTML template with no external dependencies.
