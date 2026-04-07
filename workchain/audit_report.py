@@ -855,56 +855,25 @@ def _render_discovery(
     return f'    <div class="step-section discovery">\n{flow}{tx_col}{doc}    </div>\n'
 
 
-def _render_step_section(
+def _render_flow_nodes(
     idx: int,
-    step_events: list[AuditEvent],
+    step_name: str,
+    step_handler: str,
+    is_async: bool,
+    label: str,
+    dep_html: str,
+    recovery: list[AuditEvent],
+    submitted: list[AuditEvent],
+    running: list[AuditEvent],
+    blocked: list[AuditEvent],
+    completed: list[AuditEvent],
+    failed: list[AuditEvent],
+    polls: list[AuditEvent],
+    poll_timeout: list[AuditEvent],
+    poll_max: list[AuditEvent],
+    poll_check_errors: list[AuditEvent],
 ) -> str:
-    """Render a single step's 3-column section from its audit events."""
-    if not step_events:
-        return ""
-
-    step_name = step_events[0].step_name or f"step_{idx}"
-    step_handler = step_events[0].step_handler or "unknown"
-    is_async = any(e.is_async for e in step_events)
-    step_num = idx + 1
-
-    # Classify events (single pass)
-    by_type: dict[AuditEventType, list[AuditEvent]] = {}
-    recovery: list[AuditEvent] = []
-    for e in step_events:
-        if e.event_type.value.startswith("recovery_"):
-            recovery.append(e)
-        by_type.setdefault(e.event_type, []).append(e)
-    submitted = by_type.get(AuditEventType.STEP_SUBMITTED, [])
-    running = by_type.get(AuditEventType.STEP_RUNNING, [])
-    completed = by_type.get(AuditEventType.STEP_COMPLETED, [])
-    failed = by_type.get(AuditEventType.STEP_FAILED, [])
-    blocked = by_type.get(AuditEventType.STEP_BLOCKED, [])
-    polls = by_type.get(AuditEventType.POLL_CHECKED, [])
-    poll_timeout = by_type.get(AuditEventType.POLL_TIMEOUT, [])
-    poll_max = by_type.get(AuditEventType.POLL_MAX_EXCEEDED, [])
-    poll_check_errors = by_type.get(AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, [])
-    lock_released = by_type.get(AuditEventType.LOCK_RELEASED, [])
-    advanced = by_type.get(AuditEventType.STEP_ADVANCED, [])
-
-    # --- Dependency info ---
-    step_deps: list[str] | None = None
-    for e in step_events:
-        if e.step_depends_on is not None:
-            step_deps = e.step_depends_on
-            break
-
-    dep_html = ""
-    if step_deps is not None:
-        if len(step_deps) == 0:
-            dep_html = '<div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>\n'
-        else:
-            dep_names = ", ".join(f"<code>{_esc(d)}</code>" for d in step_deps)
-            dep_html = f'<div class="dep-info">Depends on: {dep_names}</div>\n'
-
-    # --- Flow panel ---
-    mode = "async" if is_async else "sync"
-    label = f"Step {step_num} &mdash; {_esc(step_name)} ({mode})"
+    """Build the flow-timeline panel with all step nodes."""
     nodes = []
 
     # Recovery nodes
@@ -954,7 +923,6 @@ def _render_step_section(
             handler_node += '            <div class="retry-track">\n'
             for ri, r_evt in enumerate(running):
                 is_last_running = ri == len(running) - 1
-                # If this isn't the last attempt, or it's the last and step failed, it's a fail dot
                 is_fail = not is_last_running or bool(failed)
                 dot_cls = "fail" if is_fail else "ok"
                 color = "#f87171" if is_fail else "#34d399"
@@ -1056,7 +1024,7 @@ def _render_step_section(
             f"          </div>\n"
         )
 
-    flow_panel = (
+    return (
         f'      <div class="step-flow-panel">\n'
         f'        <div class="section-label">{label}</div>\n'
         + (f"        {dep_html}" if dep_html else "")
@@ -1065,8 +1033,23 @@ def _render_step_section(
         + "        </div>\n      </div>\n"
     )
 
-    # --- Transition column ---
-    # Show the chronological claim-execute-release lifecycle phases.
+
+def _render_step_transitions(
+    step_events: list[AuditEvent],
+    is_async: bool,
+    step_num: int,
+    submitted: list[AuditEvent],
+    running: list[AuditEvent],
+    blocked: list[AuditEvent],
+    completed: list[AuditEvent],
+    failed: list[AuditEvent],
+    advanced: list[AuditEvent],
+    polls: list[AuditEvent],
+    poll_timeout: list[AuditEvent],
+    poll_max: list[AuditEvent],
+    poll_check_errors: list[AuditEvent],
+) -> str:
+    """Build the chronological transition column for a step."""
     txs = []
     claim_events = [e for e in step_events if e.event_type == AuditEventType.STEP_CLAIMED]
 
@@ -1120,11 +1103,18 @@ def _render_step_section(
     if advanced:
         txs.append(_tx("purple", "Step Index", f"idx &rarr; {step_num}"))
 
-    tx_col = f'      <div class="step-transitions">\n{"".join(txs)}      </div>\n'
+    return f'      <div class="step-transitions">\n{"".join(txs)}      </div>\n'
 
-    # --- Doc diff panel ---
+
+def _render_step_doc_panel(
+    idx: int,
+    step_name: str,
+    step_num: int,
+    completed: list[AuditEvent],
+    failed: list[AuditEvent],
+) -> str:
+    """Build the MongoDB document diff panel for a step."""
     doc_fields: dict = {}
-    # Use the last meaningful event's data
     final = completed[0] if completed else (failed[0] if failed else None)
     if final and final.result_summary:
         if final.fence_token:
@@ -1141,7 +1131,7 @@ def _render_step_section(
             "error": _truncate(final.error),
         }
 
-    doc = (
+    return (
         '      <div class="step-doc">\n'
         '        <div class="panel">\n'
         f'          <div class="panel-title">After Step {step_num} &mdash; {_esc(step_name)}</div>\n'
@@ -1149,6 +1139,70 @@ def _render_step_section(
         "        </div>\n"
         "      </div>\n"
     )
+
+
+def _render_step_section(
+    idx: int,
+    step_events: list[AuditEvent],
+) -> str:
+    """Render a single step's 3-column section from its audit events."""
+    if not step_events:
+        return ""
+
+    step_name = step_events[0].step_name or f"step_{idx}"
+    step_handler = step_events[0].step_handler or "unknown"
+    is_async = any(e.is_async for e in step_events)
+    step_num = idx + 1
+
+    # Classify events (single pass)
+    by_type: dict[AuditEventType, list[AuditEvent]] = {}
+    recovery: list[AuditEvent] = []
+    for e in step_events:
+        if e.event_type.value.startswith("recovery_"):
+            recovery.append(e)
+        by_type.setdefault(e.event_type, []).append(e)
+    submitted = by_type.get(AuditEventType.STEP_SUBMITTED, [])
+    running = by_type.get(AuditEventType.STEP_RUNNING, [])
+    completed = by_type.get(AuditEventType.STEP_COMPLETED, [])
+    failed = by_type.get(AuditEventType.STEP_FAILED, [])
+    blocked = by_type.get(AuditEventType.STEP_BLOCKED, [])
+    polls = by_type.get(AuditEventType.POLL_CHECKED, [])
+    poll_timeout = by_type.get(AuditEventType.POLL_TIMEOUT, [])
+    poll_max = by_type.get(AuditEventType.POLL_MAX_EXCEEDED, [])
+    poll_check_errors = by_type.get(AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, [])
+    lock_released = by_type.get(AuditEventType.LOCK_RELEASED, [])
+    advanced = by_type.get(AuditEventType.STEP_ADVANCED, [])
+
+    # --- Dependency info ---
+    step_deps: list[str] | None = None
+    for e in step_events:
+        if e.step_depends_on is not None:
+            step_deps = e.step_depends_on
+            break
+
+    dep_html = ""
+    if step_deps is not None:
+        if len(step_deps) == 0:
+            dep_html = '<div class="dep-info"><span class="root-tag">root step</span> no dependencies</div>\n'
+        else:
+            dep_names = ", ".join(f"<code>{_esc(d)}</code>" for d in step_deps)
+            dep_html = f'<div class="dep-info">Depends on: {dep_names}</div>\n'
+
+    # --- Build the three columns ---
+    mode = "async" if is_async else "sync"
+    label = f"Step {step_num} &mdash; {_esc(step_name)} ({mode})"
+
+    flow_panel = _render_flow_nodes(
+        idx, step_name, step_handler, is_async, label, dep_html,
+        recovery, submitted, running, blocked, completed, failed,
+        polls, poll_timeout, poll_max, poll_check_errors,
+    )
+    tx_col = _render_step_transitions(
+        step_events, is_async, step_num,
+        submitted, running, blocked, completed, failed, advanced,
+        polls, poll_timeout, poll_max, poll_check_errors,
+    )
+    doc = _render_step_doc_panel(idx, step_name, step_num, completed, failed)
 
     step_cls = "step-section async-step" if is_async else "step-section sync-step"
     return f'    <div class="{step_cls}" id="step-{_esc(step_name)}">\n{flow_panel}{tx_col}{doc}    </div>\n'

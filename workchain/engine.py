@@ -365,51 +365,10 @@ class WorkflowEngine:
                         continue
 
                     if anomaly == "orphaned_workflow":
-                        # Re-validate on the fresh document: all steps must
-                        # still be terminal to avoid resolving a workflow that
-                        # has been reclaimed since the anomaly was detected.
-                        if any(
-                            s.status not in (StepStatus.COMPLETED, StepStatus.FAILED)
-                            for s in sweep_wf.steps
-                        ):
-                            continue
-
-                        if sweep_wf.has_failed_step():
-                            result = await self._store.try_fail_workflow(wf_id)
-                        else:
-                            result = await self._store.try_complete_workflow(wf_id)
-                        if result is None:
-                            continue  # concurrent resolution by another instance
-                        logger.warning(
-                            "Sweep resolved orphaned_workflow=%s",
-                            wf_id,
-                        )
-                        await self._emit_event(
-                            AuditEventType.SWEEP_ANOMALY, sweep_wf,
-                            anomaly_type=anomaly,
-                        )
-                        resolved += 1
+                        if await self._resolve_orphaned_workflow(wf_id, sweep_wf, anomaly):
+                            resolved += 1
                     elif step_name:
-                        # Step-level anomaly: force-release the step lock
-                        logger.warning(
-                            "Sweep detected anomaly=%s on workflow=%s step=%s, "
-                            "force-releasing step lock",
-                            anomaly, wf_id, step_name,
-                        )
-                        released = await self._store.force_release_step_lock(
-                            wf_id, step_name,
-                        )
-                        if released:
-                            step = sweep_wf.step_by_name(step_name)
-                            await self._emit_event(
-                                AuditEventType.SWEEP_ANOMALY, sweep_wf,
-                                step=step, anomaly_type=anomaly,
-                            )
-                            await self._emit_event(
-                                AuditEventType.LOCK_FORCE_RELEASED, sweep_wf,
-                                step=step, lock_released=True,
-                                anomaly_type=anomaly,
-                            )
+                        if await self._resolve_step_anomaly(wf_id, step_name, sweep_wf, anomaly):
                             resolved += 1
 
                 if resolved:
@@ -419,6 +378,51 @@ class WorkflowEngine:
                 logger.exception("Error in sweep loop")
 
             await self._wait(self._sweep_interval)
+
+    async def _resolve_orphaned_workflow(
+        self, wf_id: str, sweep_wf: Workflow, anomaly: str,
+    ) -> bool:
+        """Resolve an orphaned workflow where all steps are terminal but status is RUNNING."""
+        # Re-validate: all steps must still be terminal
+        if any(
+            s.status not in (StepStatus.COMPLETED, StepStatus.FAILED)
+            for s in sweep_wf.steps
+        ):
+            return False
+
+        if sweep_wf.has_failed_step():
+            result = await self._store.try_fail_workflow(wf_id)
+        else:
+            result = await self._store.try_complete_workflow(wf_id)
+        if result is None:
+            return False  # concurrent resolution by another instance
+        logger.warning("Sweep resolved orphaned_workflow=%s", wf_id)
+        await self._emit_event(
+            AuditEventType.SWEEP_ANOMALY, sweep_wf, anomaly_type=anomaly,
+        )
+        return True
+
+    async def _resolve_step_anomaly(
+        self, wf_id: str, step_name: str, sweep_wf: Workflow, anomaly: str,
+    ) -> bool:
+        """Force-release a step lock for a stuck or stale-locked step."""
+        logger.warning(
+            "Sweep detected anomaly=%s on workflow=%s step=%s, force-releasing step lock",
+            anomaly, wf_id, step_name,
+        )
+        released = await self._store.force_release_step_lock(wf_id, step_name)
+        if not released:
+            return False
+        step = sweep_wf.step_by_name(step_name)
+        await self._emit_event(
+            AuditEventType.SWEEP_ANOMALY, sweep_wf,
+            step=step, anomaly_type=anomaly,
+        )
+        await self._emit_event(
+            AuditEventType.LOCK_FORCE_RELEASED, sweep_wf,
+            step=step, lock_released=True, anomaly_type=anomaly,
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Step execution — single step claim-to-completion
@@ -548,20 +552,7 @@ class WorkflowEngine:
                 if wf is None:
                     return
 
-                # Remove from active BEFORE releasing lock to prevent
-                # the heartbeat loop from heartbeating a released step
-                self._active.pop(key, None)
-
-                # RELEASE LOCK — any instance can pick up the next poll
-                await self._store.release_step_lock(
-                    wf_id, step_name, self._instance_id, step_fence,
-                )
-                await self._emit_event(
-                    AuditEventType.LOCK_RELEASED, wf,
-                    step=wf.step_by_name(step_name),
-                    step_fence_token=step_fence,
-                    lock_released=True,
-                )
+                await self._release_and_emit_lock(wf, wf_id, step_name, step_fence, key)
                 logger.info(
                     "Step %s submitted, lock released. Next poll at %s",
                     step_name,
@@ -758,50 +749,22 @@ class WorkflowEngine:
                     elapsed,
                     policy.timeout,
                 )
-                fail_result = StepResult(
-                    error=f"Poll timeout after {elapsed:.1f}s",
-                    completed_at=now,
-                )
-                wf = await self._store.fail_step_by_name(
-                    wf_id, step_name, step_fence,
-                    result=fail_result,
-                    step_status_before=StepStatus.BLOCKED.value,
+                return await self._fail_poll_step(
+                    wf_id, step_name, step_fence, step_idx,
+                    error_msg=f"Poll timeout after {elapsed:.1f}s",
+                    event_type=AuditEventType.POLL_TIMEOUT,
                     poll_elapsed_seconds=elapsed,
                 )
-                if wf:
-                    await self._emit_event(
-                        AuditEventType.POLL_TIMEOUT, wf,
-                        step=wf.step_by_name(step_name), idx=step_idx,
-                        step_fence_token=step_fence,
-                        error=f"Poll timeout after {elapsed:.1f}s",
-                        poll_elapsed_seconds=elapsed,
-                    )
-                    await self._store.try_fail_workflow(wf_id)
-                return "failed"
 
         # --- Check max polls ---
         if policy.max_polls > 0 and step.poll_count >= policy.max_polls:
             logger.error("Step %s exceeded max polls (%d)", step.name, policy.max_polls)
-            fail_result = StepResult(
-                error=f"Exceeded max poll count ({policy.max_polls})",
-                completed_at=now,
-            )
-            wf = await self._store.fail_step_by_name(
-                wf_id, step_name, step_fence,
-                result=fail_result,
-                step_status_before=StepStatus.BLOCKED.value,
+            return await self._fail_poll_step(
+                wf_id, step_name, step_fence, step_idx,
+                error_msg=f"Exceeded max poll count ({policy.max_polls})",
+                event_type=AuditEventType.POLL_MAX_EXCEEDED,
                 poll_count=step.poll_count,
             )
-            if wf:
-                await self._emit_event(
-                    AuditEventType.POLL_MAX_EXCEEDED, wf,
-                    step=wf.step_by_name(step_name), idx=step_idx,
-                    step_fence_token=step_fence,
-                    error=f"Exceeded max poll count ({policy.max_polls})",
-                    poll_count=step.poll_count,
-                )
-                await self._store.try_fail_workflow(wf_id)
-            return "failed"
 
         # --- Execute completeness check (with retries) ---
         check_meta = getattr(checker, "_step_meta", {})
@@ -821,26 +784,12 @@ class WorkflowEngine:
                 check_retry_policy.max_attempts,
                 step.name,
             )
-            fail_result = StepResult(
-                error=traceback.format_exc(),
-                completed_at=now,
-            )
-            wf = await self._store.fail_step_by_name(
-                wf_id, step_name, step_fence,
-                result=fail_result,
-                step_status_before=StepStatus.BLOCKED.value,
+            return await self._fail_poll_step(
+                wf_id, step_name, step_fence, step_idx,
+                error_msg=traceback.format_exc(),
+                event_type=AuditEventType.POLL_CHECK_ERRORS_EXCEEDED,
                 poll_count=step.poll_count,
             )
-            if wf:
-                await self._emit_event(
-                    AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, wf,
-                    step=wf.step_by_name(step_name), idx=step_idx,
-                    step_fence_token=step_fence,
-                    error=traceback.format_exc(),
-                    poll_count=step.poll_count,
-                )
-                await self._store.try_fail_workflow(wf_id)
-            return "failed"
 
         # --- Parse check result (outside retry block to avoid masking) ---
         is_complete = check_result.complete
@@ -906,20 +855,8 @@ class WorkflowEngine:
         if wf is None:
             return "lost_lock"
 
-        # Remove from active BEFORE releasing lock to prevent heartbeat race
-        self._active.pop(key, None)
-
-
         # Release lock — claim loop will rediscover when next_poll_at passes
-        await self._store.release_step_lock(
-            wf_id, step_name, self._instance_id, step_fence,
-        )
-        step_obj = wf.step_by_name(step_name)
-        await self._emit_event(
-            AuditEventType.LOCK_RELEASED, wf,
-            step=step_obj, step_fence_token=step_fence,
-            lock_released=True,
-        )
+        await self._release_and_emit_lock(wf, wf_id, step_name, step_fence, key)
 
         logger.debug(
             "Step %s poll %d: not complete, next poll in %.1fs%s. Lock released.",
@@ -931,6 +868,71 @@ class WorkflowEngine:
             else "",
         )
         return "released"
+
+    # ------------------------------------------------------------------
+    # Shared poll / lock helpers
+    # ------------------------------------------------------------------
+
+    async def _fail_poll_step(
+        self,
+        wf_id: str,
+        step_name: str,
+        step_fence: int,
+        step_idx: int | None,
+        error_msg: str,
+        event_type: AuditEventType,
+        **event_kwargs: Any,
+    ) -> Literal["failed"]:
+        """Fail a BLOCKED step during polling and emit a diagnostic event.
+
+        Used by poll timeout, max-polls-exceeded, and check-errors-exceeded
+        paths, which differ only in error message and event type.
+        """
+        fail_result = StepResult(
+            error=error_msg,
+            completed_at=datetime.now(UTC),
+        )
+        wf = await self._store.fail_step_by_name(
+            wf_id, step_name, step_fence,
+            result=fail_result,
+            step_status_before=StepStatus.BLOCKED.value,
+            **{k: v for k, v in event_kwargs.items()
+               if k in ("poll_elapsed_seconds", "poll_count")},
+        )
+        if wf:
+            await self._emit_event(
+                event_type, wf,
+                step=wf.step_by_name(step_name), idx=step_idx,
+                step_fence_token=step_fence,
+                error=error_msg,
+                **event_kwargs,
+            )
+            await self._store.try_fail_workflow(wf_id)
+        return "failed"
+
+    async def _release_and_emit_lock(
+        self,
+        wf: Workflow,
+        wf_id: str,
+        step_name: str,
+        step_fence: int,
+        key: tuple[str, str],
+    ) -> None:
+        """Pop step from active tracking, release lock, and emit LOCK_RELEASED.
+
+        Must be called after removing the step from _active to prevent
+        the heartbeat loop from heartbeating a released step.
+        """
+        self._active.pop(key, None)
+        await self._store.release_step_lock(
+            wf_id, step_name, self._instance_id, step_fence,
+        )
+        await self._emit_event(
+            AuditEventType.LOCK_RELEASED, wf,
+            step=wf.step_by_name(step_name),
+            step_fence_token=step_fence,
+            lock_released=True,
+        )
 
     # ------------------------------------------------------------------
     # Step execution with per-attempt persistence

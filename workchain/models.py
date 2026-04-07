@@ -45,6 +45,14 @@ def _new_id() -> str:
 # ---------------------------------------------------------------------------
 
 class StepStatus(str, Enum):
+    """Lifecycle states for a workflow step.
+
+    PENDING → SUBMITTED → RUNNING → COMPLETED or FAILED.
+    Async steps go through RUNNING → BLOCKED (polling) → COMPLETED.
+    SUBMITTED is a crash-safe write-ahead boundary: if the engine dies
+    between SUBMITTED and RUNNING, recovery knows the handler hasn't run.
+    """
+
     PENDING = "pending"
     SUBMITTED = "submitted"  # written to DB before execution (crash-safe boundary)
     RUNNING = "running"
@@ -52,7 +60,16 @@ class StepStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+
 class WorkflowStatus(str, Enum):
+    """Lifecycle states for a workflow.
+
+    PENDING → RUNNING → COMPLETED or FAILED.
+    NEEDS_REVIEW is set when a non-idempotent step crashes without a
+    verify_completion hook — manual intervention is required.
+    CANCELLED is terminal and set via cancel_workflow().
+    """
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -129,6 +146,15 @@ class StepResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 class Step(BaseModel):
+    """A single step in a workflow DAG.
+
+    Each step has a handler (dotted path), optional typed config/result,
+    retry and poll policies, dependency declarations, and per-step lock
+    fields for distributed execution. The ``config_type`` and ``result_type``
+    are auto-populated by ``_set_type_paths`` for MongoDB round-trip
+    deserialization.
+    """
+
     name: str
     handler: str                          # dotted path to callable, e.g. "myapp.steps.validate"
     config: StepConfig | None = None
@@ -184,10 +210,19 @@ class Step(BaseModel):
 # ---------------------------------------------------------------------------
 
 class Workflow(BaseModel):
+    """A persistent, multi-step workflow with a dependency DAG.
+
+    Steps declare dependencies via ``depends_on``; the validator
+    ``_resolve_and_validate_depends_on`` resolves ``None`` to sequential
+    ordering and checks for cycles. The workflow is the unit of
+    persistence in MongoDB.
+    """
+
     id: str = Field(default_factory=_new_id)
     name: str
     status: WorkflowStatus = WorkflowStatus.PENDING
     steps: list[Step] = Field(default_factory=list)
+
     @model_validator(mode="after")
     def _validate_unique_step_names(self) -> Workflow:
         names = [s.name for s in self.steps]

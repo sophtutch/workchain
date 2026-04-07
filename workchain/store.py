@@ -164,6 +164,7 @@ class MongoWorkflowStore:
     # ------------------------------------------------------------------
 
     async def insert(self, workflow: Workflow) -> str:
+        """Persist a new workflow to MongoDB and emit WORKFLOW_CREATED."""
         doc = workflow.model_dump(mode="python", serialize_as_any=True)
         doc["_id"] = doc.pop("id")
         await self._col.insert_one(doc)
@@ -171,6 +172,7 @@ class MongoWorkflowStore:
         return workflow.id
 
     async def get(self, workflow_id: str) -> Workflow | None:
+        """Retrieve a workflow by ID, or None if not found."""
         doc = await self._col.find_one({"_id": workflow_id}, max_time_ms=self._op_timeout)
         if doc is None:
             return None
@@ -410,6 +412,7 @@ class MongoWorkflowStore:
         return False
 
     async def find_needs_review(self) -> list[str]:
+        """Return IDs of workflows in NEEDS_REVIEW status."""
         cursor = self._col.find(
             {"status": WorkflowStatus.NEEDS_REVIEW.value},
             {"_id": 1},
