@@ -47,7 +47,7 @@ def build_workflow(
             Step(
                 name="transform_records",
                 handler="examples.data_pipeline_etl.steps.transform_records",
-                depends_on=["validate_schema"],
+                depends_on=["validate_schema", "extract_from_source"],
             ),
             Step(
                 name="load_to_warehouse",

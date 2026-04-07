@@ -53,7 +53,7 @@ def build_workflow(email: str) -> Workflow:
             Step(
                 name="send_welcome_email",
                 handler="examples.customer_onboarding.steps.send_welcome_email",
-                depends_on=["provision_resources"],
+                depends_on=["validate_email", "create_account", "provision_resources"],
             ),
         ],
     )

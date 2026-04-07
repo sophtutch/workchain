@@ -38,30 +38,27 @@ from workchain.audit_report import generate_audit_report
 def _auto_tags(wf: Workflow) -> list[str]:
     """Derive feature tags from a Workflow object.
 
-    Note: Workflow._resolve_and_validate_depends_on auto-resolves ``depends_on=None``
-    to the previous step, so we detect "sequential" by checking if the resolved graph
-    is a simple linear chain (step i depends only on step i-1).
+    Detects parallelism by computing depth tiers from the dependency graph.
+    A workflow is "sequential" if every tier has exactly one step (no two
+    steps share the same depth).  Steps may depend on non-adjacent
+    predecessors for data access while still forming a linear chain.
     """
     tags: list[str] = []
-    is_sequential = all(
-        s.depends_on == ([] if i == 0 else [wf.steps[i - 1].name])
-        for i, s in enumerate(wf.steps)
-    )
+    dep_map: dict[str, list[str]] = {s.name: s.depends_on or [] for s in wf.steps}
+    depths: dict[str, int] = {}
+    for s in wf.steps:
+        parents = dep_map.get(s.name, [])
+        depths[s.name] = (max(depths.get(p, 0) for p in parents) + 1) if parents else 0
+    tier_counts: dict[int, int] = {}
+    for d in depths.values():
+        tier_counts[d] = tier_counts.get(d, 0) + 1
+    parallel = any(c > 1 for c in tier_counts.values())
 
-    if not is_sequential:
-        dep_map: dict[str, list[str]] = {s.name: s.depends_on or [] for s in wf.steps}
-        depths: dict[str, int] = {}
-        for s in wf.steps:
-            parents = dep_map.get(s.name, [])
-            depths[s.name] = (max(depths.get(p, 0) for p in parents) + 1) if parents else 0
-        tier_counts: dict[int, int] = {}
-        for d in depths.values():
-            tier_counts[d] = tier_counts.get(d, 0) + 1
-        parallel = any(c > 1 for c in tier_counts.values())
-
+    if parallel:
         tags.append("step dependencies")
-        if parallel:
-            tags.append("parallel execution")
+        tags.append("parallel execution")
+    elif any(len(s.depends_on or []) > 0 for s in wf.steps):
+        tags.append("sequential")
     else:
         tags.append("sequential")
 
