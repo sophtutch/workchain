@@ -100,6 +100,7 @@ class VulnReportConfig(StepConfig):
 class VulnReportResult(StepResult):
     report_url: str = ""
     cve_count: int = 0
+    critical: int = 0
     remediation_count: int = 0
 
 
@@ -206,7 +207,7 @@ async def security_scan(config: SecurityScanConfig, _results: dict[str, StepResu
     """Run SAST and dependency vulnerability scan."""
     scan_id = uuid.uuid4().hex[:10]
     vulns = _rng.randint(0, 12)
-    critical = _rng.randint(0, min(vulns, 2))
+    critical = 1 if vulns > 0 and _rng.random() < 0.15 else 0
     high = _rng.randint(0, min(vulns - critical, 4))
     logger.info("[security] Scan %s: %d vulnerabilities (%d critical, %d high)", scan_id, vulns, critical, high)
     return SecurityScanResult(vulnerabilities_found=vulns, critical=critical, high=high, scan_id=scan_id)
@@ -256,7 +257,12 @@ async def vulnerability_report(config: VulnReportConfig, results: dict[str, Step
     report_url = f"https://reports.example.com/vuln/{scan_result.scan_id}.{config.format}"
     remediation = _rng.randint(0, scan_result.vulnerabilities_found)
     logger.info("[vuln-report] Generated %s (%d CVEs, %d remediations)", report_url, scan_result.vulnerabilities_found, remediation)
-    return VulnReportResult(report_url=report_url, cve_count=scan_result.vulnerabilities_found, remediation_count=remediation)
+    return VulnReportResult(
+        report_url=report_url,
+        cve_count=scan_result.vulnerabilities_found,
+        critical=scan_result.critical,
+        remediation_count=remediation,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -321,12 +327,15 @@ async def push_to_registry(
 async def compliance_sign_off(config: ComplianceConfig, results: dict[str, StepResult]) -> ComplianceResult:
     """Verify all compliance checks passed before deployment."""
     vuln_result = cast(VulnReportResult, results["vulnerability_report"])
-    approved = vuln_result.cve_count == 0 or not config.require_zero_critical
+    approved = vuln_result.critical == 0 or not config.require_zero_critical
     sign_off_id = uuid.uuid4().hex[:10]
-    logger.info("[compliance] Sign-off %s: approved=%s (%d CVEs)", sign_off_id, approved, vuln_result.cve_count)
+    logger.info(
+        "[compliance] Sign-off %s: approved=%s (%d critical CVEs)",
+        sign_off_id, approved, vuln_result.critical,
+    )
     if not approved:
         raise RuntimeError(
-            f"Compliance rejected: {vuln_result.cve_count} CVEs found (sign-off {sign_off_id})"
+            f"Compliance rejected: {vuln_result.critical} critical CVEs found (sign-off {sign_off_id})"
         )
     return ComplianceResult(approved=True, sign_off_id=sign_off_id)
 
