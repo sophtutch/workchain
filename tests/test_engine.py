@@ -1538,3 +1538,58 @@ class TestConcurrentSteps:
         assert "greet" in received_results
         assert "noop" not in received_results
         assert isinstance(received_results["greet"], GreetResult)
+
+
+# ---------------------------------------------------------------------------
+# Graceful shutdown during active execution
+# ---------------------------------------------------------------------------
+
+
+class TestGracefulShutdown:
+    async def test_shutdown_mid_execution_releases_lock_and_is_recoverable(self, store):
+        """Stopping the engine mid-step should release the step lock and leave
+        the workflow in a recoverable state (RUNNING, not COMPLETED)."""
+        handler_started = asyncio.Event()
+
+        async def blocking_handler(_config, _results):
+            handler_started.set()
+            await asyncio.sleep(30)  # Will be cancelled by stop()
+            return StepResult()
+
+        blocking_handler._step_meta = {
+            "handler": "tests.blocking_shutdown",
+            "needs_context": False,
+        }
+        _STEP_REGISTRY["tests.blocking_shutdown"] = blocking_handler
+
+        engine = WorkflowEngine(
+            store, instance_id="shutdown-test",
+            claim_interval=0.05, heartbeat_interval=10, sweep_interval=10,
+        )
+        wf = Workflow(
+            name="shutdown_active",
+            steps=[
+                Step(name="s1", handler="tests.blocking_shutdown", depends_on=[]),
+                Step(name="s2", handler=noop_handler._step_meta["handler"],
+                     depends_on=["s1"]),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        # Wait until the handler is actually executing
+        await asyncio.wait_for(handler_started.wait(), timeout=5.0)
+
+        await engine.stop()
+
+        # Workflow should be RUNNING (not completed — s1 was interrupted)
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.RUNNING
+
+        # Step lock should be released so a peer can reclaim
+        step = loaded.step_by_name("s1")
+        assert step.locked_by is None
+
+        # s2 should still be PENDING
+        step2 = loaded.step_by_name("s2")
+        assert step2.status == StepStatus.PENDING
