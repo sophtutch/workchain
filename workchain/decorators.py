@@ -4,18 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import TYPE_CHECKING
-
-from workchain.models import CheckResult, PollPolicy, RetryPolicy
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from workchain.models import CheckResult, PollPolicy, RetryPolicy
+
+
+class StepHandler(Protocol):
+    """Protocol for decorated step/check handlers — callable with _step_meta."""
+
+    _step_meta: dict[str, Any]
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+_STEP_META_ATTR = "_step_meta"
+
 # Global step registry: handler_name -> callable
-_STEP_REGISTRY: dict[str, Callable] = {}
+_STEP_REGISTRY: dict[str, Callable[..., Any]] = {}
 
 
-def _resolve_check_name(check: str | Callable | None) -> str | None:
+def _resolve_check_name(check: str | Callable[..., Any] | None) -> str | None:
     """
     Accept either a dotted string name or a callable for completeness_check.
     If a callable is passed, auto-register it in _STEP_REGISTRY and return
@@ -31,7 +42,7 @@ def _resolve_check_name(check: str | Callable | None) -> str | None:
     return check_name
 
 
-def get_handler(name: str) -> Callable:
+def get_handler(name: str) -> Callable[..., Any]:
     """Look up a registered step handler by dotted name.
 
     Raises:
@@ -51,8 +62,9 @@ def get_handler(name: str) -> Callable:
             if matches:
                 hint = f"\n  Did you mean: {matches[0]!r}?"
             else:
-                hint = f"\n  Registered handlers: {', '.join(registered[:10])}"
-                if len(registered) > 10:
+                max_suggest = 10
+                hint = f"\n  Registered handlers: {', '.join(registered[:max_suggest])}"
+                if len(registered) > max_suggest:
                     hint += f" ... ({len(registered)} total)"
         else:
             hint = (
@@ -88,15 +100,16 @@ def get_handler(name: str) -> Callable:
             f"(from handler path {name!r}){hint}"
         ) from None
 
-    _STEP_REGISTRY[name] = fn
-    return fn
+    handler: Callable[..., Any] = fn
+    _STEP_REGISTRY[name] = handler
+    return handler
 
 
 def step(
     retry: RetryPolicy | None = None,
     idempotent: bool = True,
     needs_context: bool = False,
-):
+) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator to register a step handler.
 
@@ -109,17 +122,11 @@ def step(
     Set ``needs_context=True`` to receive the engine context dict as the
     third argument.  The handler name is auto-generated from module + qualname.
     """
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> StepHandler:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
-        fn._step_meta = {
-            "handler": handler_name,
-            "retry": retry or RetryPolicy(),
-            "is_async": False,
-            "idempotent": idempotent,
-            "needs_context": needs_context,
-        }
+        setattr(fn, _STEP_META_ATTR, {"handler": handler_name, "retry": retry or RetryPolicy(), "is_async": False, "idempotent": idempotent, "needs_context": needs_context})
         _STEP_REGISTRY[handler_name] = fn
-        return fn
+        return cast(StepHandler, fn)
     return decorator
 
 
@@ -128,8 +135,8 @@ def async_step(
     idempotent: bool = True,
     needs_context: bool = False,
     poll: PollPolicy | None = None,
-    completeness_check: str | Callable | None = None,
-):
+    completeness_check: str | Callable[..., Any] | None = None,
+) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator for async steps that submit work and poll until complete.
 
@@ -145,20 +152,12 @@ def async_step(
     Set ``needs_context=True`` to receive the engine context dict as the
     third argument.  The handler name is auto-generated from module + qualname.
     """
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> StepHandler:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
         check_name = _resolve_check_name(completeness_check)
-        fn._step_meta = {
-            "handler": handler_name,
-            "retry": retry or RetryPolicy(),
-            "is_async": True,
-            "idempotent": idempotent,
-            "needs_context": needs_context,
-            "poll": poll or PollPolicy(),
-            "completeness_check": check_name,
-        }
+        setattr(fn, _STEP_META_ATTR, {"handler": handler_name, "retry": retry or RetryPolicy(), "is_async": True, "idempotent": idempotent, "needs_context": needs_context, "poll": poll or PollPolicy(), "completeness_check": check_name})
         _STEP_REGISTRY[handler_name] = fn
-        return fn
+        return cast(StepHandler, fn)
     return decorator
 
 
@@ -196,7 +195,7 @@ def _normalize_check_result(raw: object) -> CheckResult:
 def completeness_check(
     needs_context: bool = False,
     retry: RetryPolicy | None = None,
-):
+) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator to register a completeness check function for async steps.
 
@@ -217,11 +216,11 @@ def completeness_check(
     backoff).  If all retries are exhausted within a single poll cycle,
     the step fails immediately.
     """
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> StepHandler:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
 
         @functools.wraps(fn)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> CheckResult:
             result = fn(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
@@ -230,12 +229,7 @@ def completeness_check(
             except TypeError as e:
                 raise TypeError(f"{e} (check={handler_name!r})") from e.__cause__
 
-        wrapper._step_meta = {
-            "handler": handler_name,
-            "is_completeness_check": True,
-            "needs_context": needs_context,
-            "retry": retry or RetryPolicy(),
-        }
+        setattr(wrapper, _STEP_META_ATTR, {"handler": handler_name, "is_completeness_check": True, "needs_context": needs_context, "retry": retry or RetryPolicy()})
         _STEP_REGISTRY[handler_name] = wrapper
-        return wrapper
+        return cast(StepHandler, wrapper)
     return decorator

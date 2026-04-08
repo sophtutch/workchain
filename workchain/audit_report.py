@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import html
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from workchain.audit import AuditEvent, AuditEventType
 
@@ -434,7 +434,7 @@ def _mongo_val(v: object, indent: int = 2) -> str:
     return _esc(v)
 
 
-def _mongo_doc(fields: dict) -> str:
+def _mongo_doc(fields: dict[str, Any]) -> str:
     """Render a dict as a full mongo-doc <pre> block."""
     if not fields:
         return "<pre>{}</pre>"
@@ -632,9 +632,9 @@ def _compute_tiers(
     # Group by depth
     tier_map: dict[int, list[tuple[int, str]]] = {}
     for name, depth in depths.items():
-        idx = name_to_idx.get(name)
-        if idx is not None:
-            tier_map.setdefault(depth, []).append((idx, name))
+        step_idx = name_to_idx.get(name)
+        if step_idx is not None:
+            tier_map.setdefault(depth, []).append((step_idx, name))
 
     # Sort tiers by depth, and within each tier by step index
     return [sorted(tier_map[d]) for d in sorted(tier_map.keys())]
@@ -643,7 +643,7 @@ def _compute_tiers(
 def _compute_lane_groups(
     dep_map: dict[str, list[str]],
     tiers: list[list[tuple[int, str]]],
-) -> list[tuple[str, list]]:
+) -> list[tuple[str, list[Any]]]:
     """Detect consecutive parallel tiers that form independent lanes.
 
     Lanes support nested parallelism: a single lane can contain sub-tiers
@@ -656,7 +656,7 @@ def _compute_lane_groups(
         ("lanes", [[sub_tier, ...], ...])                  — lane groups with sub-tiers
             where each sub_tier is [(idx, name), ...]
     """
-    result: list[tuple[str, list]] = []
+    result: list[tuple[str, list[Any]]] = []
     i = 0
     while i < len(tiers):
         tier = tiers[i]
@@ -721,7 +721,7 @@ def _compute_step_states(
         for step in workflow.steps:
             states[step.name] = "pending"
 
-    for _idx, events in step_groups.items():
+    for events in step_groups.values():
         name = events[0].step_name if events else None
         if not name:
             continue
@@ -750,7 +750,7 @@ def _compute_step_modes(
     if workflow is not None:
         for step in workflow.steps:
             modes[step.name] = step.is_async
-    for _idx, events in step_groups.items():
+    for events in step_groups.values():
         for e in events:
             if e.step_name and e.is_async is not None:
                 modes[e.step_name] = e.is_async
@@ -981,7 +981,6 @@ def _render_discovery(
 
 def _render_flow_nodes(
     idx: int,
-    step_name: str,
     step_handler: str,
     is_async: bool,
     label: str,
@@ -1201,12 +1200,9 @@ def _render_step_transitions(
             txs.append(_tx("red", "Lock", "released"))
 
     # Phase 2b: Poll failure diagnostics
-    for pt in poll_timeout:
-        txs.append(_tx("red", "Poll", "timeout"))
-    for pm in poll_max:
-        txs.append(_tx("red", "Poll", "max exceeded"))
-    for pce in poll_check_errors:
-        txs.append(_tx("red", "Poll", "check errors exceeded"))
+    txs.extend(_tx("red", "Poll", "timeout") for _ in poll_timeout)
+    txs.extend(_tx("red", "Poll", "max exceeded") for _ in poll_max)
+    txs.extend(_tx("red", "Poll", "check errors exceeded") for _ in poll_check_errors)
 
     # Phase 3: Terminal state
     if completed:
@@ -1230,7 +1226,7 @@ def _render_step_doc_panel(
     failed: list[AuditEvent],
 ) -> str:
     """Build the MongoDB document diff panel for a step."""
-    doc_fields: dict = {}
+    doc_fields: dict[str, Any] = {}
     final = completed[0] if completed else (failed[0] if failed else None)
     if final and final.result_summary:
         if final.fence_token:
@@ -1241,7 +1237,7 @@ def _render_step_doc_panel(
             "status": "completed" if completed else "failed",
         }
     elif final and final.error:
-        step_doc: dict = {
+        step_doc: dict[str, Any] = {
             "name": step_name,
             "status": "failed",
             "error": _truncate(final.error),
@@ -1289,7 +1285,6 @@ def _render_step_section(
     poll_timeout = by_type.get(AuditEventType.POLL_TIMEOUT, [])
     poll_max = by_type.get(AuditEventType.POLL_MAX_EXCEEDED, [])
     poll_check_errors = by_type.get(AuditEventType.POLL_CHECK_ERRORS_EXCEEDED, [])
-    lock_released = by_type.get(AuditEventType.LOCK_RELEASED, [])
     advanced = by_type.get(AuditEventType.STEP_ADVANCED, [])
 
     # --- Dependency info ---
@@ -1312,7 +1307,7 @@ def _render_step_section(
     label = f"Step {step_num} &mdash; {_esc(step_name)} ({mode})"
 
     flow_panel = _render_flow_nodes(
-        idx, step_name, step_handler, is_async, label, dep_html,
+        idx, step_handler, is_async, label, dep_html,
         recovery, submitted, running, blocked, completed, failed,
         polls, poll_timeout, poll_max, poll_check_errors,
     )

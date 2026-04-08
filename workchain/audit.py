@@ -11,12 +11,10 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from motor.motor_asyncio import AsyncIOMotorDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +118,7 @@ class AuditEvent(BaseModel):
     poll_elapsed_seconds: float | None = None
 
     # Result / error
-    result_summary: dict | None = None
+    result_summary: dict[str, Any] | None = None
     error: str | None = None
     error_traceback: str | None = None
 
@@ -135,7 +133,7 @@ class AuditEvent(BaseModel):
     anomaly_type: str | None = None
 
     # MongoDB diff — the exact fields that changed
-    fields_changed: dict | None = None
+    fields_changed: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -186,12 +184,12 @@ class MongoAuditLogger:
 
     def __init__(
         self,
-        db: AsyncIOMotorDatabase,
+        db: AsyncIOMotorDatabase[Any],
         collection_name: str = AUDIT_COLLECTION,
         max_pending: int = 100,
     ) -> None:
         self._col = db[collection_name]
-        self._pending: set[asyncio.Task] = set()
+        self._pending: set[asyncio.Task[None]] = set()
         self._sequences: dict[str, int] = {}
         self._max_pending = max_pending
         self.dropped_count: int = 0
@@ -231,7 +229,7 @@ class MongoAuditLogger:
         self._pending.add(task)
         task.add_done_callback(self._pending.discard)
 
-    async def _safe_insert(self, doc: dict) -> None:
+    async def _safe_insert(self, doc: dict[str, Any]) -> None:
         try:
             await self._col.insert_one(doc)
         except Exception:
@@ -243,7 +241,7 @@ class MongoAuditLogger:
         event_type: AuditEventType | None = None,
     ) -> list[AuditEvent]:
         """Retrieve audit events for a workflow, ordered by sequence."""
-        query: dict = {"workflow_id": workflow_id}
+        query: dict[str, Any] = {"workflow_id": workflow_id}
         if event_type is not None:
             query["event_type"] = event_type.value
         cursor = self._col.find(query).sort("sequence", 1)

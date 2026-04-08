@@ -16,7 +16,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     from fastapi import APIRouter, HTTPException
@@ -56,7 +56,7 @@ def create_workchain_router(
     router = APIRouter()
 
     @router.get("")
-    async def list_workflows():
+    async def list_workflows() -> list[dict[str, Any]]:
         """List all workflows with their current status."""
         wf_list = await store.list_workflows()
 
@@ -76,20 +76,20 @@ def create_workchain_router(
         return workflows
 
     @router.get("/stats")
-    async def workflow_stats():
+    async def workflow_stats() -> dict[str, int]:
         """Return workflow counts grouped by status."""
         return await store.count_by_status()
 
     @router.get("/{workflow_id}")
-    async def get_workflow(workflow_id: str):
+    async def get_workflow(workflow_id: str) -> dict[str, Any]:
         """Get the current state of a workflow."""
         wf = await store.get(workflow_id)
         if wf is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
-        steps = []
+        steps: list[dict[str, Any]] = []
         for s in wf.steps:
-            step_info = {
+            step_info: dict[str, Any] = {
                 "name": s.name,
                 "handler": s.handler,
                 "status": s.status.value,
@@ -108,7 +108,7 @@ def create_workchain_router(
         }
 
     @router.post("/{workflow_id}/cancel")
-    async def cancel_workflow(workflow_id: str):
+    async def cancel_workflow(workflow_id: str) -> dict[str, str]:
         """Cancel a running or pending workflow."""
         wf = await store.cancel_workflow(workflow_id)
         if wf is None:
@@ -116,7 +116,7 @@ def create_workchain_router(
         return {"workflow_id": wf.id, "status": wf.status.value}
 
     @router.get("/{workflow_id}/report", response_class=HTMLResponse)
-    async def get_workflow_report(workflow_id: str):
+    async def get_workflow_report(workflow_id: str) -> HTMLResponse:
         """Generate an HTML audit report for a workflow."""
         wf = await store.get(workflow_id)
         if wf is None:

@@ -367,7 +367,7 @@ function renderExamples() {
       fieldsHtml += `<div class="field"><label>${esc(f.label)}</label><input name="${escAttr(f.name)}" value="${escAttr(f.default)}" data-example="${escAttr(key)}"></div>`;
     }
     const tagsHtml = (ex.tags || []).map(t => {
-      const cls = 'tag-' + t.replace(/\s+/g, '-');
+      const cls = 'tag-' + t.replace(/\\s+/g, '-');
       return `<span class="tag ${esc(cls)}">${esc(t)}</span>`;
     }).join('');
     card.innerHTML = `

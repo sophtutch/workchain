@@ -30,12 +30,13 @@ def _import_class(dotted_path: str) -> type:
         raise ValueError(f"Invalid dotted path: {dotted_path}")
     mod = importlib.import_module(module_path)
     try:
-        return getattr(mod, class_name)
+        cls: type = getattr(mod, class_name)
     except AttributeError as e:
         raise ImportError(
             f"Cannot find '{class_name}' in module '{module_path}' "
             f"(full path: {dotted_path})"
         ) from e
+    return cls
 
 
 class MongoWorkflowStore:
@@ -46,7 +47,7 @@ class MongoWorkflowStore:
 
     def __init__(
         self,
-        db: AsyncIOMotorDatabase,
+        db: AsyncIOMotorDatabase[Any],
         lock_ttl_seconds: int = 30,
         collection_name: str = COLLECTION,
         audit_logger: AuditLogger | None = None,
@@ -60,7 +61,7 @@ class MongoWorkflowStore:
         self._lock_ttl = lock_ttl_seconds
         self._audit: AuditLogger = audit_logger or NullAuditLogger()
         self._instance_id = instance_id
-        self._audit_tasks: set[asyncio.Task] = set()
+        self._audit_tasks: set[asyncio.Task[None]] = set()
         # pymongo uses max_time_ms (snake_case) for find/find_one but
         # maxTimeMS (camelCase) for find_one_and_update/aggregate kwargs.
         self._op_timeout = operation_timeout_ms
@@ -135,7 +136,7 @@ class MongoWorkflowStore:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _doc_to_workflow(doc: dict) -> Workflow:
+    def _doc_to_workflow(doc: dict[str, Any]) -> Workflow:
         """
         Convert a MongoDB document to a Workflow, resolving typed
         StepConfig and StepResult subclasses from their stored dotted paths.
@@ -181,7 +182,7 @@ class MongoWorkflowStore:
         self,
         step_stuck_seconds: float = 300.0,
         limit: int = 20,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Slow sweep — find steps and workflows with anomalous state that
         the fast claim loop won't catch:
@@ -203,7 +204,7 @@ class MongoWorkflowStore:
         """
         now = datetime.now(UTC)
         stale_cutoff = now - timedelta(seconds=step_stuck_seconds)
-        results: list[dict] = []
+        results: list[dict[str, Any]] = []
         seen: set[tuple[str, str | None]] = set()
 
         def _add(wf_id: str, step_name: str | None, anomaly: str) -> None:
@@ -217,7 +218,7 @@ class MongoWorkflowStore:
                 })
 
         # 1. Steps stuck in transient states too long
-        pipeline_stuck: list[dict] = [
+        pipeline_stuck: list[dict[str, Any]] = [
             {"$match": {
                 "status": WorkflowStatus.RUNNING.value,
                 "updated_at": {"$lt": stale_cutoff},
@@ -240,7 +241,7 @@ class MongoWorkflowStore:
             _add(doc["_id"], doc["steps"]["name"], "step_stuck_in_transient_state")
 
         # 2. Stale step locks — step locked but lock expired + no heartbeat
-        pipeline_stale: list[dict] = [
+        pipeline_stale: list[dict[str, Any]] = [
             {"$match": {
                 "status": WorkflowStatus.RUNNING.value,
                 "updated_at": {"$lt": stale_cutoff},
@@ -351,7 +352,7 @@ class MongoWorkflowStore:
         """
         List workflows with optional filters, sorted by created_at descending.
         """
-        query: dict = {}
+        query: dict[str, Any] = {}
         if status is not None:
             query["status"] = status.value
         if name is not None:
@@ -462,7 +463,7 @@ class MongoWorkflowStore:
         workflow_id: str,
         step_name: str,
         step_fence_token: int,
-        updates: dict,
+        updates: dict[str, Any],
     ) -> Workflow | None:
         """
         Low-level: update a step's fields atomically, guarded by the step's
@@ -576,7 +577,7 @@ class MongoWorkflowStore:
         **audit_kwargs: Any,
     ) -> Workflow | None:
         """Mark a step as COMPLETED with its result."""
-        updates: dict = {"status": StepStatus.COMPLETED.value}
+        updates: dict[str, Any] = {"status": StepStatus.COMPLETED.value}
         if result is not None:
             updates["result"] = result.model_dump(mode="python", serialize_as_any=True)
         if result_type is not None:
@@ -666,7 +667,7 @@ class MongoWorkflowStore:
         **audit_kwargs: Any,
     ) -> Workflow | None:
         """Transition a step to BLOCKED and initialise poll scheduling."""
-        updates: dict = {
+        updates: dict[str, Any] = {
             "status": StepStatus.BLOCKED.value,
             "result": result.model_dump(mode="python", serialize_as_any=True),
             "poll_started_at": poll_started_at,
@@ -708,7 +709,7 @@ class MongoWorkflowStore:
         last_poll_message: str | None = None,
     ) -> Workflow | None:
         """Update poll scheduling for a BLOCKED step (not yet complete)."""
-        updates: dict = {
+        updates: dict[str, Any] = {
             "poll_count": poll_count,
             "last_poll_at": last_poll_at,
             "next_poll_at": next_poll_at,

@@ -200,8 +200,8 @@ class Step(BaseModel):
             cls = type(self.config)
             self.config_type = f"{cls.__module__}.{cls.__qualname__}"
         if self.result_type is None and self.result is not None and type(self.result) is not StepResult:
-            cls = type(self.result)
-            self.result_type = f"{cls.__module__}.{cls.__qualname__}"
+            result_cls = type(self.result)
+            self.result_type = f"{result_cls.__module__}.{result_cls.__qualname__}"
         return self
 
 
