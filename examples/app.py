@@ -8,7 +8,6 @@ Run:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -32,7 +31,7 @@ from examples.media_processing.workflow import build_workflow as build_media
 from examples.ml_training import steps as _ml_steps  # noqa: F401
 from examples.ml_training.workflow import build_workflow as build_ml
 from workchain import MongoAuditLogger, MongoWorkflowStore, Workflow, WorkflowEngine
-from workchain.audit_report import generate_audit_report
+from workchain.contrib.fastapi import create_workchain_router
 
 
 def _auto_tags(wf: Workflow) -> list[str]:
@@ -217,36 +216,12 @@ async def lifespan(application: FastAPI):  # noqa: ARG001
 
 app = FastAPI(title="Workchain Test Harness", lifespan=lifespan)
 
+# Mount reusable workflow endpoints from contrib
+app.include_router(create_workchain_router(store, audit_logger), prefix="/api/workflows", tags=["workflows"])
+
 # ---------------------------------------------------------------------------
-# API routes
+# Example-specific routes (workflow creation from templates)
 # ---------------------------------------------------------------------------
-
-
-@app.get("/api/workflows")
-async def list_workflows():
-    """List all workflows with their current status."""
-    wf_list = await store.list_workflows()
-
-    workflows = []
-    for wf in wf_list:
-        total_steps = len(wf.steps)
-        completed_steps = sum(1 for s in wf.steps if s.status.value == "completed")
-        workflows.append({
-            "id": wf.id,
-            "name": wf.name,
-            "status": wf.status.value,
-            "progress": f"{completed_steps}/{total_steps}",
-            "total_steps": total_steps,
-            "completed_steps": completed_steps,
-            "created_at": str(wf.created_at),
-        })
-    return workflows
-
-
-@app.get("/api/workflows/stats")
-async def workflow_stats():
-    """Return workflow counts grouped by status."""
-    return await store.count_by_status()
 
 
 @app.post("/workflows/{example}")
@@ -261,61 +236,6 @@ async def create_workflow(example: str, request: Request):
     await store.insert(wf)
 
     return {"workflow_id": wf.id, "name": wf.name, "status": wf.status.value}
-
-
-@app.get("/workflows/{workflow_id}")
-async def get_workflow(workflow_id: str):
-    """Get the current state of a workflow."""
-    wf = await store.get(workflow_id)
-    if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-
-    steps = []
-    for s in wf.steps:
-        step_info = {
-            "name": s.name,
-            "handler": s.handler,
-            "status": s.status.value,
-            "attempt": s.attempt,
-            "is_async": s.is_async,
-        }
-        if s.result:
-            step_info["result"] = s.result.model_dump(exclude_none=True)
-        steps.append(step_info)
-
-    return {
-        "id": wf.id,
-        "name": wf.name,
-        "status": wf.status.value,
-        "steps": steps,
-    }
-
-
-@app.post("/workflows/{workflow_id}/cancel")
-async def cancel_workflow(workflow_id: str):
-    """Cancel a running or pending workflow."""
-    wf = await store.cancel_workflow(workflow_id)
-    if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found or already terminal")
-    return {"workflow_id": wf.id, "status": wf.status.value}
-
-
-@app.get("/workflows/{workflow_id}/report", response_class=HTMLResponse)
-async def get_workflow_report(workflow_id: str):
-    """Generate an HTML audit report for a workflow."""
-    wf = await store.get(workflow_id)
-    if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-
-    events = await audit_logger.get_events(workflow_id)
-    if not events:
-        return HTMLResponse("<html><body><p>No audit events yet. The workflow may not have started.</p></body></html>")
-
-    # Allow fire-and-forget audit writes to land
-    await asyncio.sleep(0.1)
-    events = await audit_logger.get_events(workflow_id)
-
-    return HTMLResponse(generate_audit_report(events))
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +422,7 @@ async function refreshTable() {
       const badgeCls = 'b-' + wf.status;
       const ts = wf.created_at ? new Date(wf.created_at).toLocaleTimeString() : '?';
       const reportLink = wf.status !== 'pending'
-        ? `<a href="/workflows/${wf.id}/report" target="_blank">View Report</a>`
+        ? `<a href="/api/workflows/${wf.id}/report" target="_blank">View Report</a>`
         : '<span style="color:#4b5563">pending</span>';
       const terminal = ['completed', 'failed', 'needs_review', 'cancelled'];
       const cancelBtn = terminal.includes(wf.status)
@@ -523,7 +443,7 @@ async function refreshTable() {
 
 async function cancelWorkflow(wfId) {
   try {
-    const res = await fetch(`/workflows/${wfId}/cancel`, { method: 'POST' });
+    const res = await fetch(`/api/workflows/${wfId}/cancel`, { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
     showToast('Cancelled');
     refreshTable();
