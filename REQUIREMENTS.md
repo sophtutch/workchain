@@ -425,6 +425,7 @@ async def check(config, results, result, ctx: dict) -> CheckResult | dict | bool
 Creates an async wrapper that:
 1. Calls the original function and awaits if coroutine
 2. Normalizes the return value via `_normalize_check_result`
+3. Catches `TypeError` from normalization and re-raises with the handler name appended (e.g. `"(check='myapp.steps.check_deploy')"`) for diagnostic context
 
 **Wrapper `_step_meta`:**
 ```python
@@ -444,15 +445,23 @@ The **wrapper** (not the original function) is registered in `_STEP_REGISTRY`.
 - `CheckResult` — passthrough
 - `dict` — `CheckResult.model_validate(dict)`
 - `bool` — `CheckResult(complete=bool)`
-- Anything else — raises `TypeError`
+- Anything else — raises `TypeError` with diagnostic hints:
+  - `callable` → hint about forgetting to await an async call
+  - `None` → hint about ensuring all code paths return a value
+
+The `@completeness_check` wrapper catches `TypeError` from `_normalize_check_result` and re-raises with the check handler name appended for context.
 
 ### 7.6 `get_handler(name) -> Callable`
 
 1. If `name` in `_STEP_REGISTRY`: return immediately
 2. Split `name` at last `.` into `(module_path, func_name)`
-3. If no module path: raise `ValueError`
-4. `importlib.import_module(module_path)`, `getattr(mod, func_name)`
-5. Cache in `_STEP_REGISTRY` and return
+3. If no module path: raise `ValueError` with diagnostic hints:
+   - If a registered handler ends with `.{name}`: suggest the full path ("Did you mean?")
+   - Otherwise: list up to 10 registered handlers
+   - If no handlers registered: hint about missing module imports
+4. `importlib.import_module(module_path)` — catches `ModuleNotFoundError`, wraps in `ValueError` with hint about installation/typos
+5. `getattr(mod, func_name)` — catches `AttributeError`, wraps in `ValueError` listing available callables in the module
+6. Cache in `_STEP_REGISTRY` and return
 
 ---
 
@@ -968,7 +977,7 @@ FUNCTION _run_step(wf_id, step_name, step_fence):
     TRY:
         handler = get_handler(step.handler)
         result_data = _run_step_with_retry(handler, step, wf_id, step_name, fence)
-        (result, result_type) = _wrap_handler_return(result_data)
+        (result, result_type) = _wrap_handler_return(result_data, step_name, step.handler)
 
         Refresh wf  // check if sibling step failed/cancelled workflow
         IF wf.status is terminal (CANCELLED/FAILED/NEEDS_REVIEW):
@@ -1017,7 +1026,13 @@ Supports both sync and async handlers. Never uses `inspect.signature`.
 
 ### 10.8 Handler Return Normalization (`_wrap_handler_return`)
 
-- Must return `StepResult` subclass; raises `HandlerError` otherwise
+`_wrap_handler_return(result_data, step_name="", handler_path="") -> (StepResult, result_type)`
+
+- Must return `StepResult` subclass; raises `HandlerError` otherwise with diagnostic context:
+  - Error includes `step_name` and `handler_path` when provided
+  - `callable` → hint: "Did you forget to call it? e.g. `return MyResult(...)` instead of `return MyResult`"
+  - `dict` → hint: "Return a StepResult subclass instead"
+  - `None` → hint: "Ensure all code paths return a StepResult subclass"
 - Sets `completed_at = datetime.now(UTC)` if not already set
 - Computes `result_type = "{cls.__module__}.{cls.__qualname__}"` for non-base subclasses; `None` for base `StepResult`
 

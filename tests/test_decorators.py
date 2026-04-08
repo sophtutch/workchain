@@ -201,3 +201,26 @@ class TestGetHandler:
     def test_raises_for_no_module_path(self):
         with pytest.raises(ValueError, match="Unknown handler"):
             get_handler("no_dots_here")
+
+    def test_no_dot_suggests_close_match(self):
+        @step()
+        async def my_unique_func(_c, _r):
+            return StepResult()
+
+        handler_name = my_unique_func._step_meta["handler"]
+        short_name = handler_name.rsplit(".", 1)[-1]
+        with pytest.raises(ValueError, match="Did you mean"):
+            get_handler(short_name)
+
+    def test_no_dot_lists_registered_when_no_match(self):
+        # "zzz_no_match" won't match any registered handler suffix
+        with pytest.raises(ValueError, match="Registered handlers"):
+            get_handler("zzz_no_match")
+
+    def test_module_not_found_includes_path(self):
+        with pytest.raises(ValueError, match="Handler module not found.*'nonexistent.mod'"):
+            get_handler("nonexistent.mod.func")
+
+    def test_func_not_in_module_lists_callables(self):
+        with pytest.raises(ValueError, match=r"(?s)not found in module.*Available callables"):
+            get_handler("os.path.zzz_nonexistent")

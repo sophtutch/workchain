@@ -116,6 +116,22 @@ class TestWrapHandlerReturn:
         with pytest.raises(HandlerError, match="StepResult subclass"):
             _wrap_handler_return({"key": "value"})
 
+    def test_callable_return_includes_hint(self):
+        with pytest.raises(HandlerError, match="Did you forget to call it"):
+            _wrap_handler_return(lambda: None, "my_step", "myapp.steps.my_step")
+
+    def test_dict_return_includes_hint(self):
+        with pytest.raises(HandlerError, match="plain dict"):
+            _wrap_handler_return({"ok": True}, "my_step", "myapp.steps.my_step")
+
+    def test_none_return_includes_hint(self):
+        with pytest.raises(HandlerError, match="returned None"):
+            _wrap_handler_return(None, "my_step", "myapp.steps.my_step")
+
+    def test_error_includes_step_and_handler(self):
+        with pytest.raises(HandlerError, match=r"step='deploy'.*handler='myapp.steps.deploy'"):
+            _wrap_handler_return(42, "deploy", "myapp.steps.deploy")
+
     def test_sets_completed_at_if_missing(self):
         result_data = StepResult()
         assert result_data.completed_at is None
@@ -166,6 +182,14 @@ class TestNormalizeCheckResult:
     def test_invalid_none_raises_type_error(self):
         with pytest.raises(TypeError, match="got NoneType"):
             _normalize_check_result(None)
+
+    def test_none_includes_hint(self):
+        with pytest.raises(TypeError, match="returned None.*all code paths"):
+            _normalize_check_result(None)
+
+    def test_callable_includes_hint(self):
+        with pytest.raises(TypeError, match="returned a callable.*forget to await"):
+            _normalize_check_result(lambda: True)
 
 
 # ---------------------------------------------------------------------------
