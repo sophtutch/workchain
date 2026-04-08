@@ -924,7 +924,6 @@ class MongoWorkflowStore:
                 )
             return True
         return False
-        return False
 
     async def force_release_step_lock(
         self,
