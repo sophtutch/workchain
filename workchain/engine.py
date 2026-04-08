@@ -27,6 +27,7 @@ from workchain.audit import AuditEvent, AuditEventType
 from workchain.decorators import _normalize_check_result, get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
+    PollPolicy,
     RetryPolicy,
     Step,
     StepResult,
@@ -538,7 +539,7 @@ class WorkflowEngine:
             # --- Async step: persist submission result, release lock ---
             if step.is_async and step.completeness_check:
                 now = datetime.now(UTC)
-                policy = step.poll_policy
+                policy = step.poll_policy or PollPolicy()
                 next_poll = now + timedelta(seconds=policy.interval)
 
                 wf = await self._store.block_step_by_name(
@@ -664,7 +665,7 @@ class WorkflowEngine:
                     "Step %s submission confirmed, transitioning to BLOCKED.", step.name
                 )
                 now = datetime.now(UTC)
-                policy = step.poll_policy
+                policy = step.poll_policy or PollPolicy()
                 wf = await self._store.block_step_by_name(
                     wf.id, step_name, step_fence,
                     result=step.result or StepResult(),
@@ -730,7 +731,7 @@ class WorkflowEngine:
 
         checker = get_handler(step.completeness_check)
         step_result = step.result or StepResult()
-        policy = step.poll_policy
+        policy = step.poll_policy or PollPolicy()
         now = datetime.now(UTC)
         wf_id = wf.id
         key = (wf_id, step_name)

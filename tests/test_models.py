@@ -289,8 +289,12 @@ class TestStep:
         s = Step(name="s1", handler="mod.func", step_timeout=30.0)
         assert s.step_timeout == 30.0
 
-    def test_poll_policy_default(self):
+    def test_poll_policy_none_for_sync_step(self):
         s = Step(name="s1", handler="mod.func")
+        assert s.poll_policy is None
+
+    def test_poll_policy_set_for_async_step(self):
+        s = Step(name="s1", handler="mod.func", is_async=True, poll_policy=PollPolicy())
         assert s.poll_policy.interval == 5.0
 
 

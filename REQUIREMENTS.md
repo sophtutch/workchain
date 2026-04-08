@@ -198,7 +198,7 @@ Resolved by `Workflow._resolve_and_validate_depends_on` during validation.
 | `completeness_check` | `str \| None` | `None` | Dotted path to check callable |
 | `verify_completion` | `str \| None` | `None` | Dotted path to verify callable (crash recovery) |
 | `idempotent` | `bool` | `True` | Safe to re-run on recovery? |
-| `poll_policy` | `PollPolicy` | `PollPolicy()` | Via `Field(default_factory=PollPolicy)` |
+| `poll_policy` | `PollPolicy \| None` | `None` | Only needed for async steps; engine defaults to `PollPolicy()` when `None` |
 | `poll_count` | `int` | `0` | Number of polls executed so far |
 | `poll_started_at` | `datetime \| None` | `None` | When polling began (for timeout calculation) |
 | `next_poll_at` | `datetime \| None` | `None` | When step is next eligible for poll claim |
