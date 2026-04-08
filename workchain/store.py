@@ -1022,6 +1022,25 @@ class MongoWorkflowStore:
             anomaly_type=anomaly_type,
         )
 
+    def emit_poll_checked(
+        self,
+        wf: Workflow,
+        step: Step,
+        idx: int | None,
+        step_fence_token: int,
+        *,
+        poll_count: int,
+        poll_progress: float | None = None,
+        poll_message: str | None = None,
+    ) -> None:
+        """Emit a POLL_CHECKED audit event for the final completing poll (no DB write)."""
+        self._emit(
+            AuditEventType.POLL_CHECKED, wf,
+            step=step, idx=idx, fence_token_override=step_fence_token,
+            poll_count=poll_count, poll_progress=poll_progress,
+            poll_message=poll_message,
+        )
+
     # ------------------------------------------------------------------
     # Per-step discovery
     # ------------------------------------------------------------------

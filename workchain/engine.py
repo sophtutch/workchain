@@ -764,6 +764,12 @@ class WorkflowEngine:
             )
             if wf is None:
                 return "lost_lock"
+            self._store.emit_poll_checked(
+                wf, wf.step_by_name(step_name), step_idx, step_fence,
+                poll_count=new_poll_count,
+                poll_progress=poll_progress,
+                poll_message=poll_message,
+            )
 
             logger.info(
                 "Step %s completeness check passed (polls=%d)",
