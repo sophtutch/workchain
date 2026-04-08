@@ -32,16 +32,62 @@ def _resolve_check_name(check: str | Callable | None) -> str | None:
 
 
 def get_handler(name: str) -> Callable:
-    """Look up a registered step handler by dotted name."""
+    """Look up a registered step handler by dotted name.
+
+    Raises:
+        ValueError: If the handler cannot be found, with diagnostic hints.
+    """
     if name in _STEP_REGISTRY:
         return _STEP_REGISTRY[name]
+
     # Fallback: dynamic import and cache
     module_path, _, func_name = name.rpartition(".")
     if not module_path:
-        raise ValueError(f"Unknown handler: {name}")
+        registered = sorted(_STEP_REGISTRY.keys())
+        hint = ""
+        if registered:
+            # Suggest close matches
+            matches = [r for r in registered if r.endswith(f".{name}")]
+            if matches:
+                hint = f"\n  Did you mean: {matches[0]!r}?"
+            else:
+                hint = f"\n  Registered handlers: {', '.join(registered[:10])}"
+                if len(registered) > 10:
+                    hint += f" ... ({len(registered)} total)"
+        else:
+            hint = (
+                "\n  No handlers are registered. Ensure the module containing "
+                "your @step/@async_step decorated functions has been imported."
+            )
+        raise ValueError(f"Unknown handler: {name!r}{hint}")
+
     import importlib
-    mod = importlib.import_module(module_path)
-    fn = getattr(mod, func_name)
+
+    try:
+        mod = importlib.import_module(module_path)
+    except ModuleNotFoundError as e:
+        raise ValueError(
+            f"Handler module not found: {module_path!r} "
+            f"(from handler path {name!r})"
+            f"\n  Hint: ensure the module is installed and importable. "
+            f"Check for typos in the dotted path."
+        ) from e
+
+    try:
+        fn = getattr(mod, func_name)
+    except AttributeError:
+        available = [
+            attr for attr in dir(mod)
+            if not attr.startswith("_") and callable(getattr(mod, attr, None))
+        ]
+        hint = ""
+        if available:
+            hint = f"\n  Available callables in {module_path}: {', '.join(available[:15])}"
+        raise ValueError(
+            f"Handler function {func_name!r} not found in module {module_path!r} "
+            f"(from handler path {name!r}){hint}"
+        ) from None
+
     _STEP_REGISTRY[name] = fn
     return fn
 
@@ -129,8 +175,21 @@ def _normalize_check_result(raw: object) -> CheckResult:
         return CheckResult.model_validate(raw)
     if isinstance(raw, bool):
         return CheckResult(complete=raw)
+    got_type = type(raw).__name__
+    hint = ""
+    if callable(raw):
+        hint = (
+            f"\n  Hint: the check returned a callable ({got_type}) instead of "
+            f"a result. Did you forget to await an async call?"
+        )
+    elif raw is None:
+        hint = (
+            "\n  Hint: the check returned None. "
+            "Ensure all code paths return CheckResult, a dict, or a bool."
+        )
     raise TypeError(
-        f"completeness_check must return CheckResult, dict, or bool — got {type(raw).__name__}"
+        f"completeness_check must return CheckResult, dict, or bool — "
+        f"got {got_type}{hint}"
     )
 
 
@@ -166,7 +225,10 @@ def completeness_check(
             result = fn(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
-            return _normalize_check_result(result)
+            try:
+                return _normalize_check_result(result)
+            except TypeError as e:
+                raise TypeError(f"{e} (check={handler_name!r})") from e.__cause__
 
         wrapper._step_meta = {
             "handler": handler_name,

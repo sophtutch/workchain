@@ -62,16 +62,40 @@ def _build_results(wf: Workflow, step_name: str) -> dict[str, StepResult]:
     }
 
 
-def _wrap_handler_return(result_data: Any) -> tuple[StepResult, str | None]:
-    """
-    Normalise a handler's return value into a (StepResult, result_type) pair.
+def _wrap_handler_return(
+    result_data: Any,
+    step_name: str = "",
+    handler_path: str = "",
+) -> tuple[StepResult, str | None]:
+    """Normalise a handler's return value into a (StepResult, result_type) pair.
 
     If the handler returned a StepResult subclass, use it directly.
-    Otherwise wrap a plain dict in a base StepResult (for backwards compat).
+    Otherwise raise a descriptive HandlerError with diagnostic hints.
     """
     if not isinstance(result_data, StepResult):
+        got_type = type(result_data).__name__
+        context = f" (step={step_name!r}, handler={handler_path!r})" if step_name else ""
+        hint = ""
+        if callable(result_data):
+            hint = (
+                f"\n  Hint: the handler returned a callable ({got_type}) instead of "
+                f"a StepResult instance. Did you forget to call it? "
+                f"e.g. return MyResult(...) instead of return MyResult"
+            )
+        elif isinstance(result_data, dict):
+            hint = (
+                "\n  Hint: the handler returned a plain dict. "
+                "Return a StepResult subclass instead: "
+                "e.g. return MyResult(**data)"
+            )
+        elif result_data is None:
+            hint = (
+                "\n  Hint: the handler returned None. "
+                "Ensure all code paths return a StepResult subclass."
+            )
         raise HandlerError(
-            f"Step handler must return a StepResult subclass, got {type(result_data).__name__}"
+            f"Step handler must return a StepResult subclass, "
+            f"got {got_type}{context}{hint}"
         )
 
     result = result_data
@@ -453,7 +477,7 @@ class WorkflowEngine:
                 result_data = await self._run_step_with_retry(
                     handler, step, wf_id, step_name, step_fence,
                 )
-                result, result_type = _wrap_handler_return(result_data)
+                result, result_type = _wrap_handler_return(result_data, step_name, step.handler)
                 # Refresh wf — check if a sibling step failed the workflow
                 # while this handler was running
                 wf = await self._store.get(wf_id)
