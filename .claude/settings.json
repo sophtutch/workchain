@@ -1,0 +1,23 @@
+{
+  "showThinkingSummaries": true,
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(pip:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(hatch:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(mongodump:*)",
+      "Bash(mongorestore:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true
+  }
+}
