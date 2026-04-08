@@ -844,11 +844,18 @@ class WorkflowEngine:
             wf_id, step_name, step_fence,
             result=fail_result,
             step_status_before=StepStatus.BLOCKED.value,
-            audit_event_type=event_type,
             **{k: v for k, v in event_kwargs.items()
                if k in ("poll_elapsed_seconds", "poll_count")},
         )
         if wf:
+            step = wf.step_by_name(step_name)
+            idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), None)
+            self._store.emit_poll_failure(
+                wf, step, idx, step_fence, event_type,
+                error=error_msg,
+                **{k: v for k, v in event_kwargs.items()
+                   if k in ("poll_elapsed_seconds", "poll_count")},
+            )
             await self._store.try_fail_workflow(wf_id)
         return "failed"
 

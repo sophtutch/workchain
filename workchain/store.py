@@ -1022,6 +1022,30 @@ class MongoWorkflowStore:
             anomaly_type=anomaly_type,
         )
 
+    def emit_poll_failure(
+        self,
+        wf: Workflow,
+        step: Step,
+        idx: int | None,
+        step_fence_token: int,
+        event_type: AuditEventType,
+        *,
+        error: str | None = None,
+        poll_count: int | None = None,
+        poll_elapsed_seconds: float | None = None,
+    ) -> None:
+        """Emit a poll failure diagnostic event (POLL_TIMEOUT, POLL_MAX_EXCEEDED, etc.).
+
+        Emitted alongside STEP_FAILED to preserve the specific failure reason
+        as a separate audit event.
+        """
+        self._emit(
+            event_type, wf,
+            step=step, idx=idx, fence_token_override=step_fence_token,
+            error=error, poll_count=poll_count,
+            poll_elapsed_seconds=poll_elapsed_seconds,
+        )
+
     def emit_poll_checked(
         self,
         wf: Workflow,
