@@ -362,7 +362,7 @@ class WorkflowEngine:
         if result is None:
             return False  # concurrent resolution by another instance
         logger.warning("Sweep resolved orphaned_workflow=%s", wf_id)
-        self._store.emit_sweep_anomaly(result, anomaly)
+        self._store.emit_sweep_anomaly(sweep_wf, anomaly)
         return True
 
     async def _resolve_step_anomaly(
