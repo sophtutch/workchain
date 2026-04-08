@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from mongomock_motor import AsyncMongoMockClient
 
 # Register all example step handlers via import side-effects
@@ -216,11 +218,13 @@ async def lifespan(application: FastAPI):  # noqa: ARG001
 
 app = FastAPI(title="Workchain Test Harness", lifespan=lifespan)
 
-# Mount reusable workflow endpoints from contrib — list/stats at /api/workflows,
-# per-workflow endpoints at /workflows to preserve existing URL structure
-_wc_router = create_workchain_router(store, audit_logger)
-app.include_router(_wc_router, prefix="/api/workflows", tags=["workflows"])
-app.include_router(_wc_router, prefix="/workflows", tags=["workflows"], include_in_schema=False)
+# Static assets
+_static_dir = Path(__file__).resolve().parent.parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+# Mount reusable workflow endpoints from contrib
+app.include_router(create_workchain_router(store, audit_logger), prefix="/api/workflows", tags=["workflows"])
 
 # ---------------------------------------------------------------------------
 # Example-specific routes (workflow creation from templates)
@@ -252,6 +256,7 @@ LANDING_HTML = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Workchain Test Harness</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -425,7 +430,7 @@ async function refreshTable() {
       const badgeCls = 'b-' + wf.status;
       const ts = wf.created_at ? new Date(wf.created_at).toLocaleTimeString() : '?';
       const reportLink = wf.status !== 'pending'
-        ? `<a href="/workflows/${wf.id}/report" target="_blank">View Report</a>`
+        ? `<a href="/api/workflows/${wf.id}/report" target="_blank">View Report</a>`
         : '<span style="color:#4b5563">pending</span>';
       const terminal = ['completed', 'failed', 'needs_review', 'cancelled'];
       const cancelBtn = terminal.includes(wf.status)
@@ -446,7 +451,7 @@ async function refreshTable() {
 
 async function cancelWorkflow(wfId) {
   try {
-    const res = await fetch(`/workflows/${wfId}/cancel`, { method: 'POST' });
+    const res = await fetch(`/api/workflows/${wfId}/cancel`, { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
     showToast('Cancelled');
     refreshTable();

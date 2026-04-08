@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
@@ -103,6 +105,12 @@ app.include_router(
 
 # Management dashboard
 app.include_router(create_ui_router(settings.server_title, instance_id))
+
+
+# Static assets (favicon etc.)
+_static_dir = Path(__file__).resolve().parent.parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 
 @app.get("/healthz", tags=["ops"])
