@@ -361,7 +361,18 @@ FUNCTION resolve_and_validate(steps):
 
 ### 7.1 Global Registry
 
-`_STEP_REGISTRY: dict[str, Callable]` — maps dotted handler names to callables. Populated by decorators; `get_handler()` falls back to dynamic import via `importlib.import_module` and caches the result.
+`_STEP_REGISTRY: dict[str, Callable[..., Any]]` — maps dotted handler names to callables. Populated by decorators; `get_handler()` falls back to dynamic import via `importlib.import_module` and caches the result.
+
+`_STEP_META_ATTR = "_step_meta"` — constant for the metadata attribute name. Used with `setattr()` to attach decorator metadata to handler functions (avoids mypy `attr-defined` on dynamic attributes).
+
+**`StepHandler` Protocol** — defines the type contract for decorated handlers:
+```python
+class StepHandler(Protocol):
+    _step_meta: dict[str, Any]
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+```
+
+All three decorators (`@step`, `@async_step`, `@completeness_check`) return `StepHandler` via `cast()`. Decorator factory return types: `Callable[[Callable[..., Any]], StepHandler]`.
 
 ### 7.2 `@step` Decorator
 
@@ -1024,7 +1035,13 @@ async def _call_handler(self, handler, *args):
 
 Supports both sync and async handlers. Never uses `inspect.signature`.
 
-### 10.8 Handler Return Normalization (`_wrap_handler_return`)
+### 10.8 Step Narrowing (`_expect_step`)
+
+`_expect_step(step: Step | None, step_name: str) -> Step`
+
+Narrows `Step | None` to `Step`, raising `LookupError` if the step is `None`. Used after `step_by_name()` calls in post-claim paths where the step is guaranteed to exist. Replaces bare `assert` statements to satisfy both mypy type narrowing and ruff `S101` (no-assert).
+
+### 10.9 Handler Return Normalization (`_wrap_handler_return`)
 
 `_wrap_handler_return(result_data, step_name="", handler_path="") -> (StepResult, result_type)`
 

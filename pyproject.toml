@@ -63,6 +63,7 @@ extra-dependencies = [
     "fastapi>=0.110",
     "httpx>=0.27",
     "pydantic-settings>=2.0",
+    "mypy>=1.10",
 ]
 
 [tool.pytest.ini_options]
@@ -93,6 +94,16 @@ ignore = [
     "ARG002",   # unused args match interface signatures
     "PLR2004",  # magic values in display formatting are fine
 ]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["workchain"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["motor.*", "mongomock_motor.*"]
+ignore_missing_imports = true
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["workchain", "workchain_server"]

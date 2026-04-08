@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 class _ActiveStep(NamedTuple):
     """Tracks an in-flight step: the asyncio task and its fence token."""
 
-    task: asyncio.Task
+    task: asyncio.Task[None]
     fence: int
 
 
@@ -60,6 +60,13 @@ def _build_results(wf: Workflow, step_name: str) -> dict[str, StepResult]:
         if (dep := wf.step_by_name(dep_name)) is not None
         and dep.result is not None
     }
+
+
+def _expect_step(step: Step | None, step_name: str) -> Step:
+    """Narrow Step | None to Step, raising if the step is unexpectedly missing."""
+    if step is None:
+        raise LookupError(f"Step {step_name!r} not found in workflow after claim")
+    return step
 
 
 def _wrap_handler_return(
@@ -150,7 +157,7 @@ class WorkflowEngine:
         # Active steps this instance is processing: (wf_id, step_name) -> (task, fence)
         self._active: dict[tuple[str, str], _ActiveStep] = {}
         self._shutdown_event = asyncio.Event()
-        self._tasks: list[asyncio.Task] = []
+        self._tasks: list[asyncio.Task[None]] = []
 
     # ------------------------------------------------------------------
     # Handler calling — context injection
@@ -296,12 +303,10 @@ class WorkflowEngine:
                             step_name, wf_id,
                         )
                         active.task.cancel()
-                        try:
+                        with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
                             await asyncio.wait_for(
                                 asyncio.shield(active.task), timeout=5.0,
                             )
-                        except (TimeoutError, asyncio.CancelledError, Exception):
-                            pass
                         # _run_step's finally block pops from _active;
                         # remove here as a safety net in case it didn't.
                         self._active.pop((wf_id, step_name), None)
@@ -356,9 +361,8 @@ class WorkflowEngine:
                     if anomaly == "orphaned_workflow":
                         if await self._resolve_orphaned_workflow(wf_id, sweep_wf, anomaly):
                             resolved += 1
-                    elif step_name:
-                        if await self._resolve_step_anomaly(wf_id, step_name, sweep_wf, anomaly):
-                            resolved += 1
+                    elif step_name and await self._resolve_step_anomaly(wf_id, step_name, sweep_wf, anomaly):
+                        resolved += 1
 
                 if resolved:
                     logger.info("Sweep resolved %d anomalies", resolved)
@@ -450,7 +454,7 @@ class WorkflowEngine:
                     wf = await self._store.get(wf_id)
                     if wf is None:
                         return
-                    step = wf.step_by_name(step_name)
+                    step = _expect_step(wf.step_by_name(step_name), step_name)
                     # Fall through to completion handling below
                 elif poll_result == "released":
                     return  # Lock released, next poll scheduled
@@ -469,7 +473,7 @@ class WorkflowEngine:
             if wf is None:
                 return  # fence rejected
 
-            step = wf.step_by_name(step_name)
+            step = _expect_step(wf.step_by_name(step_name), step_name)
 
             # Execute the step handler with retries
             try:
@@ -494,8 +498,9 @@ class WorkflowEngine:
                     )
                     await self._release_step_lock_safe(wf_id, step_name, step_fence)
                     return
-                step = wf.step_by_name(step_name)
+                step = _expect_step(wf.step_by_name(step_name), step_name)
             except Exception:
+                step = _expect_step(step, step_name)
                 logger.exception(
                     "Step %s failed after %d attempts", step.name, step.attempt
                 )
@@ -589,7 +594,7 @@ class WorkflowEngine:
             step.status,
             wf.id,
         )
-        idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), None)
+        idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), 0)
         self._store.emit_recovery_started(wf, step, idx, step_fence)
 
         # Check if the step fully completed before the crash
@@ -604,14 +609,14 @@ class WorkflowEngine:
                     logger.info(
                         "Step %s verified as completed after recovery.", step.name
                     )
-                    wf = await self._store.complete_step_by_name(
+                    updated_wf = await self._store.complete_step_by_name(
                         wf.id, step_name, step_fence,
                         audit_event_type=AuditEventType.RECOVERY_VERIFIED,
                         recovery_action="verified",
                     )
-                    if wf is None:
+                    if updated_wf is None:
                         return None
-                    return wf.step_by_name(step_name)
+                    return updated_wf.step_by_name(step_name)
             except Exception:
                 logger.exception("verify_completion failed for step %s", step.name)
 
@@ -626,20 +631,20 @@ class WorkflowEngine:
                 is_complete = check_result.complete
                 if is_complete:
                     logger.info("Step %s already complete after recovery.", step.name)
-                    wf = await self._store.complete_step_by_name(
+                    updated_wf = await self._store.complete_step_by_name(
                         wf.id, step_name, step_fence,
                         audit_event_type=AuditEventType.RECOVERY_VERIFIED,
                         recovery_action="verified",
                     )
-                    if wf is None:
+                    if updated_wf is None:
                         return None
-                    return wf.step_by_name(step_name)
+                    return updated_wf.step_by_name(step_name)
                 logger.info(
                     "Step %s submission confirmed, transitioning to BLOCKED.", step.name
                 )
                 now = datetime.now(UTC)
                 policy = step.poll_policy or PollPolicy()
-                wf = await self._store.block_step_by_name(
+                updated_wf = await self._store.block_step_by_name(
                     wf.id, step_name, step_fence,
                     result=step.result or StepResult(),
                     result_type=step.result_type,
@@ -650,9 +655,9 @@ class WorkflowEngine:
                     audit_event_type=AuditEventType.RECOVERY_BLOCKED,
                     recovery_action="blocked",
                 )
-                if wf is None:
+                if updated_wf is None:
                     return None
-                return wf.step_by_name(step_name)
+                return updated_wf.step_by_name(step_name)
             except Exception:
                 logger.warning(
                     "completeness_check threw for step %s during recovery — "
@@ -663,11 +668,11 @@ class WorkflowEngine:
 
         if step.idempotent:
             logger.info("Re-running idempotent step %s", step.name)
-            wf = await self._store.reset_step_by_name(wf.id, step_name, step_fence)
-            if wf is None:
+            updated_wf = await self._store.reset_step_by_name(wf.id, step_name, step_fence)
+            if updated_wf is None:
                 logger.warning("Fence rejected during idempotent reset for step %s", step.name)
                 return None
-            return wf.step_by_name(step_name)
+            return updated_wf.step_by_name(step_name)
 
         # Non-idempotent, no verify hook — can't safely re-run
         logger.warning(
@@ -777,7 +782,7 @@ class WorkflowEngine:
         # --- Complete: mark step done ---
         if is_complete:
             completed_result = step_result.model_copy(update={"completed_at": now})
-            wf = await self._store.complete_step_by_name(
+            updated_wf = await self._store.complete_step_by_name(
                 wf_id, step_name, step_fence,
                 result=completed_result,
                 poll_count=new_poll_count,
@@ -786,10 +791,11 @@ class WorkflowEngine:
                 last_poll_message=poll_message,
                 step_status_before=StepStatus.BLOCKED.value,
             )
-            if wf is None:
+            if updated_wf is None:
                 return "lost_lock"
+            poll_step = _expect_step(updated_wf.step_by_name(step_name), step_name)
             self._store.emit_poll_checked(
-                wf, wf.step_by_name(step_name), step_idx, step_fence,
+                updated_wf, poll_step, step_idx, step_fence,
                 poll_count=new_poll_count,
                 poll_progress=poll_progress,
                 poll_message=poll_message,
@@ -815,7 +821,7 @@ class WorkflowEngine:
             )
 
         next_poll_at = now + timedelta(seconds=next_wait)
-        wf = await self._store.schedule_next_poll_by_name(
+        updated_wf = await self._store.schedule_next_poll_by_name(
             wf_id, step_name, step_fence,
             poll_count=new_poll_count,
             last_poll_at=now,
@@ -824,11 +830,11 @@ class WorkflowEngine:
             last_poll_progress=poll_progress,
             last_poll_message=poll_message,
         )
-        if wf is None:
+        if updated_wf is None:
             return "lost_lock"
 
         # Release lock — claim loop will rediscover when next_poll_at passes
-        await self._release_and_emit_lock(wf, wf_id, step_name, step_fence, key)
+        await self._release_and_emit_lock(updated_wf, wf_id, step_name, step_fence, key)
 
         logger.debug(
             "Step %s poll %d: not complete, next poll in %.1fs%s. Lock released.",
@@ -872,10 +878,10 @@ class WorkflowEngine:
                if k in ("poll_elapsed_seconds", "poll_count")},
         )
         if wf:
-            step = wf.step_by_name(step_name)
-            idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), None)
+            fail_step = _expect_step(wf.step_by_name(step_name), step_name)
+            fail_idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), 0)
             self._store.emit_poll_failure(
-                wf, step, idx, step_fence, event_type,
+                wf, fail_step, fail_idx, step_fence, event_type,
                 error=error_msg,
                 **{k: v for k, v in event_kwargs.items()
                    if k in ("poll_elapsed_seconds", "poll_count")},
@@ -948,13 +954,13 @@ class WorkflowEngine:
                     try:
                         return await asyncio.wait_for(coro, timeout=step.step_timeout)
                     except TimeoutError:
-                        step_obj = wf.step_by_name(step_name)
-                        idx = next(
+                        timeout_step = _expect_step(wf.step_by_name(step_name), step_name)
+                        timeout_idx = next(
                             (i for i, s in enumerate(wf.steps) if s.name == step_name),
-                            None,
+                            0,
                         )
                         self._store.emit_step_timeout(
-                            wf, step_obj, idx, step_fence,
+                            wf, timeout_step, timeout_idx, step_fence,
                             attempt=attempt_num,
                             max_attempts=step.retry_policy.max_attempts,
                             error=f"Step timed out after {step.step_timeout} seconds",
