@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     import types
     from collections.abc import Callable
 
-from workchain.audit import AuditEvent, AuditEventType
+from workchain.audit import AuditEventType
 from workchain.decorators import _normalize_check_result, get_handler
 from workchain.exceptions import FenceRejectedError, HandlerError, RetryExhaustedError
 from workchain.models import (
@@ -153,35 +153,6 @@ class WorkflowEngine:
     # Engine-side audit helper
     # ------------------------------------------------------------------
 
-    async def _emit_event(
-        self,
-        event_type: AuditEventType,
-        wf: Workflow,
-        *,
-        step: Step | None = None,
-        idx: int | None = None,
-        step_fence_token: int | None = None,
-        **kwargs: Any,
-    ) -> None:
-        """Construct and emit an audit event via the store for events without store writes."""
-        event = AuditEvent(
-            workflow_id=wf.id,
-            workflow_name=wf.name,
-            event_type=event_type,
-            instance_id=self._instance_id,
-            fence_token=step_fence_token,
-            workflow_status=wf.status.value,
-            step_index=idx,
-            step_name=step.name if step else None,
-            step_handler=step.handler if step else None,
-            step_status=step.status.value if step else None,
-            is_async=step.is_async if step else None,
-            idempotent=step.idempotent if step else None,
-            step_depends_on=step.depends_on if step else None,
-            **kwargs,
-        )
-        await self._store.emit(event)
-
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -292,16 +263,9 @@ class WorkflowEngine:
             for (wf_id, step_name), active in list(self._active.items()):
                 try:
                     ok = await self._store.heartbeat_step(
-                        wf_id, step_name, self._instance_id, active.fence
+                        wf_id, step_name, self._instance_id, active.fence,
+                        emit_audit=self._log_heartbeats,
                     )
-                    if ok and self._log_heartbeats:
-                        wf = await self._store.get(wf_id)
-                        if wf:
-                            step = wf.step_by_name(step_name)
-                            await self._emit_event(
-                                AuditEventType.HEARTBEAT, wf,
-                                step=step, step_fence_token=active.fence,
-                            )
                     if not ok:
                         logger.warning(
                             "Lost lock on step=%s workflow=%s, cancelling",
@@ -392,38 +356,25 @@ class WorkflowEngine:
             return False
 
         if sweep_wf.has_failed_step():
-            result = await self._store.try_fail_workflow(wf_id)
+            result = await self._store.try_fail_workflow(wf_id, anomaly_type=anomaly)
         else:
-            result = await self._store.try_complete_workflow(wf_id)
+            result = await self._store.try_complete_workflow(wf_id, anomaly_type=anomaly)
         if result is None:
             return False  # concurrent resolution by another instance
         logger.warning("Sweep resolved orphaned_workflow=%s", wf_id)
-        await self._emit_event(
-            AuditEventType.SWEEP_ANOMALY, sweep_wf, anomaly_type=anomaly,
-        )
         return True
 
     async def _resolve_step_anomaly(
-        self, wf_id: str, step_name: str, sweep_wf: Workflow, anomaly: str,
+        self, wf_id: str, step_name: str, sweep_wf: Workflow, anomaly: str,  # noqa: ARG002
     ) -> bool:
         """Force-release a step lock for a stuck or stale-locked step."""
         logger.warning(
             "Sweep detected anomaly=%s on workflow=%s step=%s, force-releasing step lock",
             anomaly, wf_id, step_name,
         )
-        released = await self._store.force_release_step_lock(wf_id, step_name)
-        if not released:
-            return False
-        step = sweep_wf.step_by_name(step_name)
-        await self._emit_event(
-            AuditEventType.SWEEP_ANOMALY, sweep_wf,
-            step=step, anomaly_type=anomaly,
+        return await self._store.force_release_step_lock(
+            wf_id, step_name, anomaly_type=anomaly,
         )
-        await self._emit_event(
-            AuditEventType.LOCK_FORCE_RELEASED, sweep_wf,
-            step=step, lock_released=True, anomaly_type=anomaly,
-        )
-        return True
 
     # ------------------------------------------------------------------
     # Step execution — single step claim-to-completion
@@ -614,10 +565,7 @@ class WorkflowEngine:
             wf.id,
         )
         idx = next((i for i, s in enumerate(wf.steps) if s.name == step_name), None)
-        await self._emit_event(
-            AuditEventType.RECOVERY_STARTED, wf,
-            step=step, idx=idx, step_fence_token=step_fence,
-        )
+        self._store.emit_recovery_started(wf, step, idx, step_fence)
 
         # Check if the step fully completed before the crash
         if step.verify_completion:
@@ -815,14 +763,6 @@ class WorkflowEngine:
             )
             if wf is None:
                 return "lost_lock"
-            await self._emit_event(
-                AuditEventType.POLL_CHECKED, wf,
-                step=wf.step_by_name(step_name), idx=step_idx,
-                step_fence_token=step_fence,
-                poll_count=new_poll_count,
-                poll_progress=poll_progress,
-                poll_message=poll_message,
-            )
 
             logger.info(
                 "Step %s completeness check passed (polls=%d)",
@@ -879,7 +819,7 @@ class WorkflowEngine:
         wf_id: str,
         step_name: str,
         step_fence: int,
-        step_idx: int | None,
+        step_idx: int | None,  # noqa: ARG002
         error_msg: str,
         event_type: AuditEventType,
         **event_kwargs: Any,
@@ -897,42 +837,31 @@ class WorkflowEngine:
             wf_id, step_name, step_fence,
             result=fail_result,
             step_status_before=StepStatus.BLOCKED.value,
+            audit_event_type=event_type,
             **{k: v for k, v in event_kwargs.items()
                if k in ("poll_elapsed_seconds", "poll_count")},
         )
         if wf:
-            await self._emit_event(
-                event_type, wf,
-                step=wf.step_by_name(step_name), idx=step_idx,
-                step_fence_token=step_fence,
-                error=error_msg,
-                **event_kwargs,
-            )
             await self._store.try_fail_workflow(wf_id)
         return "failed"
 
     async def _release_and_emit_lock(
         self,
-        wf: Workflow,
+        wf: Workflow,  # noqa: ARG002
         wf_id: str,
         step_name: str,
         step_fence: int,
         key: tuple[str, str],
     ) -> None:
-        """Pop step from active tracking, release lock, and emit LOCK_RELEASED.
+        """Pop step from active tracking and release lock.
 
         Must be called after removing the step from _active to prevent
         the heartbeat loop from heartbeating a released step.
+        The store emits LOCK_RELEASED as part of release_step_lock().
         """
         self._active.pop(key, None)
         await self._store.release_step_lock(
             wf_id, step_name, self._instance_id, step_fence,
-        )
-        await self._emit_event(
-            AuditEventType.LOCK_RELEASED, wf,
-            step=wf.step_by_name(step_name),
-            step_fence_token=step_fence,
-            lock_released=True,
         )
 
     # ------------------------------------------------------------------
@@ -986,10 +915,8 @@ class WorkflowEngine:
                             (i for i, s in enumerate(wf.steps) if s.name == step_name),
                             None,
                         )
-                        await self._emit_event(
-                            AuditEventType.STEP_TIMEOUT, wf,
-                            step=step_obj, idx=idx,
-                            step_fence_token=step_fence,
+                        self._store.emit_step_timeout(
+                            wf, step_obj, idx, step_fence,
                             attempt=attempt_num,
                             max_attempts=step.retry_policy.max_attempts,
                             error=f"Step timed out after {step.step_timeout} seconds",

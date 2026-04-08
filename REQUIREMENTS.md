@@ -643,9 +643,9 @@ Returns `(Workflow, fence_token)` on success; `None` if already locked or not cl
 
 Emits `STEP_CLAIMED` audit event with `locked_by`, `fence_token_before`, and `fence_token` (after).
 
-#### `heartbeat_step(workflow_id, step_name, instance_id, step_fence_token) -> bool`
+#### `heartbeat_step(workflow_id, step_name, instance_id, step_fence_token, *, emit_audit=False) -> bool`
 
-Extends lock TTL. Matches on `locked_by` AND `fence_token`:
+Extends lock TTL. Matches on `locked_by` AND `fence_token`. When `emit_audit=True`, emits a `HEARTBEAT` audit event after a successful renewal:
 
 ```
 findOneAndUpdate(
@@ -668,7 +668,7 @@ Returns `True` if matched (lock still held), `False` if lock stolen.
 
 #### `release_step_lock(workflow_id, step_name, instance_id, step_fence_token) -> bool`
 
-Clears lock fields. Matches on `locked_by` AND `fence_token`:
+Clears lock fields. Matches on `locked_by` AND `fence_token`. Emits `LOCK_RELEASED` audit event on success:
 
 ```
 update: {
@@ -680,9 +680,9 @@ update: {
 }
 ```
 
-#### `force_release_step_lock(workflow_id, step_name) -> bool`
+#### `force_release_step_lock(workflow_id, step_name, *, anomaly_type=None) -> bool`
 
-Unconditional release used by sweep only. **Ignores** fence token, **increments** it:
+Unconditional release used by sweep only. **Ignores** fence token, **increments** it. Emits `SWEEP_ANOMALY` (when `anomaly_type` provided) and `LOCK_FORCE_RELEASED` audit events on success:
 
 ```
 findOneAndUpdate(
@@ -1306,7 +1306,7 @@ No-op implementation. `assign_sequence`: pass. `emit`: async pass. `get_events`:
 
 **Store emits** (via internal `_emit` helper): `WORKFLOW_CREATED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_CLAIMED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `POLL_CHECKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`
 
-**Engine emits** (via `store.emit` public passthrough): `RECOVERY_STARTED`, `STEP_TIMEOUT`, `SWEEP_ANOMALY`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `POLL_CHECK_ERRORS_EXCEEDED`, `POLL_CHECKED` (on completion)
+**All audit events are emitted by the store.** Store write methods emit events as part of the write. Diagnostic events without a DB write are emitted via `store.emit_recovery_started()` and `store.emit_step_timeout()`. The engine never constructs `AuditEvent` objects directly.
 
 ---
 

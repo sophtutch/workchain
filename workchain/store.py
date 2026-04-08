@@ -114,15 +114,6 @@ class MongoWorkflowStore:
         self._audit_tasks.add(task)
         task.add_done_callback(self._audit_tasks.discard)
 
-    async def emit(self, event: AuditEvent) -> None:
-        """Public passthrough for events the engine needs to emit directly (e.g. STEP_TIMEOUT, RECOVERY_STARTED)."""
-        assign = getattr(self._audit, "assign_sequence", None)
-        if assign is not None:
-            assign(event)
-        task = asyncio.ensure_future(self._audit.emit(event))
-        self._audit_tasks.add(task)
-        task.add_done_callback(self._audit_tasks.discard)
-
     async def drain_audit_tasks(self, timeout: float = 5.0) -> None:
         """Wait for pending audit writes with a timeout. Called during shutdown."""
         if self._audit_tasks:
@@ -850,6 +841,8 @@ class MongoWorkflowStore:
         step_name: str,
         instance_id: str,
         step_fence_token: int,
+        *,
+        emit_audit: bool = False,
     ) -> bool:
         """Extend the lock TTL on a single step. Returns False if the lock was stolen."""
         idx = await self._step_index(workflow_id, step_name)
@@ -875,6 +868,15 @@ class MongoWorkflowStore:
                 workflow_id, step_name,
             )
             return False
+
+        if emit_audit:
+            wf = await self.get(workflow_id)
+            if wf:
+                self._emit(
+                    AuditEventType.HEARTBEAT, wf,
+                    step=wf.step_by_name(step_name), idx=idx,
+                    fence_token_override=step_fence_token,
+                )
         return True
 
     async def release_step_lock(
@@ -884,7 +886,7 @@ class MongoWorkflowStore:
         instance_id: str,
         step_fence_token: int,
     ) -> bool:
-        """Gracefully release a step's lock."""
+        """Gracefully release a step's lock and emit LOCK_RELEASED audit event."""
         idx = await self._step_index(workflow_id, step_name)
         if idx is None:
             return False
@@ -905,16 +907,29 @@ class MongoWorkflowStore:
                 },
             },
         )
-        return result.modified_count > 0
+        if result.modified_count > 0:
+            wf = await self.get(workflow_id)
+            if wf:
+                self._emit(
+                    AuditEventType.LOCK_RELEASED, wf,
+                    step=wf.step_by_name(step_name),
+                    fence_token_override=step_fence_token,
+                    lock_released=True,
+                )
+            return True
+        return False
 
     async def force_release_step_lock(
         self,
         workflow_id: str,
         step_name: str,
+        *,
+        anomaly_type: str | None = None,
     ) -> bool:
-        """
-        Unconditionally release a step's lock — used by the sweep to
+        """Unconditionally release a step's lock — used by the sweep to
         unstick steps with stale locks. Ignores fence token.
+
+        Emits SWEEP_ANOMALY and LOCK_FORCE_RELEASED audit events on success.
         """
         idx = await self._step_index(workflow_id, step_name)
         if idx is None:
@@ -940,8 +955,55 @@ class MongoWorkflowStore:
                 "Force-released step lock on workflow=%s step=%s",
                 workflow_id, step_name,
             )
+            wf = await self.get(workflow_id)
+            if wf:
+                step = wf.step_by_name(step_name)
+                if anomaly_type:
+                    self._emit(
+                        AuditEventType.SWEEP_ANOMALY, wf,
+                        step=step, anomaly_type=anomaly_type,
+                    )
+                self._emit(
+                    AuditEventType.LOCK_FORCE_RELEASED, wf,
+                    step=step, lock_released=True, anomaly_type=anomaly_type,
+                )
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # Diagnostic audit events (no DB write, centralises event construction)
+    # ------------------------------------------------------------------
+
+    def emit_recovery_started(
+        self,
+        wf: Workflow,
+        step: Step,
+        idx: int,
+        step_fence_token: int,
+    ) -> None:
+        """Emit a RECOVERY_STARTED audit event (no DB write)."""
+        self._emit(
+            AuditEventType.RECOVERY_STARTED, wf,
+            step=step, idx=idx, fence_token_override=step_fence_token,
+        )
+
+    def emit_step_timeout(
+        self,
+        wf: Workflow,
+        step: Step,
+        idx: int,
+        step_fence_token: int,
+        *,
+        attempt: int,
+        max_attempts: int,
+        error: str,
+    ) -> None:
+        """Emit a STEP_TIMEOUT audit event (no DB write)."""
+        self._emit(
+            AuditEventType.STEP_TIMEOUT, wf,
+            step=step, idx=idx, fence_token_override=step_fence_token,
+            attempt=attempt, max_attempts=max_attempts, error=error,
+        )
 
     # ------------------------------------------------------------------
     # Per-step discovery
@@ -992,9 +1054,10 @@ class MongoWorkflowStore:
     # Workflow status transitions (atomic)
     # ------------------------------------------------------------------
 
-    async def try_complete_workflow(self, workflow_id: str) -> Workflow | None:
-        """
-        Atomically set workflow status to COMPLETED if all steps are COMPLETED.
+    async def try_complete_workflow(
+        self, workflow_id: str, **audit_kwargs: Any,
+    ) -> Workflow | None:
+        """Atomically set workflow status to COMPLETED if all steps are COMPLETED.
 
         Called after a step completes — checks whether that was the last step.
         Uses a MongoDB query that only matches if no non-completed step exists.
@@ -1027,10 +1090,13 @@ class MongoWorkflowStore:
         self._emit(
             AuditEventType.WORKFLOW_COMPLETED, wf,
             workflow_status_before=WorkflowStatus.RUNNING.value,
+            **audit_kwargs,
         )
         return wf
 
-    async def try_fail_workflow(self, workflow_id: str) -> Workflow | None:
+    async def try_fail_workflow(
+        self, workflow_id: str, **audit_kwargs: Any,
+    ) -> Workflow | None:
         """
         Atomically set workflow status to FAILED. Called when a step fails.
 
@@ -1057,6 +1123,7 @@ class MongoWorkflowStore:
         self._emit(
             AuditEventType.WORKFLOW_FAILED, wf,
             workflow_status_before=WorkflowStatus.RUNNING.value,
+            **audit_kwargs,
         )
         return wf
 
