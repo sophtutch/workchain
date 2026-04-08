@@ -147,3 +147,12 @@ The **store** emits structured `AuditEvent` objects for every MongoDB write that
 - Events ordered by per-workflow `sequence` number (in-memory counter, causal within single instance)
 - `generate_audit_report(events)` produces self-contained HTML execution reports
 
+## Flow diagram generation
+
+`examples/generate_diagrams.py` generates self-contained `flow_diagram.html` files for all 7 example workflows. Each HTML file shows the complete step execution flow with retry scenarios, polling phases, instance claim/release cycles, fence token progression, and MongoDB document diffs.
+
+```bash
+python examples/generate_diagrams.py
+```
+
+The generator uses Python dataclasses (`WorkflowData`, `StepData`, `RetryScenario`, `PollScenario`) to define per-example data, and renders all 7 files from a shared CSS/HTML template with no external dependencies.
