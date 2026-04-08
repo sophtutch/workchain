@@ -55,7 +55,7 @@ def create_workchain_router(
     """
     router = APIRouter()
 
-    @router.get("/")
+    @router.get("")
     async def list_workflows():
         """List all workflows with their current status."""
         wf_list = await store.list_workflows()

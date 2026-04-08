@@ -16,7 +16,9 @@ workchain/
 ├── store.py        — MongoWorkflowStore: persistence, per-step distributed locking, typed deserialization
 ├── retry.py        — Retry utilities wrapping tenacity with RetryPolicy
 ├── audit.py        — AuditEvent model, AuditLogger protocol, MongoAuditLogger
-└── audit_report.py — HTML execution report generator from audit events
+├── audit_report.py — HTML execution report generator from audit events
+└── contrib/
+    └── fastapi.py  — Optional FastAPI router (pip install workchain[fastapi])
 ```
 
 ## Key design decisions
@@ -146,4 +148,14 @@ The **store** emits structured `AuditEvent` objects for every MongoDB write that
 - **26 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_CLAIMED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `POLL_CHECK_ERRORS_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
 - Events ordered by per-workflow `sequence` number (in-memory counter, causal within single instance)
 - `generate_audit_report(events)` produces self-contained HTML execution reports
+
+## Optional extras (contrib)
+
+The `workchain/contrib/` subpackage contains optional integrations gated behind pip extras. Each module guards its imports and raises a clear `ImportError` if the extra is not installed.
+
+**FastAPI** (`pip install workchain[fastapi]`):
+- `workchain.contrib.fastapi.create_workchain_router(store, audit_logger)` — returns an `APIRouter` with standard workflow CRUD + report endpoints
+- Mount on any FastAPI app: `app.include_router(router, prefix="/workflows")`
+- Endpoints: list, stats, get, cancel, HTML audit report
+- Does NOT include workflow creation (app-specific)
 
