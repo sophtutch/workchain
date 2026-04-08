@@ -185,7 +185,7 @@ class Step(BaseModel):
     completeness_check: str | None = None  # dotted path to async callable -> bool
     verify_completion: str | None = None   # used on crash recovery
     idempotent: bool = True               # safe to re-run on recovery?
-    poll_policy: PollPolicy = Field(default_factory=PollPolicy)
+    poll_policy: PollPolicy | None = None  # only needed for async steps
     poll_count: int = 0
     poll_started_at: datetime | None = None   # when polling began (for timeout calc)
     next_poll_at: datetime | None = None      # when this step is next eligible for a poll claim
