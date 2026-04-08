@@ -1306,7 +1306,7 @@ No-op implementation. `assign_sequence`: pass. `emit`: async pass. `get_events`:
 
 **Store emits** (via internal `_emit` helper): `WORKFLOW_CREATED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_CLAIMED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `POLL_CHECKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`
 
-**All audit events are emitted by the store.** Store write methods emit events as part of the write. Diagnostic events without a DB write are emitted via `store.emit_recovery_started()` and `store.emit_step_timeout()`. The engine never constructs `AuditEvent` objects directly.
+**All audit events are emitted by the store.** Store write methods (`complete_step_by_name`, `fail_step_by_name`, `try_claim_step`, etc.) emit events as part of the write. Lock management methods (`release_step_lock`, `force_release_step_lock`, `heartbeat_step`) emit events after successful updates. Diagnostic events without a DB write are emitted via `store.emit_recovery_started()` and `store.emit_step_timeout()`. The engine never constructs `AuditEvent` objects directly.
 
 ---
 
