@@ -1005,6 +1005,17 @@ class MongoWorkflowStore:
             attempt=attempt, max_attempts=max_attempts, error=error,
         )
 
+    def emit_sweep_anomaly(
+        self,
+        wf: Workflow,
+        anomaly_type: str,
+    ) -> None:
+        """Emit a SWEEP_ANOMALY audit event (no DB write)."""
+        self._emit(
+            AuditEventType.SWEEP_ANOMALY, wf,
+            anomaly_type=anomaly_type,
+        )
+
     # ------------------------------------------------------------------
     # Per-step discovery
     # ------------------------------------------------------------------

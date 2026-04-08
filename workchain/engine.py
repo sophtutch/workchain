@@ -356,12 +356,13 @@ class WorkflowEngine:
             return False
 
         if sweep_wf.has_failed_step():
-            result = await self._store.try_fail_workflow(wf_id, anomaly_type=anomaly)
+            result = await self._store.try_fail_workflow(wf_id)
         else:
-            result = await self._store.try_complete_workflow(wf_id, anomaly_type=anomaly)
+            result = await self._store.try_complete_workflow(wf_id)
         if result is None:
             return False  # concurrent resolution by another instance
         logger.warning("Sweep resolved orphaned_workflow=%s", wf_id)
+        self._store.emit_sweep_anomaly(result, anomaly)
         return True
 
     async def _resolve_step_anomaly(
