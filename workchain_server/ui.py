@@ -201,7 +201,7 @@ def create_ui_router(server_title: str, instance_id: str) -> APIRouter:
     """Create the UI router with server-specific values baked into the HTML."""
     router = APIRouter()
 
-    page = DASHBOARD_HTML.replace("SERVER_TITLE", server_title).replace("INSTANCE_ID", instance_id)
+    page = DASHBOARD_HTML.replace("$$SERVER_TITLE$$", server_title).replace("$$INSTANCE_ID$$", instance_id)
 
     @router.get("/", response_class=HTMLResponse)
     async def dashboard():
