@@ -1312,11 +1312,11 @@ No-op implementation. `assign_sequence`: pass. `emit`: async pass. `get_events`:
 
 ## 14. Audit Report Generator
 
-`generate_audit_report(events: list[AuditEvent]) -> str`
+`generate_audit_report(events: list[AuditEvent], *, workflow: Workflow | None = None) -> str`
 
 Produces a self-contained HTML execution report from audit events. No external dependencies (CSS embedded in `<style>` tag).
 
-**Input:** List of `AuditEvent` objects ordered by sequence (as returned by `MongoAuditLogger.get_events`).
+**Input:** List of `AuditEvent` objects ordered by sequence (as returned by `MongoAuditLogger.get_events`). Optional `workflow` parameter: when provided, the dependency graph shows all steps including those not yet executed (unexecuted steps appear greyed-out with `pending` state).
 
 **Output:** Complete HTML5 document string.
 

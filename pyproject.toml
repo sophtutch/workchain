@@ -23,6 +23,11 @@ dev = [
 fastapi = [
     "fastapi>=0.110",
 ]
+server = [
+    "workchain[fastapi]",
+    "uvicorn[standard]>=0.34",
+    "pydantic-settings>=2.0",
+]
 examples = [
     "workchain[fastapi]",
     "uvicorn>=0.34",
@@ -40,12 +45,24 @@ extra-dependencies = [
 [tool.hatch.envs.harness.scripts]
 serve = "uvicorn examples.app:app --reload --host 0.0.0.0 --port 8000"
 
+[tool.hatch.envs.server]
+description = "Workchain server (standalone deployment)"
+extra-dependencies = [
+    "uvicorn[standard]>=0.34",
+    "pydantic-settings>=2.0",
+    "fastapi>=0.110",
+]
+
+[tool.hatch.envs.server.scripts]
+serve = "uvicorn workchain_server.app:app --reload --host 0.0.0.0 --port 8000"
+
 [tool.hatch.envs.hatch-test]
 extra-dependencies = [
     "pytest-asyncio>=0.23",
     "mongomock-motor>=0.0.20",
     "fastapi>=0.110",
     "httpx>=0.27",
+    "pydantic-settings>=2.0",
 ]
 
 [tool.pytest.ini_options]
@@ -78,4 +95,4 @@ ignore = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["workchain"]
+packages = ["workchain", "workchain_server"]

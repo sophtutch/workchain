@@ -16,7 +16,10 @@ Programmatic construction and execution of persistent, multi-step workflows.
 ## Installation
 
 ```bash
-pip install -e ".[dev]"
+pip install workchain                # core library only
+pip install workchain[fastapi]       # + reusable FastAPI router
+pip install workchain[server]        # + standalone server with dashboard
+pip install -e ".[dev]"              # development (editable + test deps)
 ```
 
 ## Quick Start
@@ -139,7 +142,33 @@ The `Workflow` model validates the dependency graph at construction time:
 
 ### 3. FastAPI integration
 
-Use the lifespan context manager to start/stop the engine with the app:
+**Option A: Reusable router** (`pip install workchain[fastapi]`)
+
+Mount the contrib router for instant workflow CRUD + audit report endpoints:
+
+```python
+from workchain.contrib.fastapi import create_workchain_router
+
+router = create_workchain_router(store, audit_logger)
+app.include_router(router, prefix="/api/v1/workflows")
+```
+
+Provides: list, stats, get, cancel, and HTML audit report endpoints. Add your own workflow creation routes on top.
+
+**Option B: Standalone server** (`pip install workchain[server]`)
+
+A ready-to-deploy service with management dashboard:
+
+```bash
+MONGO_URI=mongodb://localhost:27017 hatch run server:serve
+# Open http://localhost:8000
+```
+
+See [Workchain Server](#workchain-server) below.
+
+**Option C: Manual wiring**
+
+Use the lifespan context manager to start/stop the engine with your own app:
 
 ```python
 from contextlib import asynccontextmanager
@@ -380,14 +409,48 @@ The `verify_completion` handler receives `(config, results, result)` and returns
 ## Architecture
 
 ```
-workchain/
-├── models.py       -- Pydantic models: Workflow, Step, StepConfig, StepResult, enums, policies
-├── decorators.py   -- @step / @async_step decorators + handler registry
-├── engine.py       -- WorkflowEngine: per-step claim loop, heartbeat, sweep, execution
-├── store.py        -- MongoWorkflowStore: persistence, per-step distributed locking
-├── retry.py        -- Retry utilities wrapping tenacity with RetryPolicy
-└── audit.py        -- AuditEvent model, AuditLogger protocol, MongoAuditLogger
+workchain/                          -- core library
+├── models.py                       -- Pydantic models: Workflow, Step, StepConfig, StepResult, enums, policies
+├── decorators.py                   -- @step / @async_step decorators + handler registry
+├── engine.py                       -- WorkflowEngine: per-step claim loop, heartbeat, sweep, execution
+├── store.py                        -- MongoWorkflowStore: persistence, per-step distributed locking
+├── retry.py                        -- Retry utilities wrapping tenacity with RetryPolicy
+├── audit.py                        -- AuditEvent model, AuditLogger protocol, MongoAuditLogger
+├── audit_report.py                 -- HTML execution report generator from audit events
+└── contrib/
+    └── fastapi.py                  -- Optional FastAPI router (pip install workchain[fastapi])
+
+workchain_server/                   -- standalone server (pip install workchain[server])
+├── config.py                       -- Environment variable configuration via pydantic-settings
+├── plugins.py                      -- Step handler discovery (entry points + env var)
+├── app.py                          -- FastAPI app with engine lifecycle and router mounting
+└── ui.py                           -- Management dashboard
 ```
+
+## Workchain Server
+
+A standalone FastAPI service with a management dashboard for monitoring workflows.
+
+```bash
+pip install workchain[server]
+MONGO_URI=mongodb://localhost:27017 hatch run server:serve
+```
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_DATABASE` | `workchain` | Database name |
+| `ENGINE_INSTANCE_ID` | auto-generated | Engine instance identifier |
+| `ENGINE_CLAIM_INTERVAL` | `5.0` | Step discovery interval (seconds) |
+| `ENGINE_MAX_CONCURRENT` | `5` | Max concurrent steps per engine |
+| `WORKCHAIN_PLUGINS` | | Comma-separated module paths to import at startup |
+| `SERVER_TITLE` | `Workchain Server` | Dashboard page title |
+
+**Plugin system:** Step handlers are registered by importing modules that use `@step`/`@async_step` decorators. Two mechanisms:
+1. Python entry points under the `workchain.plugins` group
+2. `WORKCHAIN_PLUGINS` env var with comma-separated module paths
 
 ## Claude Code Commands
 

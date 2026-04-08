@@ -9,16 +9,22 @@ See `README.md` for usage examples, quick start, and API documentation.
 ## Architecture
 
 ```
-workchain/
-├── models.py       — Pydantic models: Workflow, Step, StepConfig, StepResult, enums, policies
-├── decorators.py   — @step / @async_step / @completeness_check decorators + handler registry
-├── engine.py       — WorkflowEngine: per-step claim loop, heartbeat, sweep, execution
-├── store.py        — MongoWorkflowStore: persistence, per-step distributed locking, typed deserialization
-├── retry.py        — Retry utilities wrapping tenacity with RetryPolicy
-├── audit.py        — AuditEvent model, AuditLogger protocol, MongoAuditLogger
-├── audit_report.py — HTML execution report generator from audit events
+workchain/                      — core library
+├── models.py                   — Pydantic models: Workflow, Step, StepConfig, StepResult, enums, policies
+├── decorators.py               — @step / @async_step / @completeness_check decorators + handler registry
+├── engine.py                   — WorkflowEngine: per-step claim loop, heartbeat, sweep, execution
+├── store.py                    — MongoWorkflowStore: persistence, per-step distributed locking, typed deserialization
+├── retry.py                    — Retry utilities wrapping tenacity with RetryPolicy
+├── audit.py                    — AuditEvent model, AuditLogger protocol, MongoAuditLogger
+├── audit_report.py             — HTML execution report generator from audit events
 └── contrib/
-    └── fastapi.py  — Optional FastAPI router (pip install workchain[fastapi])
+    └── fastapi.py              — Optional FastAPI router (pip install workchain[fastapi])
+
+workchain_server/               — standalone server (pip install workchain[server])
+├── config.py                   — Environment variable configuration via pydantic-settings
+├── plugins.py                  — Step handler discovery (entry points + env var)
+├── app.py                      — FastAPI app with engine lifecycle and router mounting
+└── ui.py                       — Management dashboard HTML + router
 ```
 
 ## Key design decisions
@@ -111,7 +117,7 @@ workchain/
 - On step failure: populate `StepResult.error` and `StepResult.error_traceback`.
 
 ### Dependencies
-- Keep the library lightweight. Never add new third-party dependencies without explicit justification. Current runtime deps: `pydantic`, `motor`, `tenacity`.
+- Keep the core library lightweight. Never add new third-party dependencies without explicit justification. Current runtime deps: `pydantic`, `motor`, `tenacity`. Optional extras: `fastapi` (contrib router), `server` (adds `uvicorn`, `pydantic-settings`).
 
 ## Conventions
 
@@ -124,6 +130,23 @@ workchain/
 - Use `cast()` when accessing specific result types from the `results` dict.
 - Store step-state methods (`complete_step_by_name`, `fail_step_by_name`, `block_step_by_name`) accept `StepResult` objects directly — pass the model, not a dict. The store handles serialization internally via `model_dump(mode="python", serialize_as_any=True)`. Never call `.model_dump()` before passing results to store methods.
 - Store uses `model_dump(mode="python", serialize_as_any=True)` — never `mode="json"` (datetimes must be native for MongoDB queries).
+
+## Documentation update rules
+
+When making changes to the library or server, the following documents **must** be kept in sync:
+
+| Document | Scope | Update when... |
+|----------|-------|---------------|
+| `CLAUDE.md` | Entire project | Architecture, conventions, design decisions, or public API surface changes |
+| `README.md` | Entire project | User-facing features, installation, usage examples, config, or CLI commands change |
+| `REQUIREMENTS.md` | **`workchain/` library only** | Any change to core library code under `workchain/`. This is a rebuild-quality specification — detailed enough to reproduce the library from scratch. Covers: function signatures, state machines, error handling, edge cases, field defaults, validation rules, concurrency semantics. Does NOT cover `workchain_server/` or `workchain/contrib/` — those are documented in `CLAUDE.md` and `README.md` only. |
+
+**Mandatory checks before completing any task:**
+- If you changed core library code (`workchain/`) → update `REQUIREMENTS.md` with precise behavioral details
+- If you added/removed/renamed a module → update the Architecture tree in both `CLAUDE.md` and `README.md`
+- If you added/changed an optional extra or dependency → update Installation section in `README.md` and Dependencies in `CLAUDE.md`
+- If you added/changed environment variables or config → update the relevant env var tables in `README.md` and `CLAUDE.md`
+- If you added/changed API routes → update route tables in `CLAUDE.md`
 
 ## Files to modify with care
 
@@ -158,4 +181,46 @@ The `workchain/contrib/` subpackage contains optional integrations gated behind 
 - Mount on any FastAPI app: `app.include_router(router, prefix="/workflows")`
 - Endpoints: list, stats, get, cancel, HTML audit report
 - Does NOT include workflow creation (app-specific)
+
+## Workchain Server (`pip install workchain[server]`)
+
+Standalone deployable FastAPI service with management dashboard. Lives in `workchain_server/` within the same package.
+
+```
+workchain_server/
+├── __init__.py
+├── config.py       — pydantic-settings: env var configuration
+├── plugins.py      — step handler discovery (entry points + WORKCHAIN_PLUGINS env var)
+├── app.py          — FastAPI app: lifespan, engine lifecycle, router mounting
+└── ui.py           — management dashboard (workflow table, stats, report links)
+```
+
+**Quick start**: `hatch run server:serve` (requires MongoDB at `MONGO_URI`, default `mongodb://localhost:27017`)
+
+**Configuration** (all via environment variables):
+- `MONGO_URI` — MongoDB connection string (default `mongodb://localhost:27017`)
+- `MONGO_DATABASE` — database name (default `workchain`)
+- `ENGINE_INSTANCE_ID` — engine instance identifier (auto-generated if empty)
+- `ENGINE_CLAIM_INTERVAL`, `ENGINE_HEARTBEAT_INTERVAL`, `ENGINE_SWEEP_INTERVAL`, `ENGINE_STEP_STUCK_SECONDS`, `ENGINE_MAX_CONCURRENT` — engine tuning
+- `WORKCHAIN_PLUGINS` — comma-separated dotted module paths to import at startup (triggers handler registration)
+- `SERVER_TITLE` — dashboard page title (default `Workchain Server`)
+
+**API routes**:
+- `GET /` — management dashboard UI
+- `GET /healthz` — health check (pings MongoDB)
+- `GET /api/v1/workflows` — list workflows (from contrib router)
+- `GET /api/v1/workflows/stats` — workflow counts by status
+- `GET /api/v1/workflows/{id}` — workflow detail
+- `GET /api/v1/workflows/{id}/report` — HTML audit report
+- `POST /api/v1/workflows/{id}/cancel` — cancel workflow
+
+**Plugin system**: Step handlers are registered by importing modules that use `@step`/`@async_step` decorators. Two discovery mechanisms:
+1. Python entry points under `workchain.plugins` group (for installed packages)
+2. `WORKCHAIN_PLUGINS` env var with comma-separated module paths (for Docker/dev use)
+
+**Key design decisions**:
+- The server does NOT define workflow creation endpoints — those are app-specific. Workflows are submitted via external callers or plugins.
+- Motor client is instantiated at module level (connects lazily) and closed in lifespan teardown
+- The contrib router is mounted at `/api/v1/workflows` (versioned from day one)
+- The dashboard UI fetches data from the API via JavaScript — no server-side rendering
 
