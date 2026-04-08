@@ -908,15 +908,22 @@ class MongoWorkflowStore:
             },
         )
         if result.modified_count > 0:
-            wf = await self.get(workflow_id)
-            if wf:
-                self._emit(
-                    AuditEventType.LOCK_RELEASED, wf,
-                    step=wf.step_by_name(step_name),
-                    fence_token_override=step_fence_token,
-                    lock_released=True,
+            try:
+                wf = await self.get(workflow_id)
+                if wf:
+                    self._emit(
+                        AuditEventType.LOCK_RELEASED, wf,
+                        step=wf.step_by_name(step_name),
+                        fence_token_override=step_fence_token,
+                        lock_released=True,
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to emit LOCK_RELEASED audit for workflow=%s step=%s",
+                    workflow_id, step_name, exc_info=True,
                 )
             return True
+        return False
         return False
 
     async def force_release_step_lock(
