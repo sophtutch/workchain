@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from workchain.audit import AuditEvent, AuditEventType
 from workchain.audit_report import generate_audit_report
+from workchain.models import Step, Workflow
 
 
 def _ts(offset_s: float = 0) -> datetime:
@@ -103,6 +104,7 @@ def _make_failed_workflow_events() -> list[AuditEvent]:
             step_index=0, step_name="fail", step_handler="tests.fail_always",
             step_status="failed", step_status_before="running",
             error="RuntimeError: intentional failure",
+            error_traceback='Traceback (most recent call last):\n  File "tests/steps.py", line 10, in fail_always\n    raise RuntimeError("intentional failure")\nRuntimeError: intentional failure',
             timestamp=_ts(0.3), sequence=4,
         ),
         AuditEvent(
@@ -299,6 +301,16 @@ class TestGenerateAuditReport:
         assert "FAILED" in report
         assert "intentional failure" in report
         assert "Workflow Failed" in report
+
+    def test_failed_step_shows_traceback(self):
+        """Failed steps with error_traceback should show a collapsible stack trace."""
+        events = _make_failed_workflow_events()
+        report = generate_audit_report(events)
+
+        assert "error-traceback" in report
+        assert "Stack trace" in report
+        assert "Traceback (most recent call last)" in report
+        assert "tests/steps.py" in report
 
     def test_async_workflow_report(self):
         events = _make_async_workflow_events()
@@ -925,3 +937,112 @@ class TestAsyncFailureReport:
         report = generate_audit_report(events)
         assert "&rarr; failed" in report
         assert "Max Polls Exceeded" in report
+
+
+# ---------------------------------------------------------------------------
+# Full workflow graph (with unexecuted steps)
+# ---------------------------------------------------------------------------
+
+
+class TestFullWorkflowGraph:
+    """When a Workflow object is passed, the graph shows all steps."""
+
+    def _make_partial_workflow(self) -> tuple[list[AuditEvent], Workflow]:
+        """3-step sequential workflow where step 1 fails — steps 2-3 never run."""
+        wf = Workflow(
+            id="wf_partial",
+            name="partial_exec",
+            steps=[
+                Step(name="step_a", handler="tests.step_a", depends_on=[]),
+                Step(name="step_b", handler="tests.step_b"),
+                Step(name="step_c", handler="tests.step_c"),
+            ],
+        )
+        events = [
+            AuditEvent(
+                workflow_id="wf_partial", workflow_name="partial_exec",
+                event_type=AuditEventType.STEP_CLAIMED,
+                step_index=0, step_name="step_a",
+                step_depends_on=[],
+                instance_id="inst_1", fence_token=1, fence_token_before=0,
+                workflow_status="running", workflow_status_before="pending",
+                timestamp=_ts(0), sequence=1,
+            ),
+            AuditEvent(
+                workflow_id="wf_partial", workflow_name="partial_exec",
+                event_type=AuditEventType.STEP_SUBMITTED,
+                step_index=0, step_name="step_a", step_handler="tests.step_a",
+                step_depends_on=[],
+                instance_id="inst_1", fence_token=1,
+                step_status="submitted", step_status_before="pending",
+                timestamp=_ts(0.1), sequence=2,
+            ),
+            AuditEvent(
+                workflow_id="wf_partial", workflow_name="partial_exec",
+                event_type=AuditEventType.STEP_RUNNING,
+                step_index=0, step_name="step_a", step_handler="tests.step_a",
+                step_depends_on=[],
+                instance_id="inst_1", fence_token=1,
+                step_status="running", step_status_before="submitted",
+                attempt=1, max_attempts=1,
+                timestamp=_ts(0.2), sequence=3,
+            ),
+            AuditEvent(
+                workflow_id="wf_partial", workflow_name="partial_exec",
+                event_type=AuditEventType.STEP_FAILED,
+                step_index=0, step_name="step_a", step_handler="tests.step_a",
+                step_depends_on=[],
+                instance_id="inst_1", fence_token=1,
+                step_status="failed", step_status_before="running",
+                error="RuntimeError: boom",
+                timestamp=_ts(0.3), sequence=4,
+            ),
+            AuditEvent(
+                workflow_id="wf_partial", workflow_name="partial_exec",
+                event_type=AuditEventType.WORKFLOW_FAILED,
+                instance_id="inst_1", fence_token=1,
+                workflow_status="failed", workflow_status_before="running",
+                timestamp=_ts(0.4), sequence=5,
+            ),
+        ]
+        return events, wf
+
+    def test_all_steps_in_graph(self):
+        """All 3 steps should appear in the dependency graph even though only step_a ran."""
+        events, wf = self._make_partial_workflow()
+        report = generate_audit_report(events, workflow=wf)
+
+        assert "step_a" in report
+        assert "step_b" in report
+        assert "step_c" in report
+        assert "dep-graph" in report
+
+    def test_unexecuted_steps_show_pending(self):
+        """Unexecuted steps should show pending state in the graph."""
+        events, wf = self._make_partial_workflow()
+        report = generate_audit_report(events, workflow=wf)
+
+        # step_a should be failed, step_b and step_c should be pending
+        assert "state-failed" in report
+        assert "state-pending" in report
+
+    def test_without_workflow_only_executed_steps(self):
+        """Without the workflow param, only executed steps appear."""
+        events, _wf = self._make_partial_workflow()
+        report = generate_audit_report(events)
+
+        assert "step_a" in report
+        # step_b and step_c should NOT appear in the graph
+        assert "step_b" not in report
+        assert "step_c" not in report
+
+    def test_body_sections_only_for_executed_steps(self):
+        """Body sections should only render for steps that actually ran."""
+        events, wf = self._make_partial_workflow()
+        report = generate_audit_report(events, workflow=wf)
+
+        # step_a should have a body section
+        assert 'id="step-step_a"' in report
+        # step_b and step_c should NOT have body sections
+        assert 'id="step-step_b"' not in report
+        assert 'id="step-step_c"' not in report

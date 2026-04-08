@@ -3,6 +3,9 @@
 Usage:
     events = await audit_logger.get_events(workflow_id)
     html = generate_audit_report(events)
+
+    # Pass the workflow for a full graph including unexecuted steps:
+    html = generate_audit_report(events, workflow=wf)
 """
 
 from __future__ import annotations
@@ -16,8 +19,10 @@ from workchain.audit import AuditEvent, AuditEventType
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from workchain.models import Workflow
+
 # ---------------------------------------------------------------------------
-# CSS — same visual style as examples/generate_diagrams.py
+# CSS
 # ---------------------------------------------------------------------------
 
 CSS = """\
@@ -69,9 +74,9 @@ CSS = """\
     margin-bottom: 12px;
     border: 1px solid #1f2937;
   }
-  .step-section.sync-step { border-color: #6366f1; }
-  .step-section.async-step { border-color: #f59e0b; }
-  .step-section.discovery { border-color: #34d399; }
+  .step-section.sync-step { border-left: 3px solid #6366f1; }
+  .step-section.async-step { border-left: 3px solid #f59e0b; }
+  .step-section.discovery { border-left: 3px solid #34d399; }
   .step-section > .step-flow-panel { height: 100%; box-sizing: border-box; }
   .step-doc { display: flex; flex-direction: column; }
   .step-doc .panel { flex: 1; margin-bottom: 0; display: flex; flex-direction: column; }
@@ -101,10 +106,10 @@ CSS = """\
     padding: 20px; border-radius: 10px; margin-bottom: 12px;
     border: 1px solid #1f2937;
   }
-  .full-section.discovery { border-color: #34d399; }
-  .full-section.completion { border-color: #34d399; }
-  .full-section.failed-wf { border-color: #f87171; }
-  .full-section.cancelled-wf { border-color: #9ca3af; }
+  .full-section.discovery { border-left: 3px solid #34d399; }
+  .full-section.completion { border-left: 3px solid #34d399; }
+  .full-section.failed-wf { border-left: 3px solid #f87171; }
+  .full-section.cancelled-wf { border-left: 3px solid #9ca3af; }
 
   /* section label */
   .section-label {
@@ -200,6 +205,27 @@ CSS = """\
   .mongo-doc .num { color: #ffa657; }
   .mongo-doc .kw  { color: #ff7b72; }
 
+  /* error traceback */
+  .error-traceback {
+    margin-top: 0.5rem;
+  }
+  .error-traceback summary {
+    font-size: 0.82rem; font-weight: 600; color: #f87171;
+    cursor: pointer; user-select: none; list-style: none;
+    display: flex; align-items: center; gap: 0.35rem;
+  }
+  .error-traceback summary::before {
+    content: '\25B6'; font-size: 0.65rem; transition: transform 0.15s;
+  }
+  .error-traceback[open] summary::before { transform: rotate(90deg); }
+  .error-traceback pre {
+    background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: 6px;
+    padding: 0.75rem; margin-top: 0.4rem;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.8rem; line-height: 1.5; overflow-x: auto;
+    color: #fca5a5; white-space: pre-wrap; word-break: break-word;
+  }
+
   /* state transitions table */
   .state-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 12px; }
   .state-table th {
@@ -267,25 +293,25 @@ CSS = """\
     content: ''; position: absolute; right: -3px; top: -4px;
     border: 5px solid transparent; border-left: 6px solid #374151;
   }
-  /* yellow border around concurrent tiers */
+  /* border around concurrent tiers */
   .dep-tier.concurrent {
-    border: 2px solid #fbbf24; border-radius: 10px;
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 10px;
     padding: 12px 10px;
   }
   /* lane groups: parallel chains rendered as horizontal rows */
   .dep-lane-group {
-    border: 2px solid #fbbf24; border-radius: 10px;
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 10px;
     padding: 12px 10px; display: flex; flex-direction: column;
     gap: 10px; flex-shrink: 0;
   }
   .dep-lane {
     display: grid; grid-template-columns: var(--lane-cols);
     align-items: center;
-    border: 1px solid #fbbf2466; border-radius: 8px; padding: 10px 8px;
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 8px; padding: 10px 8px;
   }
   .dep-lane-fork {
     display: flex; flex-direction: column; align-items: stretch; gap: 10px;
-    border: 1px solid #fbbf2466; border-radius: 8px; padding: 6px;
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 8px; padding: 6px;
     box-sizing: border-box;
   }
   .dep-lane-fork .dep-node {
@@ -293,10 +319,16 @@ CSS = """\
     box-sizing: border-box;
   }
   .dep-num {
-    position: absolute; left: 0.5em; top: 0.4em;
-    background: rgba(165,180,252,0.15); color: #a5b4fc;
-    font-size: inherit; font-weight: 700; border-radius: 4px; padding: 0 0.2em;
+    position: absolute; left: 0.5em; top: 50%; transform: translateY(-50%);
+    color: #a5b4fc;
+    font-size: inherit; font-weight: 700;
   }
+  /* sync/async step type — thick left border */
+  .dep-node.mode-sync:not(.terminal)  { border-left: 3px solid #6366f1; }
+  .dep-node.mode-async:not(.terminal) { border-left: 3px solid #f59e0b; }
+  .dep-node.state-pending.mode-sync:not(.terminal)  { border-left-color: #6366f166; }
+  .dep-node.state-pending.mode-async:not(.terminal) { border-left-color: #f59e0b66; }
+
   /* state indicators on dependency graph nodes */
   .dep-state {
     font-size: 0.65rem; font-weight: 500; margin-top: 3px;
@@ -309,6 +341,13 @@ CSS = """\
   .state-running .dep-state { color: #60a5fa; }
   .state-pending .dep-state { color: #6b7280; }
   .state-needs-review .dep-state { color: #fb923c; }
+  /* grey-out unexecuted (pending) nodes */
+  .dep-node.state-pending:not(.terminal) {
+    background: #111827; border-color: #1f2937; color: #4b5563; opacity: 0.55;
+  }
+  .dep-node.state-pending:not(.terminal) .dep-num {
+    color: #4b5563;
+  }
 
   /* step dependency info */
   .dep-info {
@@ -326,22 +365,27 @@ CSS = """\
 
   /* parallel group wrapper */
   .parallel-group {
-    border: 2px solid #fbbf24; border-radius: 12px;
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 12px;
     padding: 16px 20px; margin: 20px 0;
   }
   .parallel-group-label {
     font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 1.5px; color: #fbbf24; margin-bottom: 12px;
+    letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 12px;
     display: flex; align-items: center; gap: 0.5rem;
   }
   .parallel-group-label::after {
-    content: ''; flex: 1; height: 1px; background: #fbbf2444;
+    content: ''; flex: 1; height: 1px; background: #47556966;
   }
   .parallel-lane {
-    border: 1px solid #374151; border-radius: 8px;
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 8px;
     padding: 12px 16px; margin-bottom: 10px;
   }
   .parallel-lane:last-child { margin-bottom: 0; }
+  .parallel-lane-tier {
+    border: 1px solid #47556966; border-left: 3px solid #94a3b8; border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 8px;
+  }
+  .parallel-lane-tier:last-child { margin-bottom: 0; }
 
   /* fade-in */
   @keyframes fadeIn {
@@ -355,7 +399,7 @@ for _i in range(1, 21):
 
 
 # ---------------------------------------------------------------------------
-# HTML helpers (shared patterns from generate_diagrams.py)
+# HTML helpers
 # ---------------------------------------------------------------------------
 
 
@@ -432,7 +476,16 @@ def _truncate(s: str | None, max_len: int = _ERROR_TRUNCATE_LEN) -> str | None:
     return s[:max_len] + "..." if len(s) > max_len else s
 
 
-def _fail_node(title: str, desc: str) -> str:
+def _fail_node(title: str, desc: str, traceback: str | None = None) -> str:
+    """Render a failure node with an optional collapsible stack trace."""
+    tb_html = ""
+    if traceback:
+        tb_html = (
+            '            <details class="error-traceback">\n'
+            "              <summary>Stack trace</summary>\n"
+            f"              <pre>{_esc(traceback)}</pre>\n"
+            "            </details>\n"
+        )
     return (
         '          <div class="step-node theme-fail">\n'
         '            <div class="node-header">\n'
@@ -440,7 +493,8 @@ def _fail_node(title: str, desc: str) -> str:
         f'              {_badge("status-badge", "FAILED")}\n'
         f"            </div>\n"
         f'            <div class="node-desc">{_esc(desc)}</div>\n'
-        f"          </div>\n"
+        + tb_html
+        + "          </div>\n"
     )
 
 
@@ -480,9 +534,22 @@ def _group_events(
 
 def _extract_dep_info(
     step_groups: dict[int, list[AuditEvent]],
+    workflow: Workflow | None = None,
 ) -> dict[str, list[str]]:
-    """Build step_name -> depends_on mapping from audit events."""
-    deps: dict[str, list[str]] = {}
+    """Build step_name -> depends_on mapping.
+
+    When *workflow* is provided the full step graph is used, so unexecuted
+    steps appear in the dependency map.  Falls back to extracting from
+    audit events when the workflow object is not available.
+    """
+    if workflow is not None:
+        deps: dict[str, list[str]] = {}
+        for step in workflow.steps:
+            if step.depends_on is not None:
+                deps[step.name] = step.depends_on
+        return deps
+
+    deps = {}
     for idx in sorted(step_groups.keys()):
         for e in step_groups[idx]:
             if e.step_name and e.step_depends_on is not None:
@@ -494,25 +561,41 @@ def _extract_dep_info(
 def _compute_tiers(
     step_groups: dict[int, list[AuditEvent]],
     dep_map: dict[str, list[str]],
+    all_steps: list[tuple[int, str]] | None = None,
 ) -> list[list[tuple[int, str]]]:
     """Compute concurrency tiers — groups of (idx, name) that can run in parallel.
 
-    Returns a list of tiers, each tier is a list of (step_index, step_name) pairs.
+    Args:
+        step_groups: Per-step audit event groups (only executed steps).
+        dep_map: Step name to dependency list mapping.
+        all_steps: When provided (from a Workflow object), the complete
+            list of ``(index, name)`` pairs for every step in the
+            workflow — including those that have not yet executed.
+
+    Returns:
+        A list of tiers, each tier is a list of (step_index, step_name) pairs.
     """
+    # Build the authoritative name→idx map.  Prefer all_steps when available
+    # so that unexecuted steps are included.
+    name_to_idx: dict[str, int] = {}
+    if all_steps is not None:
+        for idx, name in all_steps:
+            name_to_idx[name] = idx
+    else:
+        for idx in sorted(step_groups.keys()):
+            if step_groups[idx]:
+                name = step_groups[idx][0].step_name or f"step_{idx}"
+                name_to_idx[name] = idx
+
     if not dep_map:
         # No dependency info — return sequential tiers
+        if all_steps is not None:
+            return [[(idx, name)] for idx, name in all_steps]
         result = []
         for idx in sorted(step_groups.keys()):
             name = (step_groups[idx][0].step_name or f"step_{idx}") if step_groups[idx] else f"step_{idx}"
             result.append([(idx, name)])
         return result
-
-    # Map step names to indices
-    name_to_idx: dict[str, int] = {}
-    for idx in sorted(step_groups.keys()):
-        if step_groups[idx]:
-            name = step_groups[idx][0].step_name or f"step_{idx}"
-            name_to_idx[name] = idx
 
     # Compute depth of each step in the DAG
     depths: dict[str, int] = {}
@@ -531,11 +614,15 @@ def _compute_tiers(
         _depth(name)
 
     # Also include steps not in dep_map (no dependency info) at sequential depths
-    all_names = [
-        (step_groups[idx][0].step_name or f"step_{idx}")
-        for idx in sorted(step_groups.keys())
-        if step_groups[idx]
-    ]
+    all_names: list[str]
+    if all_steps is not None:
+        all_names = [name for _idx, name in all_steps]
+    else:
+        all_names = [
+            (step_groups[idx][0].step_name or f"step_{idx}")
+            for idx in sorted(step_groups.keys())
+            if step_groups[idx]
+        ]
     max_depth = max(depths.values()) if depths else -1
     for name in all_names:
         if name not in depths:
@@ -620,9 +707,20 @@ def _compute_lane_groups(
 
 def _compute_step_states(
     step_groups: dict[int, list[AuditEvent]],
+    workflow: Workflow | None = None,
 ) -> dict[str, str]:
-    """Determine the final state of each step from audit events."""
+    """Determine the final state of each step from audit events.
+
+    When *workflow* is provided, every step is seeded as ``"pending"``
+    so that unexecuted steps appear in the dependency graph.
+    """
     states: dict[str, str] = {}
+
+    # Seed with all workflow steps so unexecuted ones default to "pending"
+    if workflow is not None:
+        for step in workflow.steps:
+            states[step.name] = "pending"
+
     for _idx, events in step_groups.items():
         name = events[0].step_name if events else None
         if not name:
@@ -643,14 +741,38 @@ def _compute_step_states(
     return states
 
 
-def _dep_node(cls: str, name: str, state: str, step_num: int | None = None) -> str:
+def _compute_step_modes(
+    step_groups: dict[int, list[AuditEvent]],
+    workflow: Workflow | None = None,
+) -> dict[str, bool]:
+    """Build a step_name -> is_async mapping for dependency graph markers."""
+    modes: dict[str, bool] = {}
+    if workflow is not None:
+        for step in workflow.steps:
+            modes[step.name] = step.is_async
+    for _idx, events in step_groups.items():
+        for e in events:
+            if e.step_name and e.is_async is not None:
+                modes[e.step_name] = e.is_async
+                break
+    return modes
+
+
+def _dep_node(
+    cls: str,
+    name: str,
+    state: str,
+    step_num: int | None = None,
+    is_async: bool | None = None,
+) -> str:
     """Render a single dependency graph node with state indicator."""
     state_cls = f" state-{state}"
     label = "needs review" if state == "needs-review" else state
     num_html = f'<span class="dep-num">{step_num}</span> ' if step_num is not None else ""
+    mode_cls = " mode-async" if is_async else (" mode-sync" if is_async is not None else "")
     anchor = f' onclick="document.getElementById(\'step-{_esc(name)}\')?.scrollIntoView({{behavior:\'smooth\',block:\'center\'}})"'
     return (
-        f'<div class="{cls}{state_cls}"{anchor}>{num_html}{_esc(name)}'
+        f'<div class="{cls}{state_cls}{mode_cls}"{anchor}>{num_html}{_esc(name)}'
         f'<div class="dep-state">&rarr; {label}</div></div>\n'
     )
 
@@ -660,12 +782,14 @@ def _render_dependency_graph(
     tiers: list[list[tuple[int, str]]],
     step_states: dict[str, str] | None = None,
     wf_state: str = "pending",
+    step_modes: dict[str, bool] | None = None,
 ) -> str:
     """Render a visual dependency graph as a horizontal flow diagram."""
     if not tiers:
         return ""
 
     states = step_states or {}
+    modes = step_modes or {}
     groups = _compute_lane_groups(dep_map, tiers)
     parts = ['<div class="dep-graph">\n  <div class="section-label">Dependency Graph</div>\n']
     parts.append('  <div class="dep-flow">\n')
@@ -683,14 +807,14 @@ def _render_dependency_graph(
         if group_type == "single":
             idx, name = group_data[0]
             parts.append('    <div class="dep-tier">\n      ')
-            parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+            parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1, is_async=modes.get(name)))
             parts.append("    </div>\n")
 
         elif group_type == "parallel":
             parts.append('    <div class="dep-tier concurrent">\n')
             for idx, name in group_data:
                 parts.append("      ")
-                parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+                parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1, is_async=modes.get(name)))
             parts.append("    </div>\n")
 
         elif group_type == "lanes":
@@ -705,12 +829,12 @@ def _render_dependency_graph(
                     if len(sub_tier) == 1:
                         idx, name = sub_tier[0]
                         parts.append("        ")
-                        parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+                        parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1, is_async=modes.get(name)))
                     else:
                         parts.append('        <div class="dep-lane-fork">\n')
                         for idx, name in sub_tier:
                             parts.append("          ")
-                            parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1))
+                            parts.append(_dep_node("dep-node", name, states.get(name, "pending"), idx + 1, is_async=modes.get(name)))
                         parts.append("        </div>\n")
                 parts.append("      </div>\n")
             parts.append("    </div>\n")
@@ -833,7 +957,7 @@ def _render_discovery(
 
     txs = (
         _tx("purple", "Workflow", "pending &rarr; running")
-        + _tx("green", "Locks", f"1 step claim ({_esc(step_label)})")
+        + _tx("green", "Lock", f"claim (fence &rarr; {claim.fence_token})")
         + _tx("indigo", "Fence Token", f"fence_token &rarr; {claim.fence_token}")
     )
     tx_col = f'      <div class="step-transitions">\n{txs}      </div>\n'
@@ -991,9 +1115,9 @@ def _render_flow_nodes(
         )
 
     # Poll timeout / max exceeded
-    nodes += [_fail_node("Poll Timeout", pt.error or "Poll timeout") for pt in poll_timeout]
-    nodes += [_fail_node("Max Polls Exceeded", pm.error or "Max polls exceeded") for pm in poll_max]
-    nodes += [_fail_node("Check Errors Exceeded", pce.error or "Check errors exceeded") for pce in poll_check_errors]
+    nodes += [_fail_node("Poll Timeout", pt.error or "Poll timeout", pt.error_traceback) for pt in poll_timeout]
+    nodes += [_fail_node("Max Polls Exceeded", pm.error or "Max polls exceeded", pm.error_traceback) for pm in poll_max]
+    nodes += [_fail_node("Check Errors Exceeded", pce.error or "Check errors exceeded", pce.error_traceback) for pce in poll_check_errors]
 
     # Completion or failure
     if completed:
@@ -1014,15 +1138,7 @@ def _render_flow_nodes(
         )
     elif failed:
         e = failed[0]
-        nodes.append(
-            '          <div class="step-node theme-fail">\n'
-            '            <div class="node-header">\n'
-            f'              <span class="node-title">Failed</span>\n'
-            f'              {_badge("status-badge", "FAILED")}\n'
-            f"            </div>\n"
-            f'            <div class="node-desc">{_esc(e.error or "Step failed")}</div>\n'
-            f"          </div>\n"
-        )
+        nodes.append(_fail_node("Failed", e.error or "Step failed", e.error_traceback))
 
     return (
         f'      <div class="step-flow-panel">\n'
@@ -1125,11 +1241,14 @@ def _render_step_doc_panel(
             "status": "completed" if completed else "failed",
         }
     elif final and final.error:
-        doc_fields[f"steps[{idx}]"] = {
+        step_doc: dict = {
             "name": step_name,
             "status": "failed",
             "error": _truncate(final.error),
         }
+        if final.error_traceback:
+            step_doc["error_traceback"] = _truncate(final.error_traceback, 500)
+        doc_fields[f"steps[{idx}]"] = step_doc
 
     return (
         '      <div class="step-doc">\n'
@@ -1332,12 +1451,20 @@ def _render_state_transitions(events: list[AuditEvent]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_audit_report(events: list[AuditEvent]) -> str:
+def generate_audit_report(
+    events: list[AuditEvent],
+    *,
+    workflow: Workflow | None = None,
+) -> str:
     """Generate a self-contained HTML execution report from audit events.
 
     Args:
         events: List of AuditEvent objects, ordered by sequence
                 (as returned by MongoAuditLogger.get_events).
+        workflow: Optional Workflow object.  When provided the dependency
+                  graph shows *all* steps in the workflow (including those
+                  not yet executed), giving a complete picture of the
+                  workflow shape with progress overlay.
 
     Returns:
         Complete HTML document as a string.
@@ -1348,16 +1475,26 @@ def generate_audit_report(events: list[AuditEvent]) -> str:
     wf_name = events[0].workflow_name.replace("_", " ").title()
 
     wf_events, step_groups = _group_events(events)
-    dep_map = _extract_dep_info(step_groups)
-    tiers = _compute_tiers(step_groups, dep_map)
-    step_states = _compute_step_states(step_groups)
+    dep_map = _extract_dep_info(step_groups, workflow=workflow)
+
+    # When the full workflow is available, provide the complete step list
+    # so that unexecuted steps appear in the dependency graph.
+    all_steps: list[tuple[int, str]] | None = None
+    if workflow is not None:
+        all_steps = [(i, s.name) for i, s in enumerate(workflow.steps)]
+
+    tiers = _compute_tiers(step_groups, dep_map, all_steps=all_steps)
+    step_states = _compute_step_states(step_groups, workflow=workflow)
+
+    # Build sync/async mode map for dependency graph markers
+    step_modes = _compute_step_modes(step_groups, workflow=workflow)
 
     wf_state = _workflow_final_state(wf_events)
 
     sections = [
         _render_header(wf_name),
         _render_summary(events, wf_name),
-        _render_dependency_graph(dep_map, tiers, step_states, wf_state),
+        _render_dependency_graph(dep_map, tiers, step_states, wf_state, step_modes=step_modes),
         '<div class="main-area">\n',
         _render_discovery(step_groups),
     ]
@@ -1386,9 +1523,13 @@ def generate_audit_report(events: list[AuditEvent]) -> str:
             for lane in group_data:
                 group_parts.append('      <div class="parallel-lane">\n')
                 for sub_tier in lane:
+                    if len(sub_tier) > 1:
+                        group_parts.append('        <div class="parallel-lane-tier">\n')
                     for idx, _name in sub_tier:
                         if idx in step_groups:
                             group_parts.append(_render_step_section(idx, step_groups[idx]))
+                    if len(sub_tier) > 1:
+                        group_parts.append("        </div>\n")
                 group_parts.append("      </div>\n")
             group_parts.append("    </div>\n")
             sections.append("".join(group_parts))
