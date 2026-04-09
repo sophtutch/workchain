@@ -18,6 +18,7 @@ from workchain.exceptions import (
     StepTimeoutError,
     WorkchainError,
 )
+from workchain.introspection import HandlerDescriptor, describe_handler, list_handlers
 from workchain.models import (
     CheckResult,
     PollPolicy,
@@ -38,6 +39,7 @@ __all__ = [
     "PollPolicy", "CheckResult", "StepStatus", "WorkflowStatus",
     "MongoWorkflowStore", "WorkflowEngine",
     "step", "async_step", "completeness_check",
+    "HandlerDescriptor", "describe_handler", "list_handlers",
     "WorkchainError", "StepError", "StepTimeoutError", "RetryExhaustedError",
     "HandlerError", "LockError", "FenceRejectedError", "RecoveryError",
 ]

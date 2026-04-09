@@ -17,6 +17,7 @@ workchain/                      — core library
 ├── retry.py                    — Retry utilities wrapping tenacity with RetryPolicy
 ├── audit.py                    — AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ├── audit_report.py             — HTML execution report generator from audit events
+├── introspection.py            — HandlerDescriptor + describe_handler/list_handlers (JSON schemas for registered handlers)
 └── contrib/
     └── fastapi.py              — Optional FastAPI router (pip install workchain[fastapi])
 
@@ -155,6 +156,18 @@ When making changes to the library or server, the following documents **must** b
 - `engine.py` `_call_handler()` — uses `_step_meta["needs_context"]` and `iscoroutine` safety net; do not reintroduce `inspect.signature`
 - `models.py` — changing field names affects all persisted MongoDB documents; `Step._set_type_paths` auto-populates `config_type`/`result_type`
 - `decorators.py` — `_step_meta` dict is the contract between decorators and engine; adding/removing keys affects both
+- `introspection.py` — reads `_STEP_REGISTRY` + `_step_meta` and handler type hints to emit JSON schemas; any decorator metadata key changes must be reflected in `HandlerDescriptor`
+
+## Handler introspection
+
+`workchain.introspection` exposes registered handlers as `HandlerDescriptor` objects suitable for UIs and schema-aware tooling:
+
+- **`describe_handler(name, *, include_checks=False)`** — returns a `HandlerDescriptor` for a registered handler, or `None` if unknown / is a completeness check and checks are excluded
+- **`list_handlers(*, include_checks=False)`** — returns all registered handlers sorted by dotted name
+- **`HandlerDescriptor`** — Pydantic model with `name`, `module`, `qualname`, `doc`, `is_async`, `is_completeness_check`, `needs_context`, `idempotent`, `config_type`, `config_schema` (JSON schema dict), `result_type`, `result_schema`, `retry_policy`, `poll_policy`, `completeness_check`, `launchable`, `introspection_warning`
+- **`launchable`** is `True` only when both the config and result annotations are strict subclasses of `StepConfig` / `StepResult` and JSON schema extraction succeeded — UIs should treat non-launchable handlers as display-only
+- Type hint resolution uses `typing.get_type_hints` with a `__annotations__` fallback; unresolved forward references populate `introspection_warning` instead of raising
+- Completeness check handlers are excluded by default from both `describe_handler` and `list_handlers`; pass `include_checks=True` for full inventory
 
 ## Audit logging
 
