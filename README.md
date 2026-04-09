@@ -467,7 +467,22 @@ The server mounts a designer router at `/api/v1` that powers the upcoming drag-a
 | `DELETE` | `/api/v1/templates/{id}` | Delete a template |
 | `POST` | `/api/v1/templates/{id}/launch` | Instantiate a template into a runnable `Workflow` (supports `name_override` + per-step `config_overrides`) |
 
-**Designer SPA**: the server also attempts to mount a built React app at `/designer/` from `workchain_server/static/designer/`. If the directory is missing (e.g. the frontend has not been built yet), the server logs a notice and skips the mount. The UI build ships in a follow-up PR.
+**Designer SPA**: the server mounts a built React app at `/designer/` from `workchain_server/static/designer/`. Build it once before running the server for the first time:
+
+```bash
+hatch run frontend:install   # npm install (one-time)
+hatch run frontend:build     # tsc + vite build -> workchain_server/static/designer/
+hatch run server:serve       # open http://localhost:8000/designer/
+```
+
+For hot reload during frontend development:
+
+```bash
+hatch run server:serve       # FastAPI on :8000 (terminal 1)
+hatch run frontend:dev       # Vite on :5173 with /api proxy (terminal 2)
+```
+
+The SPA uses React + Vite + [React Flow](https://reactflow.dev/) for the canvas and [`@rjsf/core`](https://rjsf-team.github.io/react-jsonschema-form/) (Bootstrap 4 theme) for schema-driven config forms. See `workchain_server/frontend/README.md` for the component layout.
 
 > ⚠️ **No auth.** The designer API can launch arbitrary registered workflows. Run the server behind a reverse proxy that enforces authentication before exposing it beyond localhost.
 

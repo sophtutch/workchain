@@ -27,7 +27,9 @@ workchain_server/               — standalone server (pip install workchain[ser
 ├── plugins.py                  — Step handler discovery (entry points + env var)
 ├── app.py                      — FastAPI app with engine lifecycle and router mounting
 ├── designer_router.py          — /api/v1/handlers, /workflows (POST), /templates (CRUD + launch)
-└── ui.py                       — Management dashboard HTML + router
+├── ui.py                       — Management dashboard HTML + router
+├── frontend/                   — React + Vite + React Flow + RJSF SPA source (gitignored build → static/designer/)
+└── static/designer/            — built SPA assets (gitignored; produced by `hatch run frontend:build`)
 ```
 
 ## Key design decisions
@@ -264,4 +266,15 @@ workchain_server/
 - **Template launch** uses `instantiate_template` which validates handler refs and raw configs; failures return 422
 - **Optimistic locking** on `PUT /api/v1/templates/{id}` — stale `expected_version` returns 409 Conflict, missing template returns 404 (distinguished via a pre-read)
 - **Static SPA mount** on `/designer/*` is graceful: the server logs a notice and skips the mount if `workchain_server/static/designer/` is missing (e.g. before the frontend has been built)
+
+### Designer frontend (React SPA)
+
+`workchain_server/frontend/` is a React 18 + Vite 5 single-page app that powers the `/designer/` route.  Source lives in `frontend/src/`; the build output lands in `workchain_server/static/designer/` (gitignored) via `vite.config.ts`'s `build.outDir: "../static/designer"`.
+
+- **Stack**: React + Vite + [React Flow](https://reactflow.dev/) for the graph canvas + [`@rjsf/core`](https://rjsf-team.github.io/react-jsonschema-form/) with the Bootstrap 4 theme for schema-driven config forms.  Bootstrap 4 chosen over MUI to avoid the Emotion runtime.
+- **Build**: `hatch run frontend:install` (npm install, once), then `hatch run frontend:build` (tsc + vite build).  The hatch env is `detached = true` — no Python deps installed.
+- **Dev loop**: `hatch run frontend:dev` runs Vite on `:5173` with an `/api/*` proxy to FastAPI on `:8000`, so the designer gets hot reload without CORS.
+- **Wheel packaging**: `[tool.hatch.build.targets.wheel.force-include]` ships `workchain_server/static/designer/` into the wheel at publish time, so end users `pip install workchain[server]` without needing Node.  The sdist excludes both the built output and `node_modules`.
+- **Component layout**: `Toolbar` (top bar: workflow name + Run/Clear + status), `HandlerPalette` (left sidebar: draggable handler list, greys out non-launchable handlers), `DesignerCanvas` (React Flow with custom `StepNode`), `ConfigPanel` (right sidebar: RJSF form for the selected node).  Client-side `draftValidate` runs Kahn's algorithm for cycles before POST; backend is still authoritative.
+- **Wire format**: the SPA POSTs `WorkflowDraft` JSON (`{name, steps: [{name, handler, config, depends_on}]}`) directly — no dotted config paths.  The server derives `config_type` from the handler signature.
 

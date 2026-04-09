@@ -1,0 +1,388 @@
+:root {
+  --palette-width: 260px;
+  --panel-width: 320px;
+  --toolbar-height: 56px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f6f7fb;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app__body {
+  display: grid;
+  grid-template-columns: var(--palette-width) 1fr var(--panel-width);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---------- Toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--toolbar-height);
+  padding: 0 16px;
+  background: #1f2535;
+  color: #fff;
+  border-bottom: 1px solid #0b0e17;
+}
+
+.toolbar__title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.toolbar__name-input {
+  width: 260px;
+}
+
+.toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.toolbar__status {
+  font-size: 0.9rem;
+  color: #bfe4ff;
+  max-width: 400px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ---------- Handler palette ---------- */
+
+.palette {
+  border-right: 1px solid #dfe3ea;
+  background: #fafbfc;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.palette__title {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6a7280;
+  margin: 0 0 8px;
+}
+
+.palette__status,
+.palette__error {
+  font-size: 0.85rem;
+  color: #6a7280;
+  padding: 8px 0;
+}
+
+.palette__error {
+  color: #c43a3a;
+}
+
+.palette__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.palette__item {
+  padding: 8px 10px;
+  border: 1px solid #dfe3ea;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: #fff;
+  cursor: grab;
+  user-select: none;
+}
+
+.palette__item:hover {
+  border-color: #556cff;
+}
+
+.palette__item--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #f0f1f4;
+}
+
+.palette__item-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1f2535;
+}
+
+.palette__item-module {
+  font-size: 0.72rem;
+  color: #8a8f9c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette__item-badges {
+  margin-top: 4px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Canvas ---------- */
+
+.canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.step-node {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 2px solid #556cff;
+  background: #fff;
+  min-width: 140px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.step-node--selected {
+  border-color: #1f2535;
+  box-shadow: 0 0 0 3px rgba(85, 108, 255, 0.25);
+}
+
+.step-node__name {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: #1f2535;
+}
+
+.step-node__handler {
+  font-size: 0.72rem;
+  color: #6a7280;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+/* ---------- Config panel ---------- */
+
+.config-panel {
+  border-left: 1px solid #dfe3ea;
+  background: #fafbfc;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.config-panel__empty {
+  color: #6a7280;
+  font-size: 0.9rem;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.config-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.config-panel__title {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6a7280;
+  margin: 0;
+}
+
+.config-panel__label {
+  font-size: 0.78rem;
+  color: #6a7280;
+  margin-bottom: 4px;
+}
+
+.config-panel__handler {
+  font-size: 0.78rem;
+  color: #6a7280;
+  margin-bottom: 8px;
+}
+
+.config-panel__doc {
+  font-size: 0.82rem;
+  color: #4a5162;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #eef0f5;
+  border-radius: 4px;
+}
+
+.config-panel__errors {
+  background: #fdecea;
+  color: #a02525;
+  padding: 8px 16px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+  list-style: none;
+  margin-left: 0;
+}
+
+.config-panel__field {
+  margin-bottom: 10px;
+}
+
+.config-panel__input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #c8ccd4;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.config-panel__input:focus {
+  outline: none;
+  border-color: #556cff;
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  padding: 6px 14px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: #556cff;
+  color: #fff;
+  border-color: #556cff;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #4358e6;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: #dfe3ea;
+  border-color: #4a5162;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: #2a3044;
+}
+
+.btn--danger {
+  background: #fff;
+  color: #c43a3a;
+  border-color: #e8bcbc;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #fdecea;
+}
+
+.btn--sm {
+  padding: 3px 10px;
+  font-size: 0.78rem;
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.badge--async {
+  background: #fff3cd;
+  color: #8a6d1a;
+}
+
+.badge--idem {
+  background: #e2e5eb;
+  color: #5a6070;
+}
+
+.badge--danger {
+  background: #fdecea;
+  color: #a02525;
+}
+
+/* ---------- RJSF form (unthemed) ---------- */
+
+.config-panel form label {
+  display: block;
+  font-size: 0.78rem;
+  color: #6a7280;
+  margin-bottom: 4px;
+  margin-top: 8px;
+}
+
+.config-panel form input[type="text"],
+.config-panel form input[type="number"],
+.config-panel form input[type="email"],
+.config-panel form select,
+.config-panel form textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #c8ccd4;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  background: #fff;
+}
+
+.config-panel form input:focus,
+.config-panel form select:focus,
+.config-panel form textarea:focus {
+  outline: none;
+  border-color: #556cff;
+}
+
+.config-panel form .field-description {
+  font-size: 0.74rem;
+  color: #8a8f9c;
+  margin-bottom: 4px;
+}
+
+.config-panel form .error-detail {
+  color: #c43a3a;
+  font-size: 0.75rem;
+  list-style: none;
+  padding-left: 0;
+  margin-top: 2px;
+}
