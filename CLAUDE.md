@@ -26,6 +26,7 @@ workchain_server/               — standalone server (pip install workchain[ser
 ├── config.py                   — Environment variable configuration via pydantic-settings
 ├── plugins.py                  — Step handler discovery (entry points + env var)
 ├── app.py                      — FastAPI app with engine lifecycle and router mounting
+├── designer_router.py          — /api/v1/handlers, /workflows (POST), /templates (CRUD + launch)
 └── ui.py                       — Management dashboard HTML + router
 ```
 
@@ -236,14 +237,31 @@ workchain_server/
 - `GET /api/v1/workflows/{id}` — workflow detail
 - `GET /api/v1/workflows/{id}/report` — HTML audit report
 - `POST /api/v1/workflows/{id}/cancel` — cancel workflow
+- `GET /api/v1/handlers` — list registered step handlers with JSON schemas (designer router)
+- `POST /api/v1/workflows` — create a workflow from a designer draft (designer router)
+- `GET/POST/PUT/DELETE /api/v1/templates[/{id}]` — template CRUD (designer router)
+- `POST /api/v1/templates/{id}/launch` — instantiate a template into a runnable workflow
+- `/designer/*` — built React SPA (served from `workchain_server/static/designer/` if present)
 
 **Plugin system**: Step handlers are registered by importing modules that use `@step`/`@async_step` decorators. Two discovery mechanisms:
 1. Python entry points under `workchain.plugins` group (for installed packages)
 2. `WORKCHAIN_PLUGINS` env var with comma-separated module paths (for Docker/dev use)
 
 **Key design decisions**:
-- The server does NOT define workflow creation endpoints — those are app-specific. Workflows are submitted via external callers or plugins.
+- The contrib router (`workchain.contrib.fastapi`) stays read-only — adding workflow creation would widen its public surface. Workflow creation lives in `workchain_server/designer_router.py` instead.
 - Motor client is instantiated at module level (connects lazily) and closed in lifespan teardown
-- The contrib router is mounted at `/api/v1/workflows` (versioned from day one)
+- The contrib router is mounted at `/api/v1/workflows` (versioned from day one); the designer router is mounted at `/api/v1`
 - The dashboard UI fetches data from the API via JavaScript — no server-side rendering
+
+### Workflow designer router
+
+`workchain_server/designer_router.py` exposes handler introspection, workflow-draft creation, and template CRUD.  Key properties:
+
+- **Server-derived `config_type`**: the `POST /api/v1/workflows` endpoint looks up each draft step's handler via `describe_handler` and imports the typed `StepConfig` subclass from the handler signature — clients never send dotted paths, so there is no arbitrary-import vector from a draft payload
+- **Non-launchable handlers are rejected**: handlers without a typed `StepConfig`/`StepResult` subclass (marked `launchable=False` by introspection) cannot be used in designer drafts; the endpoint returns 422 with an explicit error per step
+- **Collected per-step errors**: the draft endpoint walks every step and collects errors before raising, so the designer can highlight all bad steps in a single round-trip
+- **DAG validation is delegated** to the `Workflow` model validators (unique names, cycles, unknown deps) — the endpoint catches the resulting `ValueError` and converts it to a structured 422 response
+- **Template launch** uses `instantiate_template` which validates handler refs and raw configs; failures return 422
+- **Optimistic locking** on `PUT /api/v1/templates/{id}` — stale `expected_version` returns 409 Conflict, missing template returns 404 (distinguished via a pre-read)
+- **Static SPA mount** on `/designer/*` is graceful: the server logs a notice and skips the mount if `workchain_server/static/designer/` is missing (e.g. before the frontend has been built)
 
