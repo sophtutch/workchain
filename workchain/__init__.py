@@ -31,6 +31,7 @@ from workchain.models import (
     WorkflowStatus,
 )
 from workchain.store import MongoWorkflowStore
+from workchain.templates import StepTemplate, WorkflowTemplate, instantiate_template
 
 __all__ = [
     "AuditEvent", "AuditEventType", "AuditLogger", "MongoAuditLogger", "NullAuditLogger",
@@ -40,6 +41,7 @@ __all__ = [
     "MongoWorkflowStore", "WorkflowEngine",
     "step", "async_step", "completeness_check",
     "HandlerDescriptor", "describe_handler", "list_handlers",
+    "StepTemplate", "WorkflowTemplate", "instantiate_template",
     "WorkchainError", "StepError", "StepTimeoutError", "RetryExhaustedError",
     "HandlerError", "LockError", "FenceRejectedError", "RecoveryError",
 ]
