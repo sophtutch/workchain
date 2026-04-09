@@ -22,6 +22,7 @@ workchain/
   retry.py            retrying_from_policy — tenacity wrapper
   audit.py            AuditEvent model, AuditEventType enum, AuditLogger protocol, implementations
   audit_report.py     HTML execution report generator from audit events
+  introspection.py    HandlerDescriptor + describe_handler/list_handlers (JSON schemas for registered handlers)
   exceptions.py       Exception hierarchy
 ```
 
@@ -1380,7 +1381,62 @@ Produces a self-contained HTML execution report from audit events. No external d
 
 ---
 
-## 15. Public API Surface
+## 15. Handler Introspection (`workchain/introspection.py`)
+
+A read-only inspection layer over `_STEP_REGISTRY` that describes each registered handler as a Pydantic `HandlerDescriptor`. Intended for UIs, schema-aware tooling, and designer-style workflow builders that need to know the JSON-schema shape of a handler's config and result.
+
+### `HandlerDescriptor` (Pydantic model)
+
+| Field | Type | Purpose |
+|---|---|---|
+| `name` | `str` | Dotted handler path (matches `Step.handler`) |
+| `module` | `str` | `fn.__module__` |
+| `qualname` | `str` | `fn.__qualname__` |
+| `doc` | `str \| None` | `inspect.cleandoc(fn.__doc__)` or `None` |
+| `is_async` | `bool` | True for `@async_step` handlers |
+| `is_completeness_check` | `bool` | True for `@completeness_check` handlers |
+| `needs_context` | `bool` | Mirrors `_step_meta["needs_context"]` |
+| `idempotent` | `bool` | Mirrors `_step_meta["idempotent"]` (default `True`) |
+| `config_type` | `str \| None` | Dotted path to the `StepConfig` subclass, `None` if absent or is base `StepConfig` |
+| `config_schema` | `dict \| None` | `ConfigCls.model_json_schema()` or `None` |
+| `result_type` | `str \| None` | Dotted path to the `StepResult` subclass, `None` if absent or is base `StepResult` |
+| `result_schema` | `dict \| None` | `ResultCls.model_json_schema()` or `None` |
+| `retry_policy` | `dict \| None` | `RetryPolicy.model_dump(mode="json")`, `None` if not set |
+| `poll_policy` | `dict \| None` | `PollPolicy.model_dump(mode="json")`, async steps only |
+| `completeness_check` | `str \| None` | Dotted path of the check handler, async steps only |
+| `launchable` | `bool` | True only if handler has both a strict `StepConfig` subclass and a strict `StepResult` subclass with schemas successfully emitted |
+| `introspection_warning` | `str \| None` | Human-readable warning if type hint resolution fell back to raw `__annotations__` (e.g. unresolved forward reference) |
+
+### `describe_handler(name: str, *, include_checks: bool = False) -> HandlerDescriptor | None`
+
+1. Look up `fn = _STEP_REGISTRY.get(name)`. Return `None` if not present (no dynamic import fallback — the designer only sees explicitly registered handlers).
+2. Read `_step_meta` via `getattr(fn, _STEP_META_ATTR, {})`.
+3. If `_step_meta["is_completeness_check"]` is truthy and `include_checks` is `False`, return `None`.
+4. Resolve type hints:
+   - Try `typing.get_type_hints(fn, include_extras=False)`.
+   - On any exception, fall back to a dict copy of `fn.__annotations__` and populate `introspection_warning` with the exception type and message.
+5. For non-check handlers only:
+   - Locate the `config` parameter: prefer the parameter literally named `config`; otherwise fall back to the first positional parameter's annotation.
+   - If that annotation is a **strict subclass** of `StepConfig` (not `StepConfig` itself), set `config_type` to its dotted path and `config_schema` to `cls.model_json_schema()`. Schema emission failures log a warning and leave `config_schema=None` with `config_type` still set.
+   - Same logic for the `return` annotation against `StepResult`.
+6. Compute `launchable` as: **not a check**, **both** `config_type` and `result_type` set, **and** both schemas present.
+7. Build the descriptor with `doc = inspect.cleandoc(fn.__doc__) if fn.__doc__ else None`, and serialise policies via `_policy_dump` (returns `None` for `None` inputs, else `.model_dump(mode="json")`).
+
+### `list_handlers(*, include_checks: bool = False) -> list[HandlerDescriptor]`
+
+Iterates `sorted(_STEP_REGISTRY)` (stable, alphabetical) and returns each non-`None` descriptor from `describe_handler`. The sort guarantees deterministic output for callers that cache or diff results.
+
+### Edge cases & contract
+
+- Completeness check handlers included via `include_checks=True` always have `launchable=False` and skip config/result schema extraction entirely (their signature is `(config, results, result, [ctx])`, which is not amenable to palette use).
+- Untyped handlers (no annotations) return a descriptor with `launchable=False`, no schemas, and no `introspection_warning` (raw `__annotations__` simply returned an empty dict).
+- Handlers whose `config` annotation is the base `StepConfig` class are `launchable=False` and carry `config_type=None` — the base class is treated as a marker, not a real schema.
+- `describe_handler` never raises for unknown/misconfigured handlers; it returns `None` or populates `introspection_warning`.
+- The module reads only `_STEP_REGISTRY` + `_step_meta` + Pydantic — no FastAPI or MongoDB dependency, so it is safe to import from any context.
+
+---
+
+## 16. Public API Surface
 
 All exports from `workchain/__init__.py`:
 
@@ -1401,6 +1457,9 @@ All exports from `workchain/__init__.py`:
 
 **Report:**
 `generate_audit_report`
+
+**Introspection:**
+`HandlerDescriptor`, `describe_handler`, `list_handlers`
 
 **Exceptions:**
 `WorkchainError`, `StepError`, `StepTimeoutError`, `RetryExhaustedError`, `HandlerError`, `LockError`, `FenceRejectedError`, `RecoveryError`
