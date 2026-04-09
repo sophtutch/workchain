@@ -23,6 +23,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
 from workchain.contrib.fastapi import create_workchain_router
 from workchain_server.config import Settings
+from workchain_server.designer_router import create_designer_router
 from workchain_server.plugins import discover_plugins
 from workchain_server.ui import create_ui_router
 
@@ -103,8 +104,30 @@ app.include_router(
     tags=["workflows"],
 )
 
+# Designer router: handler introspection + draft-to-workflow + template CRUD
+app.include_router(
+    create_designer_router(store),
+    prefix="/api/v1",
+)
+
 # Management dashboard
 app.include_router(create_ui_router(settings.server_title, instance_id))
+
+
+# Built SPA (workchain_server/static/designer/) — graceful if missing.
+_designer_dir = Path(__file__).resolve().parent / "static" / "designer"
+if _designer_dir.is_dir():
+    app.mount(
+        "/designer",
+        StaticFiles(directory=_designer_dir, html=True),
+        name="designer",
+    )
+else:
+    logger.info(
+        "Designer SPA build not found at %s — run `hatch run frontend:build` "
+        "to enable /designer/.",
+        _designer_dir,
+    )
 
 
 # Static assets (favicon etc.)

@@ -452,6 +452,25 @@ MONGO_URI=mongodb://localhost:27017 hatch run server:serve
 1. Python entry points under the `workchain.plugins` group
 2. `WORKCHAIN_PLUGINS` env var with comma-separated module paths
 
+### Designer API
+
+The server mounts a designer router at `/api/v1` that powers the upcoming drag-and-drop workflow designer UI:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/handlers` | List registered step handlers with JSON schemas for their `StepConfig` / `StepResult` types |
+| `POST` | `/api/v1/workflows` | Create and persist a `Workflow` from a designer draft (handler refs + raw config dicts). Returns 422 with per-step errors on validation failure. |
+| `GET` | `/api/v1/templates` | List workflow templates sorted by `updated_at` descending |
+| `POST` | `/api/v1/templates` | Persist a new `WorkflowTemplate` |
+| `GET` | `/api/v1/templates/{id}` | Fetch a single template |
+| `PUT` | `/api/v1/templates/{id}` | Update a template via optimistic locking (`expected_version`). Returns 409 on version mismatch. |
+| `DELETE` | `/api/v1/templates/{id}` | Delete a template |
+| `POST` | `/api/v1/templates/{id}/launch` | Instantiate a template into a runnable `Workflow` (supports `name_override` + per-step `config_overrides`) |
+
+**Designer SPA**: the server also attempts to mount a built React app at `/designer/` from `workchain_server/static/designer/`. If the directory is missing (e.g. the frontend has not been built yet), the server logs a notice and skips the mount. The UI build ships in a follow-up PR.
+
+> ⚠️ **No auth.** The designer API can launch arbitrary registered workflows. Run the server behind a reverse proxy that enforces authentication before exposing it beyond localhost.
+
 ## Claude Code Commands
 
 The project includes slash commands for [Claude Code](https://claude.com/claude-code) in `.claude/commands/`:
