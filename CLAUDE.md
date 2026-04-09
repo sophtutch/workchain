@@ -18,6 +18,7 @@ workchain/                      — core library
 ├── audit.py                    — AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ├── audit_report.py             — HTML execution report generator from audit events
 ├── introspection.py            — HandlerDescriptor + describe_handler/list_handlers (JSON schemas for registered handlers)
+├── templates.py                — WorkflowTemplate / StepTemplate + instantiate_template (designer artifacts)
 └── contrib/
     └── fastapi.py              — Optional FastAPI router (pip install workchain[fastapi])
 
@@ -168,6 +169,15 @@ When making changes to the library or server, the following documents **must** b
 - **`launchable`** is `True` only when both the config and result annotations are strict subclasses of `StepConfig` / `StepResult` and JSON schema extraction succeeded — UIs should treat non-launchable handlers as display-only
 - Type hint resolution uses `typing.get_type_hints` with a `__annotations__` fallback; unresolved forward references populate `introspection_warning` instead of raising
 - Completeness check handlers are excluded by default from both `describe_handler` and `list_handlers`; pass `include_checks=True` for full inventory
+
+## Workflow templates
+
+`workchain.templates` exposes `WorkflowTemplate` — a persistable, design-time artifact separate from the runtime `Workflow` model:
+
+- **`StepTemplate`** — lightweight step descriptor (`name`, `handler`, raw `config` dict, `depends_on`, optional `retry_policy` / `poll_policy` / `step_timeout`). Deliberately omits runtime fields (`status`, `locked_by`, `fence_token`, `attempt`, `result`, polling timestamps) because they are meaningless at design time.
+- **`WorkflowTemplate`** — `id`, `name`, `description`, `steps`, `version` (optimistic locking counter), `created_at`, `updated_at`. Enforces the same DAG semantics as `Workflow` (unique names, cycle detection, sequential default) via the shared `_validate_dag` helper in `models.py`.
+- **`instantiate_template(template, *, name_override, config_overrides)`** — builds a runnable `Workflow` by resolving each handler, looking up its `StepConfig` subclass via `describe_handler`, validating the merged raw dict through `ConfigCls.model_validate`, and mirroring `is_async` / `completeness_check` from the descriptor. Raises `ValueError` for unknown or non-launchable handlers.
+- **Store CRUD** on `MongoWorkflowStore`: `insert_template`, `get_template`, `list_templates`, `update_template` (optimistic locking via `expected_version`, returns `None` on version mismatch), `delete_template`. Templates persist to a separate `workflow_templates` collection — no audit events, no fence tokens, no engine involvement.
 
 ## Audit logging
 
