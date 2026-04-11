@@ -1,5 +1,5 @@
 import type { Edge } from "reactflow";
-import type { StepNode } from "./graphToDraft";
+import { isStepNode, type DesignerNode } from "./graphToDraft";
 
 export interface DraftIssue {
   nodeId?: string;
@@ -11,26 +11,33 @@ export interface DraftIssue {
  * empty workflow, missing step names, duplicate step names, orphan handlers,
  * and dependency cycles (via Kahn's algorithm).
  *
+ * Anchor and async-block nodes are excluded — only step nodes are validated.
  * Backend still performs the authoritative validation, but surfacing errors
  * locally means the designer never has to round-trip for obvious issues.
  */
 export function draftValidate(
   workflowName: string,
-  nodes: StepNode[],
+  nodes: DesignerNode[],
   edges: Edge[],
 ): DraftIssue[] {
   const issues: DraftIssue[] = [];
+  const stepNodes = nodes.filter(isStepNode);
 
   if (!workflowName.trim()) {
     issues.push({ message: "Workflow needs a name." });
   }
-  if (nodes.length === 0) {
+  if (stepNodes.length === 0) {
     issues.push({ message: "Add at least one step to the canvas." });
     return issues;
   }
 
+  const stepIds = new Set(stepNodes.map((n) => n.id));
+  const stepEdges = edges.filter(
+    (e) => stepIds.has(e.source) && stepIds.has(e.target),
+  );
+
   const seen = new Map<string, string>(); // stepName -> nodeId
-  for (const node of nodes) {
+  for (const node of stepNodes) {
     const name = node.data.stepName.trim();
     if (!name) {
       issues.push({ nodeId: node.id, message: "Step name cannot be empty." });
@@ -56,11 +63,11 @@ export function draftValidate(
   // Kahn's algorithm cycle detection.
   const inDegree = new Map<string, number>();
   const dependents = new Map<string, string[]>();
-  for (const n of nodes) {
+  for (const n of stepNodes) {
     inDegree.set(n.id, 0);
     dependents.set(n.id, []);
   }
-  for (const e of edges) {
+  for (const e of stepEdges) {
     if (e.source === e.target) {
       issues.push({
         nodeId: e.target,
@@ -83,7 +90,7 @@ export function draftValidate(
       if (d === 0) queue.push(child);
     }
   }
-  if (visited < nodes.length) {
+  if (visited < stepNodes.length) {
     issues.push({ message: "Dependency cycle detected among steps." });
   }
 

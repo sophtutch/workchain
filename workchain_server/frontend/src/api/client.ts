@@ -3,8 +3,14 @@
 import type {
   DraftErrorDetail,
   HandlerDescriptor,
+  ServerConfig,
+  TemplateCreateBody,
+  TemplateUpdateBody,
   WorkflowCreatedResponse,
   WorkflowDraft,
+  WorkflowStats,
+  WorkflowSummary,
+  WorkflowTemplate,
 } from "./types";
 
 const API_BASE = "/api/v1";
@@ -61,6 +67,95 @@ export async function createWorkflow(
     body: JSON.stringify(draft),
   });
   return handleResponse<WorkflowCreatedResponse>(resp);
+}
+
+export async function fetchConfig(): Promise<ServerConfig> {
+  const resp = await fetch(`${API_BASE}/config`);
+  return handleResponse<ServerConfig>(resp);
+}
+
+export async function fetchWorkflows(): Promise<WorkflowSummary[]> {
+  const resp = await fetch(`${API_BASE}/workflows`);
+  return handleResponse<WorkflowSummary[]>(resp);
+}
+
+export async function fetchStats(): Promise<WorkflowStats> {
+  const resp = await fetch(`${API_BASE}/workflows/stats`);
+  return handleResponse<WorkflowStats>(resp);
+}
+
+export async function cancelWorkflow(id: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/workflows/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Cancel failed: ${text}`);
+  }
+}
+
+export async function fetchTemplates(): Promise<WorkflowTemplate[]> {
+  const resp = await fetch(`${API_BASE}/templates`);
+  return handleResponse<WorkflowTemplate[]>(resp);
+}
+
+export async function fetchTemplate(id: string): Promise<WorkflowTemplate> {
+  const resp = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}`);
+  return handleResponse<WorkflowTemplate>(resp);
+}
+
+export async function updateTemplate(
+  id: string,
+  body: TemplateUpdateBody,
+): Promise<WorkflowTemplate> {
+  const resp = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<WorkflowTemplate>(resp);
+}
+
+export async function createTemplate(
+  body: TemplateCreateBody,
+): Promise<WorkflowTemplate> {
+  const resp = await fetch(`${API_BASE}/templates`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<WorkflowTemplate>(resp);
+}
+
+export async function launchTemplate(
+  templateId: string,
+  nameOverride?: string,
+  configOverrides?: Record<string, Record<string, unknown>>,
+): Promise<WorkflowCreatedResponse> {
+  const body: Record<string, unknown> = {};
+  if (nameOverride) body.name_override = nameOverride;
+  if (configOverrides && Object.keys(configOverrides).length > 0) {
+    body.config_overrides = configOverrides;
+  }
+  const resp = await fetch(
+    `${API_BASE}/templates/${encodeURIComponent(templateId)}/launch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  return handleResponse<WorkflowCreatedResponse>(resp);
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Delete failed: ${text}`);
+  }
 }
 
 export { DraftValidationError };

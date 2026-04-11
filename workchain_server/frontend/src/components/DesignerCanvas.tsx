@@ -1,6 +1,7 @@
-import { useCallback, useMemo, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   addEdge,
@@ -9,32 +10,44 @@ import ReactFlow, {
   type OnEdgesChange,
   type OnNodesChange,
   type ReactFlowInstance,
-  applyNodeChanges,
-  applyEdgeChanges,
+  type Node,
 } from "reactflow";
 import { StepNode } from "./StepNode";
-import type { StepNode as StepNodeType, StepNodeData } from "../lib/graphToDraft";
+import { AnchorNode } from "./AnchorNode";
+import { BlockNode } from "./BlockNode";
+import {
+  isBlockAnchor,
+  START_NODE_ID,
+  END_NODE_ID,
+  type DesignerNode,
+} from "../lib/graphToDraft";
 import type { HandlerDescriptor } from "../api/types";
 
+
 interface DesignerCanvasProps {
-  nodes: StepNodeType[];
+  nodes: DesignerNode[];
   edges: Edge[];
   handlers: HandlerDescriptor[];
   selectedId: string | null;
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   onAddEdge: (edge: Edge) => void;
+  onUpdateEdge: (oldEdge: Edge, newConnection: Connection) => void;
   onDropHandler: (handlerName: string, position: { x: number; y: number }) => void;
   onSelect: (id: string | null) => void;
+  onNodeDragStop: (nodeId: string, position: { x: number; y: number }) => void;
   setReactFlowInstance: (instance: ReactFlowInstance) => void;
 }
 
-const nodeTypes = { step: StepNode };
+const nodeTypes = {
+  step: StepNode,
+  anchor: AnchorNode,
+  block: BlockNode,
+};
 
 /**
- * React Flow canvas. Accepts drops from HandlerPalette, adds edges on
- * connect, and reports selection changes upward so ConfigPanel can render
- * a form for the selected node.
+ * React Flow canvas with horizontal (LR) layout.
+ * Edges between outside nodes and block-internal nodes are rejected.
  */
 export function DesignerCanvas({
   nodes,
@@ -44,10 +57,14 @@ export function DesignerCanvas({
   onNodesChange,
   onEdgesChange,
   onAddEdge,
+  onUpdateEdge,
   onDropHandler,
   onSelect,
+  onNodeDragStop,
   setReactFlowInstance,
 }: DesignerCanvasProps) {
+  const [minimapVisible, setMinimapVisible] = useState(true);
+
   const handlersByName = useMemo(() => {
     const m = new Map<string, HandlerDescriptor>();
     for (const h of handlers) m.set(h.name, h);
@@ -55,7 +72,16 @@ export function DesignerCanvas({
   }, [handlers]);
 
   const handleNodesChange: OnNodesChange = useCallback(
-    (changes) => onNodesChange(changes),
+    (changes) => {
+      const filtered = changes.filter((c) => {
+        if (c.type === "remove") {
+          return c.id !== START_NODE_ID && c.id !== END_NODE_ID
+            && !isBlockAnchor(c.id);
+        }
+        return true;
+      });
+      onNodesChange(filtered);
+    },
     [onNodesChange],
   );
   const handleEdgesChange: OnEdgesChange = useCallback(
@@ -63,21 +89,57 @@ export function DesignerCanvas({
     [onEdgesChange],
   );
 
+  // Use refs for node lookups to avoid recreating callbacks on every node change.
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+
   const onConnect = useCallback(
     (params: Connection) => {
       if (!params.source || !params.target || params.source === params.target) return;
+
+      const curNodes = nodesRef.current;
+      const getParent = (id: string) => curNodes.find((n) => n.id === id)?.parentNode;
+      const srcParent = getParent(params.source);
+      const tgtParent = getParent(params.target);
+      const srcIsBlock = curNodes.some((n) => n.id === params.source && n.type === "block");
+      const tgtIsBlock = curNodes.some((n) => n.id === params.target && n.type === "block");
+
+      if (!srcIsBlock && !tgtIsBlock) {
+        if (srcParent !== tgtParent) return;
+      }
+
       const newEdge: Edge = {
-        id: `${params.source}->${params.target}`,
+        id: `${params.source}:${params.sourceHandle ?? "result"}->${params.target}:${params.targetHandle ?? "deps"}`,
         source: params.source,
         target: params.target,
+        sourceHandle: params.sourceHandle ?? "result",
+        targetHandle: params.targetHandle ?? "deps",
       };
-      const merged = addEdge(newEdge, edges);
-      // React Flow's addEdge returns the full edge list with the new edge
-      // appended; dispatch the single new edge through the reducer.
+      const merged = addEdge(newEdge, edgesRef.current);
       const added = merged.find((e) => e.id === newEdge.id);
       if (added) onAddEdge(added);
     },
-    [edges, onAddEdge],
+    [onAddEdge],
+  );
+
+  const onEdgeUpdate = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      if (!newConnection.source || !newConnection.target) return;
+      if (newConnection.source === newConnection.target) return;
+
+      const curNodes = nodesRef.current;
+      const getParent = (id: string) => curNodes.find((n) => n.id === id)?.parentNode;
+      const srcParent = getParent(newConnection.source);
+      const tgtParent = getParent(newConnection.target);
+      const srcIsBlock = curNodes.some((n) => n.id === newConnection.source && n.type === "block");
+      const tgtIsBlock = curNodes.some((n) => n.id === newConnection.target && n.type === "block");
+      if (!srcIsBlock && !tgtIsBlock && srcParent !== tgtParent) return;
+
+      onUpdateEdge(oldEdge, newConnection);
+    },
+    [onUpdateEdge],
   );
 
   const onDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -100,13 +162,36 @@ export function DesignerCanvas({
     [handlersByName, onDropHandler],
   );
 
-  const nodesWithSelection: StepNodeType[] = useMemo(
-    () => nodes.map((n) => ({ ...n, selected: n.id === selectedId })),
+  const nodesWithSelection: DesignerNode[] = useMemo(
+    () => nodes.map((n) => {
+      const shouldBeSelected = n.id === selectedId;
+      return n.selected === shouldBeSelected ? n : { ...n, selected: shouldBeSelected };
+    }),
     [nodes, selectedId],
   );
 
+  const handleNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      if (node.type === "step" || node.type === "block") {
+        onSelect(node.id);
+      }
+    },
+    [onSelect],
+  );
+
+  const handleNodeDragStop = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      onNodeDragStop(node.id, node.position);
+    },
+    [onNodeDragStop],
+  );
+
   return (
-    <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
+    <div
+      className={`canvas${minimapVisible ? "" : " canvas--map-hidden"}`}
+      onDrop={onDrop}
+      onDragOver={onDragOver}
+    >
       <ReactFlow
         nodes={nodesWithSelection}
         edges={edges}
@@ -114,20 +199,41 @@ export function DesignerCanvas({
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onEdgeUpdate={onEdgeUpdate}
+        edgesUpdatable
         onInit={setReactFlowInstance}
-        onNodeClick={(_, node) => onSelect(node.id)}
+        onNodeClick={handleNodeClick}
         onPaneClick={() => onSelect(null)}
+        onNodeDragStop={handleNodeDragStop}
         fitView
-        defaultEdgeOptions={{ type: "smoothstep" }}
+        fitViewOptions={{ padding: 0.1 }}
+        defaultEdgeOptions={{ type: "bezier" }}
       >
-        <Background gap={16} />
-        <Controls />
-        <MiniMap pannable zoomable />
+        <Background
+          gap={20}
+          color="#1e293b"
+          variant={BackgroundVariant.Lines}
+          lineWidth={0.5}
+        />
+        <Controls position="bottom-right" />
+        {minimapVisible && (
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeColor="#1f2937"
+            maskColor="rgba(0, 0, 0, 0.7)"
+          />
+        )}
       </ReactFlow>
+      <button
+        className={`canvas__map-toggle${minimapVisible ? "" : " canvas__map-toggle--collapsed"}`}
+        onClick={() => setMinimapVisible((v) => !v)}
+        title={minimapVisible ? "Hide mini-map" : "Show mini-map"}
+      >
+        {minimapVisible ? "Hide Map" : "Show Map"}
+      </button>
     </div>
   );
 }
 
-// Re-export React Flow helpers so App.tsx has a single import site.
-export { applyNodeChanges, applyEdgeChanges };
-export type { StepNodeData, Edge, StepNodeType };

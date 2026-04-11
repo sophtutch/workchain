@@ -1,3 +1,4 @@
+import { Play, Trash2, Save, Copy } from "lucide-react";
 import type { DraftIssue } from "../lib/draftValidate";
 
 interface ToolbarProps {
@@ -8,6 +9,10 @@ interface ToolbarProps {
   running: boolean;
   issues: DraftIssue[];
   statusMessage: string | null;
+  editingTemplateId: string | null;
+  onSaveTemplate: () => void;
+  onSaveAsNewTemplate: () => void;
+  savingTemplate: boolean;
 }
 
 export function Toolbar({
@@ -18,6 +23,10 @@ export function Toolbar({
   running,
   issues,
   statusMessage,
+  editingTemplateId,
+  onSaveTemplate,
+  onSaveAsNewTemplate,
+  savingTemplate,
 }: ToolbarProps) {
   return (
     <header className="toolbar">
@@ -42,22 +51,42 @@ export function Toolbar({
         type="button"
         className="btn btn--ghost"
         onClick={onClear}
-        disabled={running}
+        disabled={running || savingTemplate}
       >
-        Clear
+        <Trash2 size={14} /> Clear
+      </button>
+      {editingTemplateId && (
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={onSaveTemplate}
+          disabled={savingTemplate || !workflowName.trim()}
+          title="Save changes to this template"
+        >
+          <Save size={14} /> {savingTemplate ? "Saving…" : "Save"}
+        </button>
+      )}
+      <button
+        type="button"
+        className="btn btn--ghost"
+        onClick={onSaveAsNewTemplate}
+        disabled={savingTemplate || !workflowName.trim()}
+        title="Save as a new template"
+      >
+        <Copy size={14} /> Save As New
       </button>
       <button
         type="button"
         className="btn btn--primary"
         onClick={onRun}
-        disabled={running || issues.length > 0}
+        disabled={running || savingTemplate || issues.length > 0}
         title={
           issues.length > 0
             ? issues.map((i) => i.message).join("\n")
             : "Create and run workflow"
         }
       >
-        {running ? "Running…" : "Run"}
+        <Play size={14} /> {running ? "Running…" : "Run"}
       </button>
     </header>
   );

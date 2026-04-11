@@ -38,6 +38,11 @@ class HandlerDescriptor(BaseModel):
         module: Python module that defines the handler.
         qualname: Function ``__qualname__``.
         doc: Cleaned ``__doc__`` of the handler (via :func:`inspect.cleandoc`).
+        description: Short one-line summary for the designer palette.  Set via
+            the ``description`` decorator parameter; falls back to the first
+            line of the docstring.
+        category: Optional grouping label for UI organisation (e.g.
+            ``"Data transformation"``).  ``None`` means uncategorised.
         is_async: True if the handler is an ``@async_step`` (submits + polls).
         is_completeness_check: True if the handler is a ``@completeness_check``.
         needs_context: True if the handler opted into the engine context dict.
@@ -61,6 +66,8 @@ class HandlerDescriptor(BaseModel):
     module: str
     qualname: str
     doc: str | None = None
+    description: str | None = None
+    category: str | None = None
     is_async: bool = False
     is_completeness_check: bool = False
     needs_context: bool = False
@@ -212,11 +219,18 @@ def describe_handler(name: str, *, include_checks: bool = False) -> HandlerDescr
 
     doc = inspect.cleandoc(fn.__doc__) if fn.__doc__ else None
 
+    # Description: explicit > first line of docstring > None
+    description: str | None = meta.get("description")
+    if description is None and doc:
+        description = doc.split("\n", 1)[0].strip()
+
     return HandlerDescriptor(
         name=name,
         module=fn.__module__,
         qualname=fn.__qualname__,
         doc=doc,
+        description=description,
+        category=meta.get("category"),
         is_async=bool(meta.get("is_async", False)),
         is_completeness_check=is_check,
         needs_context=bool(meta.get("needs_context", False)),

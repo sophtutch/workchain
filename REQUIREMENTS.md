@@ -379,7 +379,7 @@ All three decorators (`@step`, `@async_step`, `@completeness_check`) return `Ste
 ### 7.2 `@step` Decorator
 
 ```python
-@step(retry=None, idempotent=True, needs_context=False)
+@step(retry=None, idempotent=True, needs_context=False, category=None, description=None)
 ```
 
 **Handler signature:**
@@ -389,6 +389,13 @@ async def handler(config: StepConfig, results: dict[str, StepResult]) -> StepRes
 async def handler(config: StepConfig, results: dict[str, StepResult], ctx: dict) -> StepResult
 ```
 
+**Parameters:**
+- `retry: RetryPolicy | None` — retry policy (defaults to `RetryPolicy()`).
+- `idempotent: bool` — whether safe to re-execute on recovery (default `True`).
+- `needs_context: bool` — opt into engine context dict (default `False`).
+- `category: str | None` — UI grouping label (e.g. `"Data transformation"`). `None` = uncategorised.
+- `description: str | None` — short one-line summary for the designer palette. Falls back to first line of docstring if `None`.
+
 **Attaches `_step_meta` to the function:**
 ```python
 {
@@ -397,6 +404,8 @@ async def handler(config: StepConfig, results: dict[str, StepResult], ctx: dict)
     "is_async": False,
     "idempotent": True,               # from parameter
     "needs_context": False,           # from parameter
+    "category": None,                 # from parameter
+    "description": None,              # from parameter
 }
 ```
 
@@ -405,10 +414,12 @@ Registers the function in `_STEP_REGISTRY` using the generated handler name.
 ### 7.3 `@async_step` Decorator
 
 ```python
-@async_step(retry=None, idempotent=True, needs_context=False, poll=None, completeness_check=None)
+@async_step(retry=None, idempotent=True, needs_context=False, poll=None, completeness_check=None, category=None, description=None)
 ```
 
 **Handler signature:** Same as `@step`. Handler should submit external work and return immediately with a `StepResult` subclass (e.g., containing a job_id).
+
+**Additional parameters:** `poll`, `completeness_check` (see decorator docstring). Also accepts `category` and `description` with the same semantics as `@step`.
 
 **Additional `_step_meta` keys:**
 ```python
@@ -417,6 +428,8 @@ Registers the function in `_STEP_REGISTRY` using the generated handler name.
     "is_async": True,
     "poll": PollPolicy(),             # from parameter or default
     "completeness_check": str | None, # resolved via _resolve_check_name
+    "category": None,                 # from parameter
+    "description": None,              # from parameter
 }
 ```
 
@@ -1394,6 +1407,8 @@ A read-only inspection layer over `_STEP_REGISTRY` that describes each registere
 | `module` | `str` | `fn.__module__` |
 | `qualname` | `str` | `fn.__qualname__` |
 | `doc` | `str \| None` | `inspect.cleandoc(fn.__doc__)` or `None` |
+| `description` | `str \| None` | Short one-line summary: explicit `description` param from decorator, else first line of docstring, else `None` |
+| `category` | `str \| None` | UI grouping label from decorator `category` param. `None` = uncategorised |
 | `is_async` | `bool` | True for `@async_step` handlers |
 | `is_completeness_check` | `bool` | True for `@completeness_check` handlers |
 | `needs_context` | `bool` | Mirrors `_step_meta["needs_context"]` |

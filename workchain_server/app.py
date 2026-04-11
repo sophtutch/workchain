@@ -19,13 +19,14 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
+from starlette.responses import FileResponse
 
 from workchain import MongoAuditLogger, MongoWorkflowStore, WorkflowEngine
 from workchain.contrib.fastapi import create_workchain_router
 from workchain_server.config import Settings
 from workchain_server.designer_router import create_designer_router
+from workchain_server.example_templates import seed_example_templates
 from workchain_server.plugins import discover_plugins
-from workchain_server.ui import create_ui_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,6 +73,8 @@ async def lifespan(application: FastAPI):
         "Connecting to MongoDB: %s / %s", settings.mongo_uri, settings.mongo_database,
     )
 
+    await seed_example_templates(store)
+
     async with WorkflowEngine(
         store,
         instance_id=instance_id,
@@ -106,28 +109,13 @@ app.include_router(
 
 # Designer router: handler introspection + draft-to-workflow + template CRUD
 app.include_router(
-    create_designer_router(store),
+    create_designer_router(
+        store,
+        server_title=settings.server_title,
+        instance_id=instance_id,
+    ),
     prefix="/api/v1",
 )
-
-# Management dashboard
-app.include_router(create_ui_router(settings.server_title, instance_id))
-
-
-# Built SPA (workchain_server/static/designer/) — graceful if missing.
-_designer_dir = Path(__file__).resolve().parent / "static" / "designer"
-if _designer_dir.is_dir():
-    app.mount(
-        "/designer",
-        StaticFiles(directory=_designer_dir, html=True),
-        name="designer",
-    )
-else:
-    logger.info(
-        "Designer SPA build not found at %s — run `hatch run frontend:build` "
-        "to enable /designer/.",
-        _designer_dir,
-    )
 
 
 # Static assets (favicon etc.)
@@ -141,3 +129,34 @@ async def healthz():
     """Health check — pings MongoDB."""
     await _db.command("ping")
     return {"status": "ok", "instance_id": instance_id}
+
+
+# ---------------------------------------------------------------------------
+# SPA (built React app) — must be last (catch-all for client-side routing)
+# ---------------------------------------------------------------------------
+
+_app_dir = Path(__file__).resolve().parent / "static" / "app"
+if _app_dir.is_dir():
+    _index_html = _app_dir / "index.html"
+    _assets_dir = _app_dir / "assets"
+    if _assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="spa-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str) -> FileResponse:
+        """Serve SPA index.html for any path not matched by API routes.
+
+        This enables client-side routing — refreshing ``/designer`` returns
+        ``index.html`` and lets react-router-dom handle the path.
+        """
+        # Serve the file directly if it exists (e.g. favicon, robots.txt).
+        if full_path and ".." not in full_path:
+            file_path = _app_dir / full_path
+            if file_path.is_file():
+                return FileResponse(file_path)
+        return FileResponse(_index_html)
+else:
+    logger.info(
+        "SPA build not found at %s — run `hatch run frontend:build` to enable the UI.",
+        _app_dir,
+    )

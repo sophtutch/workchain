@@ -60,9 +60,17 @@ class TrainResult(StepResult):
     job_id: str = ""
 
 
+class EvalConfig(StepConfig):
+    """Config for model evaluation (no user-facing fields — derived from training result)."""
+
+
 class EvalResult(StepResult):
     accuracy: float = 0.0
     f1_score: float = 0.0
+
+
+class PublishConfig(StepConfig):
+    """Config for model publishing (no user-facing fields — derived from training result)."""
 
 
 class PublishResult(StepResult):
@@ -75,7 +83,7 @@ class PublishResult(StepResult):
 # ---------------------------------------------------------------------------
 
 
-@step()
+@step(category="ML Training", description="Download and clean the training dataset")
 async def prepare_dataset(
     config: DatasetConfig,
     _results: dict[str, StepResult],
@@ -89,7 +97,7 @@ async def prepare_dataset(
     return DatasetResult(dataset_id=dataset_id, record_count=config.sample_size)
 
 
-@step()
+@step(category="ML Training", description="Partition dataset into train and test splits")
 async def split_train_test(
     config: SplitConfig,
     results: dict[str, StepResult],
@@ -123,6 +131,8 @@ async def check_training(
 @async_step(
     completeness_check=check_training,
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=15.0, max_polls=20),
+    category="ML Training",
+    description="Submit model training job to compute cluster",
 )
 async def train_model(
     config: TrainConfig,
@@ -138,9 +148,9 @@ async def train_model(
     return TrainResult(job_id=job_id)
 
 
-@step()
+@step(category="ML Training", description="Evaluate model accuracy on test split")
 async def evaluate_model(
-    _config: StepConfig | None,
+    _config: EvalConfig,
     results: dict[str, StepResult],
 ) -> EvalResult:
     """Evaluate model accuracy on test split."""
@@ -149,9 +159,9 @@ async def evaluate_model(
     return EvalResult(accuracy=0.92, f1_score=0.89)
 
 
-@step()
+@step(category="ML Training", description="Publish trained model to the model registry")
 async def publish_model(
-    _config: StepConfig | None,
+    _config: PublishConfig,
     results: dict[str, StepResult],
 ) -> PublishResult:
     """Publish trained model to the model registry."""

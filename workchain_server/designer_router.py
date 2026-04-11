@@ -191,17 +191,33 @@ def _build_workflow_from_draft(draft: WorkflowDraft) -> Workflow:
 # ---------------------------------------------------------------------------
 
 
-def create_designer_router(store: MongoWorkflowStore) -> APIRouter:
+def create_designer_router(
+    store: MongoWorkflowStore,
+    *,
+    server_title: str = "Workchain Server",
+    instance_id: str = "",
+) -> APIRouter:
     """Build the designer ``APIRouter`` bound to the given store.
 
     Args:
         store: The :class:`MongoWorkflowStore` used for workflow and
             template persistence.
+        server_title: Human-readable server title exposed via ``GET /config``.
+        instance_id: Engine instance identifier exposed via ``GET /config``.
 
     Returns:
         A FastAPI :class:`APIRouter` that should be mounted at ``/api/v1``.
     """
     router = APIRouter()
+
+    # ------------------------------------------------------------------
+    # Server config (for the SPA)
+    # ------------------------------------------------------------------
+
+    @router.get("/config", tags=["ops"])
+    async def get_config() -> dict[str, str]:
+        """Return server metadata for the frontend shell."""
+        return {"server_title": server_title, "instance_id": instance_id}
 
     # ------------------------------------------------------------------
     # Handlers

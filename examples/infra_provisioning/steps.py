@@ -102,7 +102,7 @@ class HealthCheckResult(StepResult):
 # ---------------------------------------------------------------------------
 
 
-@step()
+@step(category="Infrastructure", description="Create a VPC with public and private subnets")
 async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcResult:
     """Create a VPC with public and private subnets."""
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
@@ -145,6 +145,8 @@ async def check_database(
 @async_step(
     completeness_check=check_database,
     poll=PollPolicy(interval=5.0, backoff_multiplier=1.5, max_interval=30.0, timeout=600.0, max_polls=15),
+    category="Infrastructure",
+    description="Provision an RDS database instance",
 )
 async def provision_database(
     config: DatabaseConfig,
@@ -197,6 +199,8 @@ async def check_deployment(
 @async_step(
     completeness_check=check_deployment,
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=300.0, max_polls=10),
+    category="Infrastructure",
+    description="Deploy application containers",
 )
 async def deploy_application(
     config: DeployConfig,
@@ -217,7 +221,7 @@ async def deploy_application(
 # ---------------------------------------------------------------------------
 
 
-@step()
+@step(category="Infrastructure", description="Create DNS records for the deployed application")
 async def configure_dns(
     config: DnsConfig,
     results: dict[str, StepResult],
@@ -255,6 +259,8 @@ async def check_tls_cert(
 @async_step(
     completeness_check=check_tls_cert,
     poll=PollPolicy(interval=10.0, backoff_multiplier=1.0, timeout=900.0, max_polls=20),
+    category="Infrastructure",
+    description="Request and validate a TLS certificate",
 )
 async def issue_tls_cert(
     _config: TlsConfig,
@@ -275,7 +281,7 @@ async def issue_tls_cert(
 # ---------------------------------------------------------------------------
 
 
-@step()
+@step(category="Infrastructure", description="Verify full stack is reachable and healthy")
 async def health_check(
     config: HealthCheckConfig,
     results: dict[str, StepResult],

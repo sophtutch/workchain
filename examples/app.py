@@ -32,6 +32,8 @@ from examples.media_processing import steps as _media_steps  # noqa: F401
 from examples.media_processing.workflow import build_workflow as build_media
 from examples.ml_training import steps as _ml_steps  # noqa: F401
 from examples.ml_training.workflow import build_workflow as build_ml
+from examples.order_fulfillment import steps as _order_steps  # noqa: F401
+from examples.order_fulfillment.workflow import build_workflow as build_order
 from workchain import MongoAuditLogger, MongoWorkflowStore, Workflow, WorkflowEngine
 from workchain.contrib.fastapi import create_workchain_router
 
@@ -163,6 +165,24 @@ _EXAMPLE_DEFS: list[tuple[str, str, str, list[dict], object]] = [
         lambda params: build_media(
             filename=params["filename"],
             content_type=params["content_type"],
+        ),
+    ),
+    (
+        "order_fulfillment",
+        "Order Fulfillment",
+        "Validate, inventory || shipping (parallel), payment (async), reserve, pack, ship (async), confirm",
+        [
+            {"name": "order_id", "label": "Order ID", "default": "ORD-001", "type": "text"},
+            {"name": "customer_email", "label": "Customer Email", "default": "alice@example.com", "type": "text"},
+            {"name": "destination_zip", "label": "ZIP Code", "default": "90210", "type": "text"},
+            {"name": "shipping_method", "label": "Shipping", "default": "standard", "type": "text"},
+        ],
+        lambda params: build_order(
+            order_id=params["order_id"],
+            customer_email=params["customer_email"],
+            line_items=[{"sku": "WIDGET-A", "quantity": 2}, {"sku": "GADGET-B", "quantity": 1}],
+            destination_zip=params.get("destination_zip", "10001"),
+            shipping_method=params.get("shipping_method", "standard"),
         ),
     ),
 ]
