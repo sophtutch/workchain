@@ -13,7 +13,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
 from workchain.audit import AuditEvent, AuditEventType, NullAuditLogger
-from workchain.models import Step, StepResult, StepStatus, Workflow, WorkflowStatus
+from workchain.models import Step, StepResult, StepStatus, Workflow, WorkflowStatus, _utcnow
+from workchain.templates import StepTemplate, WorkflowTemplate
 
 if TYPE_CHECKING:
     from workchain.audit import AuditLogger
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 COLLECTION = "workflows"
+TEMPLATES_COLLECTION = "workflow_templates"
 
 
 def _import_class(dotted_path: str) -> type:
@@ -58,6 +60,7 @@ class MongoWorkflowStore:
             raise ValueError("operation_timeout_ms must be positive")
         self._db = db
         self._col = db[collection_name]
+        self._templates = db[TEMPLATES_COLLECTION]
         self._lock_ttl = lock_ttl_seconds
         self._audit: AuditLogger = audit_logger or NullAuditLogger()
         self._instance_id = instance_id
@@ -130,6 +133,10 @@ class MongoWorkflowStore:
         """Create indexes for efficient queries."""
         await self._col.create_index("status")
         await self._col.create_index([("status", 1), ("steps.status", 1)])
+        # Templates collection: uniqueness on business id (stored as `_id`
+        # in MongoDB, so Mongo's default _id index already enforces this —
+        # we create a secondary index on name for designer list queries).
+        await self._templates.create_index("name")
 
     # ------------------------------------------------------------------
     # Document conversion
@@ -1218,3 +1225,114 @@ class MongoWorkflowStore:
             recovery_action="needs_review",
         )
         return wf
+
+    # ------------------------------------------------------------------
+    # Workflow templates (designer artifacts)
+    #
+    # Templates are design-time artifacts, not workflow runs: they do not
+    # emit audit events, do not use fence tokens, and live in their own
+    # MongoDB collection. Update uses an optimistic-lock ``version`` counter
+    # so concurrent designer edits surface as 409 conflicts rather than
+    # silent overwrites.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _template_to_doc(template: WorkflowTemplate) -> dict[str, Any]:
+        """Serialise a :class:`WorkflowTemplate` for MongoDB insertion."""
+        doc = template.model_dump(mode="python")
+        doc["_id"] = doc.pop("id")
+        return doc
+
+    @staticmethod
+    def _doc_to_template(doc: dict[str, Any]) -> WorkflowTemplate:
+        """Hydrate a :class:`WorkflowTemplate` from a MongoDB document."""
+        doc = dict(doc)
+        doc["id"] = doc.pop("_id")
+        return WorkflowTemplate.model_validate(doc)
+
+    async def insert_template(self, template: WorkflowTemplate) -> str:
+        """Persist a new workflow template.
+
+        Args:
+            template: The template to insert.  Its ``id`` is used as the
+                MongoDB ``_id`` and must be unique.
+
+        Returns:
+            The template's ``id``.
+        """
+        await self._templates.insert_one(self._template_to_doc(template))
+        return template.id
+
+    async def get_template(self, template_id: str) -> WorkflowTemplate | None:
+        """Fetch a template by id, or ``None`` if not found."""
+        doc = await self._templates.find_one(
+            {"_id": template_id}, max_time_ms=self._op_timeout
+        )
+        if doc is None:
+            return None
+        return self._doc_to_template(doc)
+
+    async def list_templates(self, *, limit: int = 100) -> list[WorkflowTemplate]:
+        """List templates sorted by most-recently-updated first.
+
+        Args:
+            limit: Maximum number of templates to return (default 100).
+        """
+        cursor = self._templates.find({}).sort("updated_at", -1).limit(limit)
+        return [self._doc_to_template(doc) async for doc in cursor]
+
+    async def update_template(
+        self,
+        template_id: str,
+        *,
+        expected_version: int,
+        name: str | None = None,
+        description: str | None = None,
+        steps: list[StepTemplate] | None = None,
+    ) -> WorkflowTemplate | None:
+        """Atomically update a template via optimistic locking.
+
+        Uses a ``find_one_and_update`` query filtered on both ``_id`` and
+        ``version == expected_version``; on a version mismatch the update
+        does nothing and returns ``None`` so the caller can surface a 409.
+
+        Args:
+            template_id: Template id.
+            expected_version: The version the caller believes is current.
+                Update succeeds only if the stored version still matches.
+            name: Optional new name.
+            description: Optional new description.
+            steps: Optional new step list.  Accepting typed
+                :class:`StepTemplate` instances rather than raw dicts
+                guarantees schema validity at the store boundary.
+
+        Returns:
+            The updated :class:`WorkflowTemplate`, or ``None`` if no
+            template matches ``(template_id, expected_version)``.
+        """
+        set_fields: dict[str, Any] = {"updated_at": _utcnow()}
+        if name is not None:
+            set_fields["name"] = name
+        if description is not None:
+            set_fields["description"] = description
+        if steps is not None:
+            set_fields["steps"] = [s.model_dump(mode="python") for s in steps]
+
+        doc = await self._templates.find_one_and_update(
+            {"_id": template_id, "version": expected_version},
+            {"$set": set_fields, "$inc": {"version": 1}},
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            return None
+        return self._doc_to_template(doc)
+
+    async def delete_template(self, template_id: str) -> bool:
+        """Delete a template by id.
+
+        Returns:
+            ``True`` if a document was removed, ``False`` otherwise.
+        """
+        result = await self._templates.delete_one({"_id": template_id})
+        return result.deleted_count > 0

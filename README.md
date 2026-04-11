@@ -424,7 +424,9 @@ workchain_server/                   -- standalone server (pip install workchain[
 ├── config.py                       -- Environment variable configuration via pydantic-settings
 ├── plugins.py                      -- Step handler discovery (entry points + env var)
 ├── app.py                          -- FastAPI app with engine lifecycle and router mounting
-└── ui.py                           -- Management dashboard
+├── designer_router.py              -- /api/v1/handlers, /workflows (POST), /templates (CRUD + launch), /config
+├── frontend/                       -- React + Vite SPA source (dashboard + workflow designer)
+└── static/app/                     -- built SPA assets (gitignored)
 ```
 
 ## Workchain Server
@@ -451,6 +453,40 @@ MONGO_URI=mongodb://localhost:27017 hatch run server:serve
 **Plugin system:** Step handlers are registered by importing modules that use `@step`/`@async_step` decorators. Two mechanisms:
 1. Python entry points under the `workchain.plugins` group
 2. `WORKCHAIN_PLUGINS` env var with comma-separated module paths
+
+### Designer API
+
+The server mounts a designer router at `/api/v1` that powers the upcoming drag-and-drop workflow designer UI:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/handlers` | List registered step handlers with JSON schemas for their `StepConfig` / `StepResult` types |
+| `POST` | `/api/v1/workflows` | Create and persist a `Workflow` from a designer draft (handler refs + raw config dicts). Returns 422 with per-step errors on validation failure. |
+| `GET` | `/api/v1/templates` | List workflow templates sorted by `updated_at` descending |
+| `POST` | `/api/v1/templates` | Persist a new `WorkflowTemplate` |
+| `GET` | `/api/v1/templates/{id}` | Fetch a single template |
+| `PUT` | `/api/v1/templates/{id}` | Update a template via optimistic locking (`expected_version`). Returns 409 on version mismatch. |
+| `DELETE` | `/api/v1/templates/{id}` | Delete a template |
+| `POST` | `/api/v1/templates/{id}/launch` | Instantiate a template into a runnable `Workflow` (supports `name_override` + per-step `config_overrides`) |
+
+**Web UI**: the server serves a React SPA at `/` with two pages — a dashboard (workflow stats + table) and a drag-and-drop workflow designer. Build it once before running the server for the first time:
+
+```bash
+hatch run frontend:install   # npm install (one-time)
+hatch run frontend:build     # tsc + vite build -> workchain_server/static/app/
+hatch run server:serve       # open http://localhost:8000
+```
+
+For hot reload during frontend development:
+
+```bash
+hatch run server:serve       # FastAPI on :8000 (terminal 1)
+hatch run frontend:dev       # Vite on :5173 with /api proxy (terminal 2)
+```
+
+The SPA uses React + Vite + react-router-dom + [React Flow](https://reactflow.dev/) for the canvas and [`@rjsf/core`](https://rjsf-team.github.io/react-jsonschema-form/) (Bootstrap 4 theme) for schema-driven config forms.
+
+> ⚠️ **No auth.** The designer API can launch arbitrary registered workflows. Run the server behind a reverse proxy that enforces authentication before exposing it beyond localhost.
 
 ## Claude Code Commands
 

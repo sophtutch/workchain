@@ -40,6 +40,61 @@ def _new_id() -> str:
     return uuid.uuid4().hex  # full 32-char hex (128-bit entropy)
 
 
+def _validate_dag(
+    step_names: list[str],
+    depends_on_by_name: dict[str, list[str]],
+    *,
+    container: str = "Step",
+) -> None:
+    """Validate a dependency graph: no self-refs, no unknown refs, no cycles.
+
+    Shared by :class:`Workflow` and :class:`workchain.templates.WorkflowTemplate`
+    so both runtime and design-time artifacts enforce the same DAG semantics.
+
+    Args:
+        step_names: Ordered list of step names in the graph.
+        depends_on_by_name: Map of step name to its (already-resolved, non-None)
+            list of dependency names.
+        container: Label used in error messages (e.g. ``"Step"`` for Workflow,
+            ``"StepTemplate"`` for WorkflowTemplate).
+
+    Raises:
+        ValueError: If any dependency is unknown, self-referential, or the
+            graph contains a cycle.
+    """
+    name_set = set(step_names)
+
+    for name in step_names:
+        for dep in depends_on_by_name[name]:
+            if dep == name:
+                raise ValueError(f"{container} '{name}' cannot depend on itself")
+            if dep not in name_set:
+                raise ValueError(
+                    f"{container} '{name}' depends on unknown step '{dep}'"
+                )
+
+    # Topological sort (Kahn's algorithm) — cycle iff not every node is visited.
+    in_degree: dict[str, int] = dict.fromkeys(step_names, 0)
+    dependents: dict[str, list[str]] = {name: [] for name in step_names}
+    for name in step_names:
+        for dep in depends_on_by_name[name]:
+            dependents[dep].append(name)
+            in_degree[name] += 1
+
+    queue = [n for n, deg in in_degree.items() if deg == 0]
+    visited = 0
+    while queue:
+        node = queue.pop()
+        visited += 1
+        for child in dependents[node]:
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+
+    if visited != len(step_names):
+        raise ValueError("Dependency cycle detected among steps")
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -242,46 +297,17 @@ class Workflow(BaseModel):
         if not self.steps:
             return self
 
-        step_names = {s.name for s in self.steps}
-
         # --- Resolve sequential defaults ---
         for i, step in enumerate(self.steps):
             if step.depends_on is None:
                 step.depends_on = [self.steps[i - 1].name] if i > 0 else []
 
-        # --- Validate references (depends_on is guaranteed non-None after resolution) ---
-        for step in self.steps:
-            for dep in step.depends_on:  # type: ignore[union-attr]
-                if dep == step.name:
-                    raise ValueError(
-                        f"Step '{step.name}' cannot depend on itself"
-                    )
-                if dep not in step_names:
-                    raise ValueError(
-                        f"Step '{step.name}' depends on unknown step '{dep}'"
-                    )
-
-        # --- Detect cycles via topological sort (Kahn's algorithm) ---
-        in_degree: dict[str, int] = {s.name: 0 for s in self.steps}
-        dependents: dict[str, list[str]] = {s.name: [] for s in self.steps}
-        for step in self.steps:
-            for dep in step.depends_on:  # type: ignore[union-attr]
-                dependents[dep].append(step.name)
-                in_degree[step.name] += 1
-
-        queue = [name for name, deg in in_degree.items() if deg == 0]
-        visited = 0
-        while queue:
-            node = queue.pop()
-            visited += 1
-            for child in dependents[node]:
-                in_degree[child] -= 1
-                if in_degree[child] == 0:
-                    queue.append(child)
-
-        if visited != len(self.steps):
-            raise ValueError("Dependency cycle detected among steps")
-
+        # --- Validate references and detect cycles (shared helper) ---
+        _validate_dag(
+            step_names=[s.name for s in self.steps],
+            depends_on_by_name={s.name: s.depends_on or [] for s in self.steps},
+            container="Step",
+        )
         return self
 
     created_at: datetime = Field(default_factory=_utcnow)

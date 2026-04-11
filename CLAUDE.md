@@ -18,6 +18,7 @@ workchain/                      — core library
 ├── audit.py                    — AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ├── audit_report.py             — HTML execution report generator from audit events
 ├── introspection.py            — HandlerDescriptor + describe_handler/list_handlers (JSON schemas for registered handlers)
+├── templates.py                — WorkflowTemplate / StepTemplate + instantiate_template (designer artifacts)
 └── contrib/
     └── fastapi.py              — Optional FastAPI router (pip install workchain[fastapi])
 
@@ -25,7 +26,10 @@ workchain_server/               — standalone server (pip install workchain[ser
 ├── config.py                   — Environment variable configuration via pydantic-settings
 ├── plugins.py                  — Step handler discovery (entry points + env var)
 ├── app.py                      — FastAPI app with engine lifecycle and router mounting
-└── ui.py                       — Management dashboard HTML + router
+├── designer_router.py          — /api/v1/handlers, /workflows (POST), /templates (CRUD + launch), /config
+├── example_templates.py        — 8 example WorkflowTemplates seeded into MongoDB on startup
+├── frontend/                   — React + Vite SPA source (dashboard + designer, client-side routing)
+└── static/app/                 — built SPA assets (gitignored; produced by `hatch run frontend:build`)
 ```
 
 ## Key design decisions
@@ -51,6 +55,7 @@ workchain_server/               — standalone server (pip install workchain[ser
 **Decorator-driven metadata**
 - Handler names are auto-generated from `fn.__module__.fn.__qualname__` — no `name` parameter
 - `needs_context: bool = False` on all three decorators declares whether the engine should pass the context dict
+- `category: str | None` and `description: str | None` on `@step` / `@async_step` provide UI metadata; `description` falls back to docstring first line when `None`
 - `_step_meta` dict attached to each handler carries all metadata — the engine reads it, never uses `inspect.signature`
 - Both sync and async handlers are supported via `asyncio.iscoroutine` safety net
 
@@ -164,10 +169,19 @@ When making changes to the library or server, the following documents **must** b
 
 - **`describe_handler(name, *, include_checks=False)`** — returns a `HandlerDescriptor` for a registered handler, or `None` if unknown / is a completeness check and checks are excluded
 - **`list_handlers(*, include_checks=False)`** — returns all registered handlers sorted by dotted name
-- **`HandlerDescriptor`** — Pydantic model with `name`, `module`, `qualname`, `doc`, `is_async`, `is_completeness_check`, `needs_context`, `idempotent`, `config_type`, `config_schema` (JSON schema dict), `result_type`, `result_schema`, `retry_policy`, `poll_policy`, `completeness_check`, `launchable`, `introspection_warning`
+- **`HandlerDescriptor`** — Pydantic model with `name`, `module`, `qualname`, `doc`, `description`, `category`, `is_async`, `is_completeness_check`, `needs_context`, `idempotent`, `config_type`, `config_schema` (JSON schema dict), `result_type`, `result_schema`, `retry_policy`, `poll_policy`, `completeness_check`, `launchable`, `introspection_warning`
 - **`launchable`** is `True` only when both the config and result annotations are strict subclasses of `StepConfig` / `StepResult` and JSON schema extraction succeeded — UIs should treat non-launchable handlers as display-only
 - Type hint resolution uses `typing.get_type_hints` with a `__annotations__` fallback; unresolved forward references populate `introspection_warning` instead of raising
 - Completeness check handlers are excluded by default from both `describe_handler` and `list_handlers`; pass `include_checks=True` for full inventory
+
+## Workflow templates
+
+`workchain.templates` exposes `WorkflowTemplate` — a persistable, design-time artifact separate from the runtime `Workflow` model:
+
+- **`StepTemplate`** — lightweight step descriptor (`name`, `handler`, raw `config` dict, `depends_on`, optional `retry_policy` / `poll_policy` / `step_timeout`). Deliberately omits runtime fields (`status`, `locked_by`, `fence_token`, `attempt`, `result`, polling timestamps) because they are meaningless at design time.
+- **`WorkflowTemplate`** — `id`, `name`, `description`, `steps`, `version` (optimistic locking counter), `created_at`, `updated_at`. Enforces the same DAG semantics as `Workflow` (unique names, cycle detection, sequential default) via the shared `_validate_dag` helper in `models.py`.
+- **`instantiate_template(template, *, name_override, config_overrides)`** — builds a runnable `Workflow` by resolving each handler, looking up its `StepConfig` subclass via `describe_handler`, validating the merged raw dict through `ConfigCls.model_validate`, and mirroring `is_async` / `completeness_check` from the descriptor. Raises `ValueError` for unknown or non-launchable handlers.
+- **Store CRUD** on `MongoWorkflowStore`: `insert_template`, `get_template`, `list_templates`, `update_template` (optimistic locking via `expected_version`, returns `None` on version mismatch), `delete_template`. Templates persist to a separate `workflow_templates` collection — no audit events, no fence tokens, no engine involvement.
 
 ## Audit logging
 
@@ -205,7 +219,9 @@ workchain_server/
 ├── config.py       — pydantic-settings: env var configuration
 ├── plugins.py      — step handler discovery (entry points + WORKCHAIN_PLUGINS env var)
 ├── app.py          — FastAPI app: lifespan, engine lifecycle, router mounting
-└── ui.py           — management dashboard (workflow table, stats, report links)
+├── designer_router.py — /api/v1/handlers, /workflows (POST), /templates (CRUD + launch), /config
+├── frontend/       — React + Vite SPA source (dashboard + workflow designer)
+└── static/app/     — built SPA assets (gitignored; produced by `hatch run frontend:build`)
 ```
 
 **Quick start**: `hatch run server:serve` (requires MongoDB at `MONGO_URI`, default `mongodb://localhost:27017`)
@@ -219,21 +235,55 @@ workchain_server/
 - `SERVER_TITLE` — dashboard page title (default `Workchain Server`)
 
 **API routes**:
-- `GET /` — management dashboard UI
+- `GET /` — React SPA (dashboard + designer via client-side routing)
 - `GET /healthz` — health check (pings MongoDB)
+- `GET /api/v1/config` — server config (title + instance ID) for SPA
 - `GET /api/v1/workflows` — list workflows (from contrib router)
 - `GET /api/v1/workflows/stats` — workflow counts by status
 - `GET /api/v1/workflows/{id}` — workflow detail
 - `GET /api/v1/workflows/{id}/report` — HTML audit report
 - `POST /api/v1/workflows/{id}/cancel` — cancel workflow
+- `GET /api/v1/handlers` — list registered step handlers with JSON schemas (designer router)
+- `POST /api/v1/workflows` — create a workflow from a designer draft (designer router)
+- `GET/POST/PUT/DELETE /api/v1/templates[/{id}]` — template CRUD (designer router)
+- `POST /api/v1/templates/{id}/launch` — instantiate a template into a runnable workflow
 
 **Plugin system**: Step handlers are registered by importing modules that use `@step`/`@async_step` decorators. Two discovery mechanisms:
 1. Python entry points under `workchain.plugins` group (for installed packages)
 2. `WORKCHAIN_PLUGINS` env var with comma-separated module paths (for Docker/dev use)
 
+**Example templates**: `workchain_server/example_templates.py` defines 8 `WorkflowTemplate` objects matching the `examples/` workflows (Customer Onboarding, Data Pipeline ETL, CI/CD Pipeline, Media Processing, ML Training, Incident Response, Infrastructure Provisioning, Order Fulfillment). These are seeded into MongoDB on startup via `seed_example_templates(store)` — templates are matched by name so user edits are never overwritten.
+
 **Key design decisions**:
-- The server does NOT define workflow creation endpoints — those are app-specific. Workflows are submitted via external callers or plugins.
+- The contrib router (`workchain.contrib.fastapi`) stays read-only — adding workflow creation would widen its public surface. Workflow creation lives in `workchain_server/designer_router.py` instead.
 - Motor client is instantiated at module level (connects lazily) and closed in lifespan teardown
-- The contrib router is mounted at `/api/v1/workflows` (versioned from day one)
-- The dashboard UI fetches data from the API via JavaScript — no server-side rendering
+- The contrib router is mounted at `/api/v1/workflows` (versioned from day one); the designer router is mounted at `/api/v1`
+- The SPA is a unified React app with client-side routing — dashboard at `/`, designer at `/designer`
+- `StaticFiles(html=True)` must be the last mount so it acts as SPA fallback without shadowing API routes
+
+### Workflow designer router
+
+`workchain_server/designer_router.py` exposes handler introspection, workflow-draft creation, and template CRUD.  Key properties:
+
+- **Server-derived `config_type`**: the `POST /api/v1/workflows` endpoint looks up each draft step's handler via `describe_handler` and imports the typed `StepConfig` subclass from the handler signature — clients never send dotted paths, so there is no arbitrary-import vector from a draft payload
+- **Non-launchable handlers are rejected**: handlers without a typed `StepConfig`/`StepResult` subclass (marked `launchable=False` by introspection) cannot be used in designer drafts; the endpoint returns 422 with an explicit error per step
+- **Collected per-step errors**: the draft endpoint walks every step and collects errors before raising, so the designer can highlight all bad steps in a single round-trip
+- **DAG validation is delegated** to the `Workflow` model validators (unique names, cycles, unknown deps) — the endpoint catches the resulting `ValueError` and converts it to a structured 422 response
+- **Template launch** uses `instantiate_template` which validates handler refs and raw configs; failures return 422
+- **Optimistic locking** on `PUT /api/v1/templates/{id}` — stale `expected_version` returns 409 Conflict, missing template returns 404 (distinguished via a pre-read)
+- **Static SPA mount** on `/` is graceful: the server logs a notice and skips the mount if `workchain_server/static/app/` is missing (e.g. before the frontend has been built). Must be the last mount to avoid shadowing API routes.
+
+### Frontend SPA (React)
+
+`workchain_server/frontend/` is a React 18 + Vite 5 single-page app with client-side routing via `react-router-dom` v6. It serves both the dashboard (`/`) and workflow designer (`/designer`). Build output lands in `workchain_server/static/app/` (gitignored).
+
+- **Stack**: React + Vite + react-router-dom v6 + [React Flow](https://reactflow.dev/) for the graph canvas + [`@rjsf/core`](https://rjsf-team.github.io/react-jsonschema-form/) with the Bootstrap 4 theme for schema-driven config forms. Bootstrap 4 chosen over MUI to avoid the Emotion runtime.
+- **Build**: `hatch run frontend:install` (npm install, once), then `hatch run frontend:build` (tsc + vite build → `static/app/`). The hatch env is `detached = true` — no Python deps installed.
+- **Dev loop**: `hatch run frontend:dev` runs Vite on `:5173` with `/api/*` and `/static/*` proxies to FastAPI on `:8000`, so the SPA gets hot reload without CORS.
+- **Wheel packaging**: `[tool.hatch.build.targets.wheel.force-include]` ships `workchain_server/static/app/` into the wheel at publish time, so end users `pip install workchain[server]` without needing Node. The sdist excludes both the built output and `node_modules`.
+- **Routing**: `AppShell` provides shared nav bar (brand from `/api/v1/config`, nav links, instance ID badge) + `<Outlet />`. `DashboardPage` (index route) polls workflows + stats every 3s. `DesignerPage` wraps the React Flow canvas.
+- **Designer components**: `Toolbar` (top bar: workflow name, Run/Clear + status), `HandlerPalette` (left sidebar: draggable handler list, greys out non-launchable handlers), `DesignerCanvas` (React Flow with custom `StepNode`, collapsible mini-map, Tidy button in controls), `ConfigPanel` (right sidebar: RJSF form for the selected node). Client-side `draftValidate` runs Kahn's algorithm for cycles before POST; backend is still authoritative.
+- **Template launcher (dashboard)**: The dashboard shows a `TemplateCatalog` card grid between the stats bar and workflow table. Clicking a template card opens a `TemplateLaunchModal` overlay with a workflow name field, expandable step-config accordion (RJSF forms driven by handler `config_schema`), and a Launch button. Steps with no configurable fields show as read-only items. Launches via `POST /api/v1/templates/{id}/launch` with optional `config_overrides`. Each card also has an "Edit" button that navigates to `/designer?template={id}`.
+- **Template editing (designer)**: When the designer is opened with `?template={id}` query param, it fetches the template via `GET /api/v1/templates/{id}`, converts it to nodes/edges via `templateToGraph()`, applies auto-layout, and enables Save/Save As New buttons. "Save" updates the existing template via `PUT /api/v1/templates/{id}` with optimistic locking. "Save As New" creates a copy via `POST /api/v1/templates`. `graphToTemplateSteps()` converts the canvas state back to `TemplateStep[]` for persistence.
+- **Wire format**: the SPA POSTs `WorkflowDraft` JSON (`{name, steps: [{name, handler, config, depends_on}]}`) directly — no dotted config paths. The server derives `config_type` from the handler signature.
 

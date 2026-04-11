@@ -23,6 +23,7 @@ workchain/
   audit.py            AuditEvent model, AuditEventType enum, AuditLogger protocol, implementations
   audit_report.py     HTML execution report generator from audit events
   introspection.py    HandlerDescriptor + describe_handler/list_handlers (JSON schemas for registered handlers)
+  templates.py        WorkflowTemplate / StepTemplate + instantiate_template (designer artifacts)
   exceptions.py       Exception hierarchy
 ```
 
@@ -378,7 +379,7 @@ All three decorators (`@step`, `@async_step`, `@completeness_check`) return `Ste
 ### 7.2 `@step` Decorator
 
 ```python
-@step(retry=None, idempotent=True, needs_context=False)
+@step(retry=None, idempotent=True, needs_context=False, category=None, description=None)
 ```
 
 **Handler signature:**
@@ -388,6 +389,13 @@ async def handler(config: StepConfig, results: dict[str, StepResult]) -> StepRes
 async def handler(config: StepConfig, results: dict[str, StepResult], ctx: dict) -> StepResult
 ```
 
+**Parameters:**
+- `retry: RetryPolicy | None` — retry policy (defaults to `RetryPolicy()`).
+- `idempotent: bool` — whether safe to re-execute on recovery (default `True`).
+- `needs_context: bool` — opt into engine context dict (default `False`).
+- `category: str | None` — UI grouping label (e.g. `"Data transformation"`). `None` = uncategorised.
+- `description: str | None` — short one-line summary for the designer palette. Falls back to first line of docstring if `None`.
+
 **Attaches `_step_meta` to the function:**
 ```python
 {
@@ -396,6 +404,8 @@ async def handler(config: StepConfig, results: dict[str, StepResult], ctx: dict)
     "is_async": False,
     "idempotent": True,               # from parameter
     "needs_context": False,           # from parameter
+    "category": None,                 # from parameter
+    "description": None,              # from parameter
 }
 ```
 
@@ -404,10 +414,12 @@ Registers the function in `_STEP_REGISTRY` using the generated handler name.
 ### 7.3 `@async_step` Decorator
 
 ```python
-@async_step(retry=None, idempotent=True, needs_context=False, poll=None, completeness_check=None)
+@async_step(retry=None, idempotent=True, needs_context=False, poll=None, completeness_check=None, category=None, description=None)
 ```
 
 **Handler signature:** Same as `@step`. Handler should submit external work and return immediately with a `StepResult` subclass (e.g., containing a job_id).
+
+**Additional parameters:** `poll`, `completeness_check` (see decorator docstring). Also accepts `category` and `description` with the same semantics as `@step`.
 
 **Additional `_step_meta` keys:**
 ```python
@@ -416,6 +428,8 @@ Registers the function in `_STEP_REGISTRY` using the generated handler name.
     "is_async": True,
     "poll": PollPolicy(),             # from parameter or default
     "completeness_check": str | None, # resolved via _resolve_check_name
+    "category": None,                 # from parameter
+    "description": None,              # from parameter
 }
 ```
 
@@ -1393,6 +1407,8 @@ A read-only inspection layer over `_STEP_REGISTRY` that describes each registere
 | `module` | `str` | `fn.__module__` |
 | `qualname` | `str` | `fn.__qualname__` |
 | `doc` | `str \| None` | `inspect.cleandoc(fn.__doc__)` or `None` |
+| `description` | `str \| None` | Short one-line summary: explicit `description` param from decorator, else first line of docstring, else `None` |
+| `category` | `str \| None` | UI grouping label from decorator `category` param. `None` = uncategorised |
 | `is_async` | `bool` | True for `@async_step` handlers |
 | `is_completeness_check` | `bool` | True for `@completeness_check` handlers |
 | `needs_context` | `bool` | Mirrors `_step_meta["needs_context"]` |
@@ -1436,7 +1452,87 @@ Iterates `sorted(_STEP_REGISTRY)` (stable, alphabetical) and returns each non-`N
 
 ---
 
-## 16. Public API Surface
+## 16. Workflow Templates (`workchain/templates.py`)
+
+Design-time representation of a workflow.  A `WorkflowTemplate` stores the shape of a DAG without any of the runtime fields (`status`, `locked_by`, `fence_token`, `attempt`, `result`, polling timestamps) that belong to a live `Workflow`.  Templates are persisted to their own MongoDB collection (`workflow_templates`) and instantiated into runnable `Workflow` objects via `instantiate_template`.
+
+### `StepTemplate` (Pydantic model)
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `name` | `str` | required | Unique step name within the template |
+| `handler` | `str` | required | Dotted handler path (must resolve via `get_handler`) |
+| `config` | `dict[str, Any] \| None` | `None` | Raw JSON config dict — validated against the handler's `StepConfig` subclass at instantiation time |
+| `depends_on` | `list[str] \| None` | `None` | Same semantics as `Step.depends_on`: `None` resolves to sequential default; `[]` is a root step |
+| `retry_policy` | `RetryPolicy \| None` | `None` | Optional override |
+| `poll_policy` | `PollPolicy \| None` | `None` | Optional override (async steps only) |
+| `step_timeout` | `float` | `0` | Per-attempt timeout (0 = no timeout) |
+
+### `WorkflowTemplate` (Pydantic model)
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `id` | `str` | `_new_id()` | 32-char hex identifier |
+| `name` | `str` | required | Human-readable template name |
+| `description` | `str \| None` | `None` | Optional long description |
+| `steps` | `list[StepTemplate]` | `[]` | Ordered step list |
+| `version` | `int` | `1` | Optimistic-locking counter, incremented by the store on every successful update |
+| `created_at` | `datetime` | `_utcnow()` | UTC creation timestamp |
+| `updated_at` | `datetime` | `_utcnow()` | UTC modification timestamp — refreshed by the store on update |
+
+**Validators** (mirror `Workflow` semantics so instantiated workflows carry the same DAG guarantees):
+
+1. `_validate_unique_step_names` — reject templates with duplicate `StepTemplate.name` values.
+2. `_resolve_and_validate_depends_on` — resolve `depends_on=None` to sequential default (previous step name, or `[]` for the first step), then call the shared `_validate_dag` helper from `models.py` with `container="StepTemplate"` to detect self-references, unknown refs, and cycles.
+
+### `_validate_dag(step_names, depends_on_by_name, *, container)`
+
+Shared DAG validator extracted from `Workflow._resolve_and_validate_depends_on`.  Performs:
+
+1. For each step, reject `dep == name` (self-reference) or `dep not in step_names` (unknown reference).  Error messages are prefixed with the `container` label (e.g. `"Step '..'"` vs `"StepTemplate '..'"`).
+2. Topological sort via Kahn's algorithm.  If `visited != len(step_names)` at the end, raise `ValueError("Dependency cycle detected among steps")`.
+
+Both `Workflow` and `WorkflowTemplate` call this helper to avoid duplicated validation logic.
+
+### `instantiate_template(template, *, name_override=None, config_overrides=None) -> Workflow`
+
+For each `StepTemplate`:
+
+1. `describe_handler(tpl_step.handler)` — must return a non-`None` descriptor with `launchable=True`.  Otherwise raises `ValueError` with a message identifying which step and handler is at fault.
+2. `get_handler(tpl_step.handler)` — asserts the handler is actually importable; re-raises its diagnostic on failure.
+3. Merge `config_overrides.get(tpl_step.name, {})` into `tpl_step.config or {}` — overrides take precedence field-by-field.
+4. Import the typed config class via the local `_import_config_class(descriptor.config_type)` helper (kept local to avoid a circular import with `store.py`); assert it is a strict `StepConfig` subclass.
+5. Call `ConfigCls.model_validate(merged_config)` — Pydantic `ValidationError` is allowed to propagate (is-a `ValueError`).
+6. Construct a `Step` with `is_async` and `completeness_check` mirrored from the descriptor so the template never needs to duplicate handler metadata.
+7. Return a new `Workflow(name=name_override or template.name, steps=[...])`.
+
+### Store CRUD (on `MongoWorkflowStore`)
+
+Templates live in a separate collection (`TEMPLATES_COLLECTION = "workflow_templates"`).  They do **not** emit audit events, do **not** use fence tokens, and do **not** integrate with the engine's claim loop.  The only operational concern is optimistic locking for concurrent designer edits.
+
+- `insert_template(template) -> str` — writes the template (its `id` becomes the Mongo `_id`); returns `template.id`.
+- `get_template(template_id) -> WorkflowTemplate | None` — fetch by id, hydrate via `_doc_to_template`.
+- `list_templates(*, limit=100) -> list[WorkflowTemplate]` — sorted by `updated_at` descending.
+- `update_template(template_id, *, expected_version, name=None, description=None, steps=None) -> WorkflowTemplate | None` — atomic `find_one_and_update` with filter `{"_id": id, "version": expected_version}`, `$set` on the provided fields + `updated_at`, and `$inc: {version: 1}`.  Returns the updated template, or `None` on version mismatch (caller should surface HTTP 409) or unknown id (404).  Fields not passed are left unchanged.
+- `delete_template(template_id) -> bool` — returns `True` iff a document was actually removed.
+
+`ensure_indexes()` creates a secondary index on `templates.name` (the `_id` index is Mongo's default).
+
+### Serialisation
+
+- `_template_to_doc(template)` — `template.model_dump(mode="python")`, then renames `id` → `_id` for Mongo storage.
+- `_doc_to_template(doc)` — inverse: renames `_id` → `id`, then `WorkflowTemplate.model_validate(doc)`.  Both helpers are static methods on the store.
+
+### Contract and edge cases
+
+- Templates never include runtime state; a fresh `Workflow` from `instantiate_template` always has `status=PENDING`, all steps `PENDING`, empty locks, and `fence_token=0`.
+- `config_overrides` is a shallow merge at the per-step level: `merged = {**template_config, **overrides[step_name]}`.  Nested dicts are not deep-merged.
+- A template referencing a handler that was later removed from the registry still persists in Mongo; instantiation is the step that fails.
+- Optimistic locking is enforced only via `update_template`.  `insert_template` and `delete_template` are not version-checked.
+
+---
+
+## 17. Public API Surface
 
 All exports from `workchain/__init__.py`:
 
@@ -1460,6 +1556,9 @@ All exports from `workchain/__init__.py`:
 
 **Introspection:**
 `HandlerDescriptor`, `describe_handler`, `list_handlers`
+
+**Templates:**
+`StepTemplate`, `WorkflowTemplate`, `instantiate_template`
 
 **Exceptions:**
 `WorkchainError`, `StepError`, `StepTimeoutError`, `RetryExhaustedError`, `HandlerError`, `LockError`, `FenceRejectedError`, `RecoveryError`

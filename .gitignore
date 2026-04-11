@@ -43,3 +43,9 @@ Thumbs.db
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 .claude/worktrees/
+
+# Frontend SPA (built by `hatch run frontend:build`)
+workchain_server/frontend/node_modules/
+workchain_server/frontend/dist/
+workchain_server/static/app/
+workchain_server/static/designer/

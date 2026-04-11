@@ -109,6 +109,8 @@ def step(
     retry: RetryPolicy | None = None,
     idempotent: bool = True,
     needs_context: bool = False,
+    category: str | None = None,
+    description: str | None = None,
 ) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator to register a step handler.
@@ -119,12 +121,30 @@ def step(
     Or with engine context:
         async def my_step(config: MyConfig, results: dict[str, StepResult], ctx: dict[str, Any]) -> MyResult
 
-    Set ``needs_context=True`` to receive the engine context dict as the
-    third argument.  The handler name is auto-generated from module + qualname.
+    Args:
+        retry: Retry policy for this step.
+        idempotent: Whether the handler may safely be re-executed on recovery.
+        needs_context: Set to ``True`` to receive the engine context dict as
+            the third argument.
+        category: Optional grouping label for UI organisation (e.g.
+            ``"Data transformation"``, ``"Notification"``).  When ``None``
+            the handler appears in an "Uncategorised" group.
+        description: Short one-line summary shown in the designer palette.
+            Falls back to the first line of the handler docstring if ``None``.
+
+    The handler name is auto-generated from module + qualname.
     """
     def decorator(fn: Callable[..., Any]) -> StepHandler:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
-        setattr(fn, _STEP_META_ATTR, {"handler": handler_name, "retry": retry or RetryPolicy(), "is_async": False, "idempotent": idempotent, "needs_context": needs_context})
+        setattr(fn, _STEP_META_ATTR, {
+            "handler": handler_name,
+            "retry": retry or RetryPolicy(),
+            "is_async": False,
+            "idempotent": idempotent,
+            "needs_context": needs_context,
+            "category": category,
+            "description": description,
+        })
         _STEP_REGISTRY[handler_name] = fn
         return cast(StepHandler, fn)
     return decorator
@@ -136,6 +156,8 @@ def async_step(
     needs_context: bool = False,
     poll: PollPolicy | None = None,
     completeness_check: str | Callable[..., Any] | None = None,
+    category: str | None = None,
+    description: str | None = None,
 ) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator for async steps that submit work and poll until complete.
@@ -144,18 +166,36 @@ def async_step(
     StepResult subclass (e.g. containing a job_id). The engine will then
     poll the completeness_check callable until it returns True or a CheckResult.
 
-    completeness_check can be:
-      - A callable decorated with @completeness_check
-      - A dotted string path: "myapp.steps.check_provisioning"
-      - None: no polling (step completes immediately)
+    Args:
+        retry: Retry policy for this step.
+        idempotent: Whether the handler may safely be re-executed on recovery.
+        needs_context: Set to ``True`` to receive the engine context dict as
+            the third argument.
+        poll: Polling policy for completion checks.
+        completeness_check: A callable decorated with ``@completeness_check``,
+            a dotted string path, or ``None`` (step completes immediately).
+        category: Optional grouping label for UI organisation (e.g.
+            ``"Data transformation"``, ``"Notification"``).  When ``None``
+            the handler appears in an "Uncategorised" group.
+        description: Short one-line summary shown in the designer palette.
+            Falls back to the first line of the handler docstring if ``None``.
 
-    Set ``needs_context=True`` to receive the engine context dict as the
-    third argument.  The handler name is auto-generated from module + qualname.
+    The handler name is auto-generated from module + qualname.
     """
     def decorator(fn: Callable[..., Any]) -> StepHandler:
         handler_name = f"{fn.__module__}.{fn.__qualname__}"
         check_name = _resolve_check_name(completeness_check)
-        setattr(fn, _STEP_META_ATTR, {"handler": handler_name, "retry": retry or RetryPolicy(), "is_async": True, "idempotent": idempotent, "needs_context": needs_context, "poll": poll or PollPolicy(), "completeness_check": check_name})
+        setattr(fn, _STEP_META_ATTR, {
+            "handler": handler_name,
+            "retry": retry or RetryPolicy(),
+            "is_async": True,
+            "idempotent": idempotent,
+            "needs_context": needs_context,
+            "poll": poll or PollPolicy(),
+            "completeness_check": check_name,
+            "category": category,
+            "description": description,
+        })
         _STEP_REGISTRY[handler_name] = fn
         return cast(StepHandler, fn)
     return decorator

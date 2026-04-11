@@ -53,8 +53,21 @@ extra-dependencies = [
     "fastapi>=0.110",
 ]
 
+[tool.hatch.envs.server.env-vars]
+WORKCHAIN_PLUGINS = "examples.customer_onboarding.steps,examples.ci_cd_pipeline.steps,examples.data_pipeline_etl.steps,examples.incident_response.steps,examples.infra_provisioning.steps,examples.media_processing.steps,examples.ml_training.steps,examples.order_fulfillment.steps"
+
 [tool.hatch.envs.server.scripts]
 serve = "uvicorn workchain_server.app:app --reload --host 0.0.0.0 --port 8000"
+
+[tool.hatch.envs.frontend]
+description = "Build the workflow designer SPA (requires Node 20+)"
+detached = true
+
+[tool.hatch.envs.frontend.scripts]
+install = "npm --prefix workchain_server/frontend install"
+build = "npm --prefix workchain_server/frontend run build"
+dev = "npm --prefix workchain_server/frontend run dev"
+typecheck = "npm --prefix workchain_server/frontend run typecheck"
 
 [tool.hatch.envs.hatch-test]
 extra-dependencies = [
@@ -107,3 +120,13 @@ ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["workchain", "workchain_server"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"workchain_server/static/app" = "workchain_server/static/app"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "workchain_server/frontend/node_modules",
+    "workchain_server/frontend/dist",
+    "workchain_server/static/app",
+]

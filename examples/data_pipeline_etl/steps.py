@@ -25,9 +25,17 @@ class SchemaConfig(StepConfig):
     strict: bool = True
 
 
+class TransformConfig(StepConfig):
+    """Config for record transformation (no user-facing fields — derived from extraction)."""
+
+
 class LoadConfig(StepConfig):
     warehouse_uri: str
     target_table: str
+
+
+class CatalogConfig(StepConfig):
+    """Config for catalog update (no user-facing fields — derived from load result)."""
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +71,7 @@ class CatalogResult(StepResult):
 # Step handlers
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="ETL Pipeline", description="Extract records from a data source")
 async def extract_from_source(
     config: ExtractConfig,
     _results: dict[str, StepResult],
@@ -77,7 +85,7 @@ async def extract_from_source(
     )
 
 
-@step()
+@step(category="ETL Pipeline", description="Validate extracted data matches expected schema")
 async def validate_schema(
     config: SchemaConfig,
     results: dict[str, StepResult],
@@ -97,9 +105,9 @@ async def validate_schema(
     return SchemaResult(valid=valid, column_count=column_count)
 
 
-@step()
+@step(category="ETL Pipeline", description="Clean, map and deduplicate records")
 async def transform_records(
-    _config: StepConfig | None,
+    _config: TransformConfig,
     results: dict[str, StepResult],
 ) -> TransformResult:
     """Apply transformations: cleaning, mapping, deduplication."""
@@ -151,6 +159,8 @@ async def check_load(
 @async_step(
     completeness_check=check_load,
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=10),
+    category="ETL Pipeline",
+    description="Submit batch load job to the data warehouse",
 )
 async def load_to_warehouse(
     _config: LoadConfig,
@@ -165,9 +175,9 @@ async def load_to_warehouse(
 # Final step: update catalog
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="ETL Pipeline", description="Register loaded dataset in the data catalog")
 async def update_catalog(
-    _config: StepConfig | None,
+    _config: CatalogConfig,
     results: dict[str, StepResult],
 ) -> CatalogResult:
     """Register the freshly loaded dataset in the data catalog."""

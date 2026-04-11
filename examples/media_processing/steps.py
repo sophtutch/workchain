@@ -67,14 +67,26 @@ class IngestResult(StepResult):
     duration_seconds: float = 0.0
 
 
+class AudioExtractConfig(StepConfig):
+    """Config for audio extraction (no user-facing fields — derived from ingest)."""
+
+
 class AudioResult(StepResult):
     audio_path: str = ""
     codec: str = "aac"
 
 
+class NormalizeConfig(StepConfig):
+    """Config for audio normalisation (no user-facing fields — derived from extraction)."""
+
+
 class NormalizeResult(StepResult):
     normalized_path: str = ""
     peak_db: float = 0.0
+
+
+class WaveformConfig(StepConfig):
+    """Config for waveform generation (no user-facing fields — derived from extraction)."""
 
 
 class WaveformResult(StepResult):
@@ -91,14 +103,26 @@ class TranscodeResult(StepResult):
     output_path: str = ""
 
 
+class ThumbnailConfig(StepConfig):
+    """Config for thumbnail extraction (no user-facing fields — derived from transcode)."""
+
+
 class ThumbnailResult(StepResult):
     thumbnail_url: str = ""
     dimensions: str = "1280x720"
 
 
+class FaceDetectConfig(StepConfig):
+    """Config for face detection (no user-facing fields — derived from thumbnails)."""
+
+
 class FaceDetectResult(StepResult):
     faces_found: int = 0
     bounding_boxes: list[dict] = []
+
+
+class SubtitleConfig(StepConfig):
+    """Config for subtitle generation (no user-facing fields — derived from audio)."""
 
 
 class SubtitleResult(StepResult):
@@ -107,14 +131,26 @@ class SubtitleResult(StepResult):
     segments: int = 0
 
 
+class PackageConfig(StepConfig):
+    """Config for HLS packaging (no user-facing fields — derived from all branches)."""
+
+
 class PackageResult(StepResult):
     manifest_url: str = ""
     segment_count: int = 0
 
 
+class CdnConfig(StepConfig):
+    """Config for CDN publishing (no user-facing fields — derived from packaging)."""
+
+
 class CdnResult(StepResult):
     cdn_url: str = ""
     cache_key: str = ""
+
+
+class CatalogConfig(StepConfig):
+    """Config for media catalog registration (no user-facing fields — derived from packaging)."""
 
 
 class CatalogResult(StepResult):
@@ -127,7 +163,7 @@ class CatalogResult(StepResult):
 # ---------------------------------------------------------------------------
 
 
-@step()
+@step(category="Media Processing", description="Validate and store the raw upload")
 async def ingest_upload(
     config: IngestConfig,
     _results: dict[str, StepResult],
@@ -143,9 +179,9 @@ async def ingest_upload(
 # --- Audio branch (extract → normalize || waveform) ---
 
 
-@step()
+@step(category="Audio Processing", description="Extract audio track from uploaded video")
 async def extract_audio(
-    _config: StepConfig | None,
+    _config: AudioExtractConfig,
     results: dict[str, StepResult],
 ) -> AudioResult:
     """Extract the audio track from the uploaded video."""
@@ -155,9 +191,9 @@ async def extract_audio(
     return AudioResult(audio_path=audio_path, codec="aac")
 
 
-@step()
+@step(category="Audio Processing", description="Normalize audio levels to target loudness")
 async def normalize_audio(
-    _config: StepConfig | None,
+    _config: NormalizeConfig,
     results: dict[str, StepResult],
 ) -> NormalizeResult:
     """Normalize audio levels to target loudness."""
@@ -168,9 +204,9 @@ async def normalize_audio(
     return NormalizeResult(normalized_path=normalized_path, peak_db=peak_db)
 
 
-@step()
+@step(category="Audio Processing", description="Generate audio waveform visualisation image")
 async def generate_waveform(
-    _config: StepConfig | None,
+    _config: WaveformConfig,
     results: dict[str, StepResult],
 ) -> WaveformResult:
     """Generate an audio waveform visualization image."""
@@ -201,6 +237,8 @@ async def check_transcode(
 @async_step(
     completeness_check=check_transcode,
     poll=PollPolicy(interval=2.0, backoff_multiplier=1.0, timeout=120.0, max_polls=15),
+    category="Video Processing",
+    description="Submit 720p transcode job",
 )
 async def transcode_720p(
     config: TranscodeConfig,
@@ -217,6 +255,8 @@ async def transcode_720p(
 @async_step(
     completeness_check=check_transcode,
     poll=PollPolicy(interval=2.0, backoff_multiplier=1.0, timeout=120.0, max_polls=15),
+    category="Video Processing",
+    description="Submit 1080p transcode job",
 )
 async def transcode_1080p(
     config: TranscodeConfig,
@@ -230,9 +270,9 @@ async def transcode_1080p(
     return TranscodeResult(job_id=job_id, output_path=output)
 
 
-@step()
+@step(category="Video Processing", description="Extract poster thumbnail from 720p transcode")
 async def thumbnail_720p(
-    _config: StepConfig | None,
+    _config: ThumbnailConfig,
     results: dict[str, StepResult],
 ) -> ThumbnailResult:
     """Extract poster thumbnail from the 720p transcode."""
@@ -243,9 +283,9 @@ async def thumbnail_720p(
     return ThumbnailResult(thumbnail_url=url, dimensions="1280x720")
 
 
-@step()
+@step(category="Video Processing", description="Extract poster thumbnail from 1080p transcode")
 async def thumbnail_1080p(
-    _config: StepConfig | None,
+    _config: ThumbnailConfig,
     results: dict[str, StepResult],
 ) -> ThumbnailResult:
     """Extract poster thumbnail from the 1080p transcode."""
@@ -259,9 +299,9 @@ async def thumbnail_1080p(
 # --- Cross-branch joins ---
 
 
-@step()
+@step(category="Video Processing", description="Run face detection across resolution thumbnails")
 async def detect_faces(
-    _config: StepConfig | None,
+    _config: FaceDetectConfig,
     results: dict[str, StepResult],
 ) -> FaceDetectResult:
     """Run face detection across both resolution thumbnails."""
@@ -273,9 +313,9 @@ async def detect_faces(
     return FaceDetectResult(faces_found=face_count, bounding_boxes=boxes)
 
 
-@step()
+@step(category="Audio Processing", description="Auto-generate subtitles from normalised audio")
 async def generate_subtitles(
-    _config: StepConfig | None,
+    _config: SubtitleConfig,
     results: dict[str, StepResult],
 ) -> SubtitleResult:
     """Auto-generate subtitles from the normalized audio track."""
@@ -290,9 +330,9 @@ async def generate_subtitles(
 # --- Major join → final fan-out ---
 
 
-@step()
+@step(category="Media Processing", description="Package all assets into HLS streaming format")
 async def package_hls(
-    _config: StepConfig | None,
+    _config: PackageConfig,
     results: dict[str, StepResult],
 ) -> PackageResult:
     """Package all assets into HLS streaming format."""
@@ -309,9 +349,9 @@ async def package_hls(
     return PackageResult(manifest_url=manifest_url, segment_count=segments)
 
 
-@step()
+@step(category="Media Processing", description="Push packaged assets to the CDN")
 async def publish_cdn(
-    _config: StepConfig | None,
+    _config: CdnConfig,
     results: dict[str, StepResult],
 ) -> CdnResult:
     """Push packaged assets to the CDN."""
@@ -323,9 +363,9 @@ async def publish_cdn(
     return CdnResult(cdn_url=cdn_url, cache_key=cache_key)
 
 
-@step()
+@step(category="Media Processing", description="Register processed media in the catalog")
 async def update_catalog(
-    _config: StepConfig | None,
+    _config: CatalogConfig,
     results: dict[str, StepResult],
 ) -> CatalogResult:
     """Register the processed media in the catalog."""

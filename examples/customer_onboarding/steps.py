@@ -34,12 +34,24 @@ class ValidateEmailResult(StepResult):
     email: str = ""
 
 
+class CreateAccountConfig(StepConfig):
+    """Config for account creation (no user-facing fields — config is derived from prior steps)."""
+
+
 class CreateAccountResult(StepResult):
     user_id: str = ""
 
 
+class ProvisionConfig(StepConfig):
+    """Config for resource provisioning (no user-facing fields — config is derived from prior steps)."""
+
+
 class ProvisionResult(StepResult):
     job_id: str = ""
+
+
+class WelcomeEmailConfig(StepConfig):
+    """Config for welcome email (no user-facing fields — config is derived from prior steps)."""
 
 
 class WelcomeEmailResult(StepResult):
@@ -59,7 +71,7 @@ _poll_counts: dict[str, int] = {}
 # ---------------------------------------------------------------------------
 
 
-@step()
+@step(category="Customer Onboarding", description="Validate email address format")
 async def validate_email(
     config: ValidateEmailConfig,
     _results: dict[str, StepResult],
@@ -75,9 +87,11 @@ async def validate_email(
 
 @step(
     retry=RetryPolicy(max_attempts=5, wait_seconds=0.5, wait_multiplier=2.0),
+    category="Customer Onboarding",
+    description="Create a user account with exponential backoff retry",
 )
 async def create_account(
-    _config: StepConfig | None,
+    _config: CreateAccountConfig,
     results: dict[str, StepResult],
 ) -> CreateAccountResult:
     """Create a user account. Retries up to 5 times with exponential backoff."""
@@ -89,7 +103,7 @@ async def create_account(
 
 @completeness_check()
 async def check_provisioning(
-    _config: StepConfig | None,
+    _config: ProvisionConfig,
     _results: dict[str, StepResult],
     result: ProvisionResult,
 ) -> CheckResult:
@@ -119,9 +133,11 @@ async def check_provisioning(
 @async_step(
     completeness_check=check_provisioning,
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=5),
+    category="Customer Onboarding",
+    description="Provision account resources asynchronously",
 )
 async def provision_resources(
-    _config: StepConfig | None,
+    _config: ProvisionConfig,
     results: dict[str, StepResult],
 ) -> ProvisionResult:
     """Submit resource provisioning for the new account."""
@@ -131,9 +147,9 @@ async def provision_resources(
     return ProvisionResult(job_id=job_id)
 
 
-@step()
+@step(category="Notification", description="Send welcome email to new customer")
 async def send_welcome_email(
-    _config: StepConfig | None,
+    _config: WelcomeEmailConfig,
     results: dict[str, StepResult],
 ) -> WelcomeEmailResult:
     """Send a welcome email to the newly onboarded customer."""

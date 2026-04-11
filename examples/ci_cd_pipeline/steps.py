@@ -172,7 +172,7 @@ class DashboardResult(StepResult):
 # Step 1: lint_code
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Code Quality", description="Run static analysis and linting on source files")
 async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
     """Run static analysis / linting on source files."""
     files_checked = _rng.randint(40, 120)
@@ -187,6 +187,8 @@ async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> Lint
 
 @step(
     retry=RetryPolicy(max_attempts=3, wait_seconds=1.0, wait_multiplier=2.0),
+    category="Testing",
+    description="Execute unit test suite with coverage reporting",
 )
 async def run_unit_tests(config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
     """Execute the unit test suite. May flake on first attempt."""
@@ -202,7 +204,7 @@ async def run_unit_tests(config: TestConfig, _results: dict[str, StepResult]) ->
 # Step 3: security_scan
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Security", description="Run SAST and dependency vulnerability scan")
 async def security_scan(config: SecurityScanConfig, _results: dict[str, StepResult]) -> SecurityScanResult:
     """Run SAST and dependency vulnerability scan."""
     scan_id = uuid.uuid4().hex[:10]
@@ -217,7 +219,7 @@ async def security_scan(config: SecurityScanConfig, _results: dict[str, StepResu
 # Step 4: run_integration_tests
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Testing", description="Run integration tests against a test database")
 async def run_integration_tests(
     config: IntegrationTestConfig,
     _results: dict[str, StepResult],
@@ -233,7 +235,7 @@ async def run_integration_tests(
 # Step 5: license_audit
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Security", description="Audit dependency licenses against compliance policy")
 async def license_audit(config: LicenseAuditConfig, results: dict[str, StepResult]) -> LicenseAuditResult:
     """Audit dependency licenses against policy."""
     scan_result = cast(SecurityScanResult, results["security_scan"])
@@ -250,7 +252,7 @@ async def license_audit(config: LicenseAuditConfig, results: dict[str, StepResul
 # Step 6: vulnerability_report
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Security", description="Generate detailed CVE vulnerability report")
 async def vulnerability_report(config: VulnReportConfig, results: dict[str, StepResult]) -> VulnReportResult:
     """Generate a detailed vulnerability report from scan results."""
     scan_result = cast(SecurityScanResult, results["security_scan"])
@@ -293,6 +295,8 @@ async def check_build(
 @async_step(
     completeness_check=check_build,
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=120.0, max_polls=10),
+    category="Build & Deploy",
+    description="Build a container image from source",
 )
 async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -> BuildResult:
     """Kick off a container image build."""
@@ -306,7 +310,7 @@ async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -
 # Step 8: push_to_registry
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Build & Deploy", description="Push built image to container registry")
 async def push_to_registry(
     config: RegistryConfig,
     results: dict[str, StepResult],
@@ -323,7 +327,7 @@ async def push_to_registry(
 # Step 9: compliance_sign_off
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Security", description="Verify all compliance checks passed before deploy")
 async def compliance_sign_off(config: ComplianceConfig, results: dict[str, StepResult]) -> ComplianceResult:
     """Verify all compliance checks passed before deployment."""
     vuln_result = cast(VulnReportResult, results["vulnerability_report"])
@@ -361,6 +365,8 @@ async def check_deployment(
 @async_step(
     completeness_check=check_deployment,
     poll=PollPolicy(interval=5.0, backoff_multiplier=1.0, timeout=300.0, max_polls=10),
+    category="Build & Deploy",
+    description="Deploy container image to staging environment",
 )
 async def deploy_staging(
     config: DeployConfig,
@@ -380,7 +386,7 @@ async def deploy_staging(
 # Step 11: generate_report
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Reporting", description="Aggregate pipeline results into a final report")
 async def generate_report(config: ReportConfig, results: dict[str, StepResult]) -> ReportResult:
     """Aggregate results from all pipeline branches into a final report."""
     test_result = cast(TestResult, results["run_unit_tests"])
@@ -398,7 +404,7 @@ async def generate_report(config: ReportConfig, results: dict[str, StepResult]) 
 # Step 12: notify_team
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Notification", description="Send pipeline completion notification to team channel")
 async def notify_team(config: NotifyConfig, results: dict[str, StepResult]) -> NotifyResult:
     """Send pipeline completion notification to team channel."""
     report_result = cast(ReportResult, results["generate_report"])
@@ -411,7 +417,7 @@ async def notify_team(config: NotifyConfig, results: dict[str, StepResult]) -> N
 # Step 13: update_dashboard
 # ---------------------------------------------------------------------------
 
-@step()
+@step(category="Reporting", description="Push pipeline metrics to monitoring dashboard")
 async def update_dashboard(config: DashboardConfig, results: dict[str, StepResult]) -> DashboardResult:
     """Push pipeline metrics to CI/CD monitoring dashboard."""
     report_result = cast(ReportResult, results["generate_report"])
