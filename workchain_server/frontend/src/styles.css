@@ -172,12 +172,12 @@ body,
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.nav-stat--pending   { color: var(--c-pending); }
-.nav-stat--running   { color: var(--c-running); border-color: rgba(0, 240, 255, 0.2); box-shadow: 0 0 6px rgba(0, 240, 255, 0.15); }
-.nav-stat--completed { color: var(--c-completed); }
-.nav-stat--failed    { color: var(--c-failed); }
-.nav-stat--needs_review { color: var(--c-needs_review); }
-.nav-stat--cancelled { color: var(--c-cancelled); }
+.nav-stat--pending   { color: var(--c-pending); border-color: rgba(107, 114, 128, 0.3); }
+.nav-stat--running   { color: var(--c-running); border-color: rgba(0, 240, 255, 0.3); box-shadow: 0 0 6px rgba(0, 240, 255, 0.15); }
+.nav-stat--completed { color: var(--c-completed); border-color: rgba(0, 255, 136, 0.3); }
+.nav-stat--failed    { color: var(--c-failed); border-color: rgba(255, 51, 102, 0.3); }
+.nav-stat--needs_review { color: var(--c-needs_review); border-color: rgba(255, 170, 0, 0.3); }
+.nav-stat--cancelled { color: var(--c-cancelled); border-color: rgba(85, 85, 85, 0.3); }
 
 .nav-stat__count {
   font-family: "SF Mono", "Fira Code", monospace;

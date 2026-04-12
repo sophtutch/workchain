@@ -406,6 +406,58 @@ workflow = Workflow(
 
 The `verify_completion` handler receives `(config, results, result)` and returns a `CheckResult` (or `bool`/`dict` for convenience -- the `@completeness_check` decorator normalizes all return types). It supports `needs_context=True` for dependency injection.
 
+## Handler Introspection
+
+The `workchain.introspection` module exposes registered handlers as structured descriptors suitable for UIs and schema-aware tooling:
+
+```python
+from workchain.introspection import list_handlers, describe_handler
+
+# List all registered handlers (excludes completeness checks by default)
+for h in list_handlers():
+    print(f"{h.name}  launchable={h.launchable}  category={h.category}")
+
+# Get a specific handler descriptor
+handler = describe_handler("myapp.steps.validate_input")
+if handler and handler.launchable:
+    print(handler.config_schema)   # JSON Schema for the handler's StepConfig subclass
+    print(handler.result_schema)   # JSON Schema for the handler's StepResult subclass
+```
+
+A handler is **launchable** only when both its `config` and `result` type annotations are strict subclasses of `StepConfig` / `StepResult` and JSON schema extraction succeeds. The workflow designer UI uses this flag to enable or disable handler drag-and-drop.
+
+Pass `include_checks=True` to `list_handlers()` or `describe_handler()` to include completeness check handlers in the results.
+
+## Workflow Templates
+
+Templates are persistable, reusable workflow designs. Unlike live `Workflow` instances (which carry runtime state like step status, locks, and results), templates are **design-time artifacts** that can be stored, versioned, and launched into runnable workflows.
+
+```python
+from workchain.templates import WorkflowTemplate, StepTemplate, instantiate_template
+
+template = WorkflowTemplate(
+    name="data-pipeline",
+    description="ETL pipeline with validation",
+    steps=[
+        StepTemplate(name="extract", handler="etl.steps.extract", config={"source": "s3"}),
+        StepTemplate(name="transform", handler="etl.steps.transform", depends_on=["extract"]),
+        StepTemplate(name="load", handler="etl.steps.load", depends_on=["transform"]),
+    ],
+)
+
+# Instantiate into a runnable Workflow
+workflow = instantiate_template(
+    template,
+    name_override="daily-etl-2026-04-12",
+    config_overrides={"extract": {"source": "gcs"}},  # override per-step config
+)
+await store.insert(workflow)
+```
+
+Templates use **optimistic locking** via a `version` counter -- the store's `update_template` method accepts `expected_version` and returns `None` on version mismatch (409 Conflict via the API).
+
+The server seeds 8 example templates on startup (Customer Onboarding, Data Pipeline ETL, CI/CD Pipeline, Media Processing, ML Training, Incident Response, Infrastructure Provisioning, Order Fulfillment). These are matched by name so user edits are never overwritten.
+
 ## Architecture
 
 ```
@@ -417,6 +469,9 @@ workchain/                          -- core library
 ├── retry.py                        -- Retry utilities wrapping tenacity with RetryPolicy
 ├── audit.py                        -- AuditEvent model, AuditLogger protocol, MongoAuditLogger
 ├── audit_report.py                 -- HTML execution report generator from audit events
+├── introspection.py                -- HandlerDescriptor + describe_handler/list_handlers (JSON schemas)
+├── templates.py                    -- WorkflowTemplate / StepTemplate + instantiate_template
+├── exceptions.py                   -- Exception hierarchy: WorkchainError, StepError, HandlerError, etc.
 └── contrib/
     └── fastapi.py                  -- Optional FastAPI router (pip install workchain[fastapi])
 
@@ -425,6 +480,7 @@ workchain_server/                   -- standalone server (pip install workchain[
 ├── plugins.py                      -- Step handler discovery (entry points + env var)
 ├── app.py                          -- FastAPI app with engine lifecycle and router mounting
 ├── designer_router.py              -- /api/v1/handlers, /workflows (POST), /templates (CRUD + launch), /config
+├── example_templates.py            -- 8 example WorkflowTemplates seeded into MongoDB on startup
 ├── frontend/                       -- React + Vite SPA source (dashboard + workflow designer)
 └── static/app/                     -- built SPA assets (gitignored)
 ```
@@ -446,6 +502,9 @@ MONGO_URI=mongodb://localhost:27017 hatch run server:serve
 | `MONGO_DATABASE` | `workchain` | Database name |
 | `ENGINE_INSTANCE_ID` | auto-generated | Engine instance identifier |
 | `ENGINE_CLAIM_INTERVAL` | `5.0` | Step discovery interval (seconds) |
+| `ENGINE_HEARTBEAT_INTERVAL` | `10.0` | Lock heartbeat renewal interval (seconds) |
+| `ENGINE_SWEEP_INTERVAL` | `60.0` | Anomaly detection sweep interval (seconds) |
+| `ENGINE_STEP_STUCK_SECONDS` | `300.0` | Threshold before flagging a step as stuck (seconds) |
 | `ENGINE_MAX_CONCURRENT` | `5` | Max concurrent steps per engine |
 | `WORKCHAIN_PLUGINS` | | Comma-separated module paths to import at startup |
 | `SERVER_TITLE` | `Workchain Server` | Dashboard page title |
@@ -460,6 +519,7 @@ The server mounts a designer router at `/api/v1` that powers the upcoming drag-a
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/api/v1/config` | Server metadata (title + instance ID) for the SPA frontend |
 | `GET` | `/api/v1/handlers` | List registered step handlers with JSON schemas for their `StepConfig` / `StepResult` types |
 | `POST` | `/api/v1/workflows` | Create and persist a `Workflow` from a designer draft (handler refs + raw config dicts). Returns 422 with per-step errors on validation failure. |
 | `GET` | `/api/v1/templates` | List workflow templates sorted by `updated_at` descending |
