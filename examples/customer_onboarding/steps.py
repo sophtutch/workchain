@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
 import uuid
 from typing import cast
@@ -77,6 +79,7 @@ async def validate_email(
     _results: dict[str, StepResult],
 ) -> ValidateEmailResult:
     """Validate that the provided email address is well-formed."""
+    await asyncio.sleep(random.uniform(5, 20))
     email = config.email
     pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
     if not re.match(pattern, email):
@@ -96,6 +99,7 @@ async def create_account(
     results: dict[str, StepResult],
 ) -> CreateAccountResult:
     """Create a user account. Retries up to 5 times with exponential backoff."""
+    await asyncio.sleep(random.uniform(5, 20))
     email_result = cast(ValidateEmailResult, results["validate_email"])
     user_id = uuid.uuid4().hex[:12]
     logger.info("Account created: user_id=%s email=%s", user_id, email_result.email)
@@ -112,6 +116,7 @@ async def check_provisioning(
 
     Simulates an external system that completes after 3 polls.
     """
+    await asyncio.sleep(random.uniform(3, 8))
     job_id = result.job_id
     count = _poll_counts.get(job_id, 0) + 1
     _poll_counts[job_id] = count
@@ -143,6 +148,7 @@ async def provision_resources(
     results: dict[str, StepResult],
 ) -> ProvisionResult:
     """Submit resource provisioning for the new account."""
+    await asyncio.sleep(random.uniform(5, 20))
     account_result = cast(CreateAccountResult, results["create_account"])
     job_id = f"prov-{account_result.user_id}"
     logger.info("Provisioning submitted: job_id=%s", job_id)
@@ -155,6 +161,7 @@ async def send_welcome_email(
     results: dict[str, StepResult],
 ) -> WelcomeEmailResult:
     """Send a welcome email to the newly onboarded customer."""
+    await asyncio.sleep(random.uniform(5, 20))
     email_result = cast(ValidateEmailResult, results["validate_email"])
     account_result = cast(CreateAccountResult, results["create_account"])
     logger.info(

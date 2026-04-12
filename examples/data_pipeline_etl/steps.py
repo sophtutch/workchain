@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
 import uuid
 from typing import cast
 
 from workchain import CheckResult, PollPolicy, StepConfig, StepResult, async_step, completeness_check, step
+
+logger = logging.getLogger(__name__)
 
 # Poll simulation state — keyed by load_id
 _poll_counts: dict[str, int] = {}
@@ -74,9 +79,14 @@ async def extract_from_source(
     _results: dict[str, StepResult],
 ) -> ExtractResult:
     """Simulate extracting records from a data source."""
+    await asyncio.sleep(random.uniform(5, 20))
     batch_size = 1000
     # In a real implementation this would query a database / API.
     record_count = batch_size * 3  # simulate 3 batches extracted
+    logger.info(
+        "[extract] Extracted %d records from %s (table=%s, batch_size=%d)",
+        record_count, config.source_uri, config.table_name, batch_size,
+    )
     return ExtractResult(
         records_extracted=record_count,
         source_uri=config.source_uri,
@@ -89,6 +99,7 @@ async def validate_schema(
     results: dict[str, StepResult],
 ) -> SchemaResult:
     """Validate that extracted data matches the expected schema."""
+    await asyncio.sleep(random.uniform(5, 20))
     expected_columns = ["id", "timestamp", "event_type", "payload"]
     extract = cast(ExtractResult, results["extract_from_source"])
 
@@ -100,6 +111,10 @@ async def validate_schema(
             f"Schema validation failed: expected {expected_columns}"
         )
 
+    logger.info(
+        "[schema] Validated %d columns against %d extracted records from %s",
+        column_count, extract.records_extracted, extract.source_uri,
+    )
     return SchemaResult(valid=valid, column_count=column_count)
 
 
@@ -109,12 +124,17 @@ async def transform_records(
     results: dict[str, StepResult],
 ) -> TransformResult:
     """Apply transformations: cleaning, mapping, deduplication."""
+    await asyncio.sleep(random.uniform(5, 20))
     extract = cast(ExtractResult, results["extract_from_source"])
 
     total = extract.records_extracted
     dropped = int(total * 0.02)  # simulate 2% dropped as invalid
     transformed = total - dropped
 
+    logger.info(
+        "[transform] Transformed %d records (%d dropped as invalid) from %s",
+        transformed, dropped, extract.source_uri,
+    )
     return TransformResult(records_transformed=transformed, dropped=dropped)
 
 
@@ -133,12 +153,17 @@ async def check_load(
     Simulates a batch load that completes after 3 polls, reporting
     incremental progress each time.
     """
+    await asyncio.sleep(random.uniform(3, 8))
     load_id = result.load_id
     count = _poll_counts.get(load_id, 0) + 1
     _poll_counts[load_id] = count
 
     if count >= 3:
         transform = cast(TransformResult, results["transform_records"])
+        logger.info(
+            "[load] Load %s complete: %d records loaded in %d polls",
+            load_id, transform.records_transformed, count,
+        )
         return CheckResult(
             complete=True,
             progress=1.0,
@@ -146,6 +171,7 @@ async def check_load(
         )
 
     progress = round(count / 3, 2)
+    logger.info("[load] Load %s poll %d/3 (progress=%.0f%%)", load_id, count, progress * 100)
     return CheckResult(
         complete=False,
         progress=progress,
@@ -165,7 +191,9 @@ async def load_to_warehouse(
     _results: dict[str, StepResult],
 ) -> LoadResult:
     """Submit a batch load job to the data warehouse."""
+    await asyncio.sleep(random.uniform(5, 20))
     load_id = uuid.uuid4().hex[:12]
+    logger.info("[load] Submitted batch load job %s to data warehouse", load_id)
     return LoadResult(load_id=load_id, records_loaded=0)
 
 
@@ -179,6 +207,8 @@ async def update_catalog(
     results: dict[str, StepResult],
 ) -> CatalogResult:
     """Register the freshly loaded dataset in the data catalog."""
+    await asyncio.sleep(random.uniform(5, 20))
     load = cast(LoadResult, results["load_to_warehouse"])
     entry_id = f"catalog-{load.load_id}"
+    logger.info("[catalog] Registered dataset %s in data catalog as %s", load.load_id, entry_id)
     return CatalogResult(catalog_entry_id=entry_id, updated=True)

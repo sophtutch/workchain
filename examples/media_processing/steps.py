@@ -28,6 +28,7 @@ Steps (13):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import uuid
@@ -168,6 +169,7 @@ async def ingest_upload(
     _results: dict[str, StepResult],
 ) -> IngestResult:
     """Validate and store the raw upload."""
+    await asyncio.sleep(random.uniform(5, 20))
     asset_id = f"asset-{uuid.uuid4().hex[:8]}"
     storage_path = f"/uploads/{asset_id}/{config.filename}"
     duration = round(_rng.uniform(30.0, 600.0), 1)
@@ -184,6 +186,7 @@ async def extract_audio(
     results: dict[str, StepResult],
 ) -> AudioResult:
     """Extract the audio track from the uploaded video."""
+    await asyncio.sleep(random.uniform(5, 20))
     ingest = cast(IngestResult, results["ingest_upload"])
     audio_path = f"/processed/{ingest.asset_id}/audio.aac"
     logger.info("[audio] Extracted audio from %s", ingest.storage_path)
@@ -196,6 +199,7 @@ async def normalize_audio(
     results: dict[str, StepResult],
 ) -> NormalizeResult:
     """Normalize audio levels to target loudness."""
+    await asyncio.sleep(random.uniform(5, 20))
     audio = cast(AudioResult, results["extract_audio"])
     normalized_path = audio.audio_path.replace(".aac", "_norm.aac")
     peak_db = round(_rng.uniform(-3.0, -0.5), 1)
@@ -209,6 +213,7 @@ async def generate_waveform(
     results: dict[str, StepResult],
 ) -> WaveformResult:
     """Generate an audio waveform visualization image."""
+    await asyncio.sleep(random.uniform(5, 20))
     audio = cast(AudioResult, results["extract_audio"])
     asset_id = _asset_id(audio.audio_path)
     waveform_url = f"/processed/{asset_id}/waveform.png"
@@ -226,6 +231,7 @@ async def check_transcode(
     result: TranscodeResult,
 ) -> CheckResult:
     """Completeness check: transcode finishes with 33% chance per poll."""
+    await asyncio.sleep(random.uniform(3, 8))
     if _rng.random() < 0.33:
         logger.info("[transcode] Job %s still encoding...", result.job_id)
         return CheckResult(complete=False, progress=round(_rng.uniform(0.2, 0.8), 2), message="Encoding")
@@ -245,6 +251,7 @@ async def transcode_720p(
     results: dict[str, StepResult],
 ) -> TranscodeResult:
     """Submit 720p transcode job."""
+    await asyncio.sleep(random.uniform(5, 20))
     resolution = "720p"
     codec = "h264"
     ingest = cast(IngestResult, results["ingest_upload"])
@@ -266,6 +273,7 @@ async def transcode_1080p(
     results: dict[str, StepResult],
 ) -> TranscodeResult:
     """Submit 1080p transcode job."""
+    await asyncio.sleep(random.uniform(5, 20))
     resolution = "1080p"
     codec = "h264"
     ingest = cast(IngestResult, results["ingest_upload"])
@@ -281,6 +289,7 @@ async def thumbnail_720p(
     results: dict[str, StepResult],
 ) -> ThumbnailResult:
     """Extract poster thumbnail from the 720p transcode."""
+    await asyncio.sleep(random.uniform(5, 20))
     tx = cast(TranscodeResult, results["transcode_720p"])
     asset_id = _asset_id(tx.output_path)
     url = f"/processed/{asset_id}/thumb_720p.jpg"
@@ -294,6 +303,7 @@ async def thumbnail_1080p(
     results: dict[str, StepResult],
 ) -> ThumbnailResult:
     """Extract poster thumbnail from the 1080p transcode."""
+    await asyncio.sleep(random.uniform(5, 20))
     tx = cast(TranscodeResult, results["transcode_1080p"])
     asset_id = _asset_id(tx.output_path)
     url = f"/processed/{asset_id}/thumb_1080p.jpg"
@@ -310,6 +320,7 @@ async def detect_faces(
     results: dict[str, StepResult],
 ) -> FaceDetectResult:
     """Run face detection across both resolution thumbnails."""
+    await asyncio.sleep(random.uniform(5, 20))
     thumb_720 = cast(ThumbnailResult, results["thumbnail_720p"])
     thumb_1080 = cast(ThumbnailResult, results["thumbnail_1080p"])
     face_count = _rng.randint(0, 5)
@@ -324,6 +335,7 @@ async def generate_subtitles(
     results: dict[str, StepResult],
 ) -> SubtitleResult:
     """Auto-generate subtitles from the normalized audio track."""
+    await asyncio.sleep(random.uniform(5, 20))
     norm = cast(NormalizeResult, results["normalize_audio"])
     asset_id = _asset_id(norm.normalized_path)
     subtitle_path = f"/processed/{asset_id}/subtitles.vtt"
@@ -341,6 +353,7 @@ async def package_hls(
     results: dict[str, StepResult],
 ) -> PackageResult:
     """Package all assets into HLS streaming format."""
+    await asyncio.sleep(random.uniform(5, 20))
     faces = cast(FaceDetectResult, results["detect_faces"])
     subs = cast(SubtitleResult, results["generate_subtitles"])
     waveform = cast(WaveformResult, results["generate_waveform"])
@@ -360,6 +373,7 @@ async def publish_cdn(
     results: dict[str, StepResult],
 ) -> CdnResult:
     """Push packaged assets to the CDN."""
+    await asyncio.sleep(random.uniform(5, 20))
     pkg = cast(PackageResult, results["package_hls"])
     asset_id = _asset_id(pkg.manifest_url)
     cdn_url = f"https://cdn.example.com/{asset_id}"
@@ -374,6 +388,7 @@ async def update_catalog(
     results: dict[str, StepResult],
 ) -> CatalogResult:
     """Register the processed media in the catalog."""
+    await asyncio.sleep(random.uniform(5, 20))
     pkg = cast(PackageResult, results["package_hls"])
     asset_id = _asset_id(pkg.manifest_url)
     catalog_id = f"cat-{uuid.uuid4().hex[:8]}"

@@ -11,6 +11,7 @@ Steps:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import uuid
@@ -100,6 +101,7 @@ class HealthCheckResult(StepResult):
 @step(category="Infrastructure", description="Create a VPC with public and private subnets")
 async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcResult:
     """Create a VPC with public and private subnets."""
+    await asyncio.sleep(random.uniform(5, 20))
     cidr_block = "10.0.0.0/16"
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
     subnet_count = _rng.randint(2, 4)
@@ -123,6 +125,7 @@ async def check_database(
     result: DatabaseResult,
 ) -> CheckResult:
     """Completeness check: simulates database becoming available after 3 polls."""
+    await asyncio.sleep(random.uniform(3, 8))
     stages = [
         (0.3, "creating", "Creating DB instance"),
         (0.6, "configuring", "Configuring parameter groups"),
@@ -148,7 +151,8 @@ async def provision_database(
     _config: DatabaseConfig,
     _results: dict[str, StepResult],
 ) -> DatabaseResult:
-    """Provision an RDS database instance (root step — no dependencies)."""
+    """Provision an RDS database instance (root step -- no dependencies)."""
+    await asyncio.sleep(random.uniform(5, 20))
     engine = "postgres"
     instance_class = "db.t3.medium"
     db_instance_id = f"db-{uuid.uuid4().hex[:12]}"
@@ -176,6 +180,7 @@ async def check_deployment(
     result: DeployResult,
 ) -> CheckResult:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
+    await asyncio.sleep(random.uniform(3, 8))
     replicas = 2
     if _rng.random() < 0.5:
         ready = max(1, replicas - 1)
@@ -207,6 +212,7 @@ async def deploy_application(
     results: dict[str, StepResult],
 ) -> DeployResult:
     """Deploy the application containers."""
+    await asyncio.sleep(random.uniform(5, 20))
     replicas = 2
     db_result = cast(DatabaseResult, results["provision_database"])
     deployment_id = f"deploy-{uuid.uuid4().hex[:12]}"
@@ -228,6 +234,7 @@ async def configure_dns(
     results: dict[str, StepResult],
 ) -> DnsResult:
     """Create DNS records pointing to the deployed application."""
+    await asyncio.sleep(random.uniform(5, 20))
     record_type = "A"
     deploy_result = cast(DeployResult, results["deploy_application"])
     record_id = f"rec-{uuid.uuid4().hex[:12]}"
@@ -251,6 +258,7 @@ async def check_tls_cert(
     _result: TlsResult,
 ) -> CheckResult:
     """Completeness check: simulates certificate issued after 2 polls."""
+    await asyncio.sleep(random.uniform(3, 8))
     if _rng.random() < 0.5:
         logger.info("[tls] Certificate for %s -- pending validation", config.domain)
         return CheckResult(complete=False, progress=0.5, message="Pending domain validation")
@@ -270,6 +278,7 @@ async def issue_tls_cert(
     results: dict[str, StepResult],
 ) -> TlsResult:
     """Request a TLS certificate for the domain."""
+    await asyncio.sleep(random.uniform(5, 20))
     dns_result = cast(DnsResult, results["configure_dns"])
     certificate_arn = f"arn:aws:acm:us-east-1:123456789:certificate/{uuid.uuid4().hex[:12]}"
     logger.info(
@@ -290,6 +299,7 @@ async def health_check(
     results: dict[str, StepResult],
 ) -> HealthCheckResult:
     """Verify the full stack is reachable and returns the expected status."""
+    await asyncio.sleep(random.uniform(5, 20))
     expected_status = 200
     tls_result = cast(TlsResult, results["issue_tls_cert"])
     response_time = round(_rng.uniform(50.0, 200.0), 1)

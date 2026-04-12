@@ -16,7 +16,9 @@ Steps:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import uuid
 from typing import cast
 
@@ -146,6 +148,7 @@ async def validate_order(
     _results: dict[str, StepResult],
 ) -> ValidateOrderResult:
     """Validate order details: check line items are non-empty and email is present."""
+    await asyncio.sleep(random.uniform(5, 20))
     if not config.line_items:
         raise ValueError("Order must contain at least one line item")
     if not config.customer_email:
@@ -176,6 +179,7 @@ async def check_inventory(
     results: dict[str, StepResult],
 ) -> CheckInventoryResult:
     """Verify that all ordered items are in stock at the given warehouse."""
+    await asyncio.sleep(random.uniform(5, 20))
     warehouse_id = "wh-primary"
     order = cast(ValidateOrderResult, results["validate_order"])
     logger.info(
@@ -201,6 +205,7 @@ async def calculate_shipping(
     results: dict[str, StepResult],
 ) -> CalculateShippingResult:
     """Compute shipping cost and delivery estimate based on destination and method."""
+    await asyncio.sleep(random.uniform(5, 20))
     order = cast(ValidateOrderResult, results["validate_order"])
 
     cost_per_item = {"standard": 499, "express": 999, "overnight": 1999}
@@ -233,6 +238,7 @@ async def check_payment(
     result: ProcessPaymentResult,
 ) -> CheckResult:
     """Poll the payment gateway until the transaction settles."""
+    await asyncio.sleep(random.uniform(3, 8))
     txn_id = result.transaction_id
     count = _payment_polls.get(txn_id, 0) + 1
     _payment_polls[txn_id] = count
@@ -267,6 +273,7 @@ async def process_payment(
     results: dict[str, StepResult],
 ) -> ProcessPaymentResult:
     """Submit a payment charge to the gateway. Settles asynchronously."""
+    await asyncio.sleep(random.uniform(5, 20))
     payment_method = "credit_card"
     currency = "USD"
     inventory = cast(CheckInventoryResult, results["check_inventory"])
@@ -306,6 +313,7 @@ async def reserve_inventory(
     results: dict[str, StepResult],
 ) -> ReserveInventoryResult:
     """Atomically reserve stock for the order. Retries on contention."""
+    await asyncio.sleep(random.uniform(5, 20))
     warehouse_id = "wh-primary"
     inventory = cast(CheckInventoryResult, results["check_inventory"])
     reservation_id = f"res-{uuid.uuid4().hex[:10]}"
@@ -332,6 +340,7 @@ async def pick_and_pack(
     results: dict[str, StepResult],
 ) -> PickAndPackResult:
     """Warehouse picks ordered items and packs them for shipment."""
+    await asyncio.sleep(random.uniform(5, 20))
     warehouse_id = "wh-primary"
     priority = "normal"
     reservation = cast(ReserveInventoryResult, results["reserve_inventory"])
@@ -364,6 +373,7 @@ async def check_shipment(
     result: ArrangeShippingResult,
 ) -> CheckResult:
     """Poll the carrier API until the shipment is dispatched."""
+    await asyncio.sleep(random.uniform(3, 8))
     shipment_id = result.shipment_id
     count = _shipping_polls.get(shipment_id, 0) + 1
     _shipping_polls[shipment_id] = count
@@ -398,6 +408,7 @@ async def arrange_shipping(
     results: dict[str, StepResult],
 ) -> ArrangeShippingResult:
     """Book a carrier pickup and get a tracking number."""
+    await asyncio.sleep(random.uniform(5, 20))
     service_level = "ground"
     package = cast(PickAndPackResult, results["pick_and_pack"])
     shipment_id = f"ship-{uuid.uuid4().hex[:10]}"
@@ -427,6 +438,7 @@ async def send_confirmation(
     results: dict[str, StepResult],
 ) -> SendConfirmationResult:
     """Send order confirmation email with optional tracking info."""
+    await asyncio.sleep(random.uniform(5, 20))
     include_tracking = True
     template = "order_shipped"
     order = cast(ValidateOrderResult, results["validate_order"])
