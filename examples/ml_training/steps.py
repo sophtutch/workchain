@@ -42,7 +42,7 @@ class DatasetResult(StepResult):
 
 
 class SplitConfig(StepConfig):
-    train_ratio: float = 0.8
+    """No user-facing fields."""
 
 
 class SplitResult(StepResult):
@@ -52,8 +52,6 @@ class SplitResult(StepResult):
 
 class TrainConfig(StepConfig):
     model_type: str = "resnet50"
-    epochs: int = 100
-    learning_rate: float = 0.001
 
 
 class TrainResult(StepResult):
@@ -99,12 +97,13 @@ async def prepare_dataset(
 
 @step(category="ML Training", description="Partition dataset into train and test splits", depends_on=["prepare_dataset"])
 async def split_train_test(
-    config: SplitConfig,
+    _config: SplitConfig,
     results: dict[str, StepResult],
 ) -> SplitResult:
     """Split dataset into training and test partitions."""
+    train_ratio = 0.8
     ds = cast(DatasetResult, results["prepare_dataset"])
-    train_count = int(ds.record_count * config.train_ratio)
+    train_count = int(ds.record_count * train_ratio)
     test_count = ds.record_count - train_count
     logger.info(
         "[split] Dataset %s: train=%d test=%d",
@@ -140,11 +139,13 @@ async def train_model(
     results: dict[str, StepResult],
 ) -> TrainResult:
     """Submit a model training job to the compute cluster."""
+    epochs = 100
+    learning_rate = 0.001
     split = cast(SplitResult, results["split_train_test"])
     job_id = f"train-{uuid.uuid4().hex[:8]}"
     logger.info(
         "[train] Submitted %s training job %s (%d train samples, lr=%s)",
-        config.model_type, job_id, split.train_count, config.learning_rate,
+        config.model_type, job_id, split.train_count, learning_rate,
     )
     return TrainResult(job_id=job_id)
 

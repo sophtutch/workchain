@@ -53,7 +53,7 @@ class ValidateOrderConfig(StepConfig):
 
 
 class CheckInventoryConfig(StepConfig):
-    warehouse_id: str = "wh-primary"
+    """No user-facing fields."""
 
 
 class CalculateShippingConfig(StepConfig):
@@ -63,29 +63,24 @@ class CalculateShippingConfig(StepConfig):
 
 
 class ProcessPaymentConfig(StepConfig):
-    payment_method: str = "credit_card"
-    currency: str = "USD"
+    """No user-facing fields."""
 
 
 class ReserveInventoryConfig(StepConfig):
-    warehouse_id: str = "wh-primary"
+    """No user-facing fields."""
 
 
 class PickAndPackConfig(StepConfig):
-    warehouse_id: str = "wh-primary"
-    priority: str = "normal"
-    """One of: normal, high, rush."""
+    """No user-facing fields."""
 
 
 class ArrangeShippingConfig(StepConfig):
     carrier: str = "ups"
     """Carrier code: ups, fedex, usps, dhl."""
-    service_level: str = "ground"
 
 
 class SendConfirmationConfig(StepConfig):
-    include_tracking: bool = True
-    template: str = "order_shipped"
+    """No user-facing fields."""
 
 
 # ---------------------------------------------------------------------------
@@ -177,20 +172,21 @@ async def validate_order(
 
 @step(category="Order Fulfilment", description="Verify stock availability at warehouse", depends_on=["validate_order"])
 async def check_inventory(
-    config: CheckInventoryConfig,
+    _config: CheckInventoryConfig,
     results: dict[str, StepResult],
 ) -> CheckInventoryResult:
     """Verify that all ordered items are in stock at the given warehouse."""
+    warehouse_id = "wh-primary"
     order = cast(ValidateOrderResult, results["validate_order"])
     logger.info(
         "[inventory] Checking %d items at %s",
         order.item_count,
-        config.warehouse_id,
+        warehouse_id,
     )
     return CheckInventoryResult(
         all_in_stock=True,
         items_checked=order.item_count,
-        warehouse_id=config.warehouse_id,
+        warehouse_id=warehouse_id,
     )
 
 
@@ -267,10 +263,12 @@ async def check_payment(
     depends_on=["check_inventory", "calculate_shipping"],
 )
 async def process_payment(
-    config: ProcessPaymentConfig,
+    _config: ProcessPaymentConfig,
     results: dict[str, StepResult],
 ) -> ProcessPaymentResult:
     """Submit a payment charge to the gateway. Settles asynchronously."""
+    payment_method = "credit_card"
+    currency = "USD"
     inventory = cast(CheckInventoryResult, results["check_inventory"])
     shipping = cast(CalculateShippingResult, results["calculate_shipping"])
 
@@ -281,9 +279,9 @@ async def process_payment(
 
     logger.info(
         "[payment] Submitted %s charge of $%.2f via %s",
-        config.currency,
+        currency,
         amount / 100,
-        config.payment_method,
+        payment_method,
     )
     return ProcessPaymentResult(
         transaction_id=txn_id,
@@ -304,16 +302,17 @@ async def process_payment(
     depends_on=["check_inventory"],
 )
 async def reserve_inventory(
-    config: ReserveInventoryConfig,
+    _config: ReserveInventoryConfig,
     results: dict[str, StepResult],
 ) -> ReserveInventoryResult:
     """Atomically reserve stock for the order. Retries on contention."""
+    warehouse_id = "wh-primary"
     inventory = cast(CheckInventoryResult, results["check_inventory"])
     reservation_id = f"res-{uuid.uuid4().hex[:10]}"
     logger.info(
         "[inventory] Reserved %d items at %s (reservation=%s)",
         inventory.items_checked,
-        config.warehouse_id,
+        warehouse_id,
         reservation_id,
     )
     return ReserveInventoryResult(
@@ -329,10 +328,12 @@ async def reserve_inventory(
 
 @step(category="Order Fulfilment", description="Warehouse picks and packs items for shipment", depends_on=["reserve_inventory"])
 async def pick_and_pack(
-    config: PickAndPackConfig,
+    _config: PickAndPackConfig,
     results: dict[str, StepResult],
 ) -> PickAndPackResult:
     """Warehouse picks ordered items and packs them for shipment."""
+    warehouse_id = "wh-primary"
+    priority = "normal"
     reservation = cast(ReserveInventoryResult, results["reserve_inventory"])
     package_id = f"pkg-{uuid.uuid4().hex[:10]}"
     weight = reservation.items_reserved * 350  # ~350g per item
@@ -341,8 +342,8 @@ async def pick_and_pack(
         package_id,
         reservation.items_reserved,
         weight,
-        config.priority,
-        config.warehouse_id,
+        priority,
+        warehouse_id,
     )
     return PickAndPackResult(
         package_id=package_id,
@@ -397,13 +398,14 @@ async def arrange_shipping(
     results: dict[str, StepResult],
 ) -> ArrangeShippingResult:
     """Book a carrier pickup and get a tracking number."""
+    service_level = "ground"
     package = cast(PickAndPackResult, results["pick_and_pack"])
     shipment_id = f"ship-{uuid.uuid4().hex[:10]}"
     tracking = f"1Z{uuid.uuid4().hex[:16].upper()}"
     logger.info(
         "[shipping] Booked %s %s for %s (tracking=%s)",
         config.carrier,
-        config.service_level,
+        service_level,
         package.package_id,
         tracking,
     )
@@ -421,21 +423,23 @@ async def arrange_shipping(
 
 @step(category="Notification", description="Send order confirmation email with tracking info", depends_on=["validate_order", "arrange_shipping"])
 async def send_confirmation(
-    config: SendConfirmationConfig,
+    _config: SendConfirmationConfig,
     results: dict[str, StepResult],
 ) -> SendConfirmationResult:
     """Send order confirmation email with optional tracking info."""
+    include_tracking = True
+    template = "order_shipped"
     order = cast(ValidateOrderResult, results["validate_order"])
     shipping = cast(ArrangeShippingResult, results["arrange_shipping"])
 
     tracking_msg = ""
-    if config.include_tracking:
+    if include_tracking:
         tracking_msg = f" (tracking: {shipping.tracking_number})"
 
     email_id = f"email-{uuid.uuid4().hex[:10]}"
     logger.info(
         "[email] Sent '%s' to %s%s",
-        config.template,
+        template,
         order.customer_email,
         tracking_msg,
     )

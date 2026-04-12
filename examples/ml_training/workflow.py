@@ -13,7 +13,7 @@ evaluate_model and publish_model are never reached.
 from __future__ import annotations
 
 from examples.ml_training import steps  # noqa: F401
-from examples.ml_training.steps import DatasetConfig, SplitConfig, TrainConfig
+from examples.ml_training.steps import DatasetConfig, TrainConfig
 from workchain import PollPolicy, Step, Workflow
 
 
@@ -34,12 +34,12 @@ def build_workflow(
             Step(
                 name="split_train_test",
                 handler="examples.ml_training.steps.split_train_test",
-                config=SplitConfig(train_ratio=0.8),
+                config={},
             ),
             Step(
                 name="train_model",
                 handler="examples.ml_training.steps.train_model",
-                config=TrainConfig(model_type=model_type, epochs=100, learning_rate=0.001),
+                config=TrainConfig(model_type=model_type),
                 is_async=True,
                 completeness_check="examples.ml_training.steps.check_training",
                 poll_policy=PollPolicy(

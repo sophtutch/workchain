@@ -17,12 +17,10 @@ _poll_counts: dict[str, int] = {}
 class ExtractConfig(StepConfig):
     source_uri: str
     table_name: str
-    batch_size: int = 1000
 
 
 class SchemaConfig(StepConfig):
-    expected_columns: list[str]
-    strict: bool = True
+    """No user-facing fields — schema expectations are defined in the handler."""
 
 
 class TransformConfig(StepConfig):
@@ -30,7 +28,6 @@ class TransformConfig(StepConfig):
 
 
 class LoadConfig(StepConfig):
-    warehouse_uri: str
     target_table: str
 
 
@@ -77,8 +74,9 @@ async def extract_from_source(
     _results: dict[str, StepResult],
 ) -> ExtractResult:
     """Simulate extracting records from a data source."""
+    batch_size = 1000
     # In a real implementation this would query a database / API.
-    record_count = config.batch_size * 3  # simulate 3 batches extracted
+    record_count = batch_size * 3  # simulate 3 batches extracted
     return ExtractResult(
         records_extracted=record_count,
         source_uri=config.source_uri,
@@ -87,19 +85,19 @@ async def extract_from_source(
 
 @step(category="ETL Pipeline", description="Validate extracted data matches expected schema", depends_on=["extract_from_source"])
 async def validate_schema(
-    config: SchemaConfig,
+    _config: SchemaConfig,
     results: dict[str, StepResult],
 ) -> SchemaResult:
     """Validate that extracted data matches the expected schema."""
+    expected_columns = ["id", "timestamp", "event_type", "payload"]
     extract = cast(ExtractResult, results["extract_from_source"])
 
-    # Simulate validation — in production, inspect actual column metadata.
-    column_count = len(config.expected_columns)
+    column_count = len(expected_columns)
     valid = column_count > 0 and extract.records_extracted > 0
 
-    if config.strict and not valid:
+    if not valid:
         raise ValueError(
-            f"Schema validation failed: expected {config.expected_columns}"
+            f"Schema validation failed: expected {expected_columns}"
         )
 
     return SchemaResult(valid=valid, column_count=column_count)

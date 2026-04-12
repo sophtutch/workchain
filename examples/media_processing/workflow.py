@@ -22,7 +22,7 @@ Six tiers of execution:
 from __future__ import annotations
 
 from examples.media_processing import steps  # noqa: F401
-from examples.media_processing.steps import IngestConfig, TranscodeConfig
+from examples.media_processing.steps import IngestConfig
 from workchain import PollPolicy, Step, Workflow
 
 
@@ -49,7 +49,7 @@ def build_workflow(
             Step(
                 name="transcode_720p",
                 handler="examples.media_processing.steps.transcode_720p",
-                config=TranscodeConfig(resolution="720p", codec="h264"),
+                config={},
                 is_async=True,
                 completeness_check="examples.media_processing.steps.check_transcode",
                 poll_policy=PollPolicy(
@@ -63,7 +63,7 @@ def build_workflow(
             Step(
                 name="transcode_1080p",
                 handler="examples.media_processing.steps.transcode_1080p",
-                config=TranscodeConfig(resolution="1080p", codec="h264"),
+                config={},
                 is_async=True,
                 completeness_check="examples.media_processing.steps.check_transcode",
                 poll_policy=PollPolicy(

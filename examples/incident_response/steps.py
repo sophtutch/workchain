@@ -39,7 +39,7 @@ class TicketResult(StepResult):
 
 
 class PageConfig(StepConfig):
-    escalation_policy: str = "default"
+    """No user-facing fields."""
 
 
 class PageResult(StepResult):
@@ -53,7 +53,7 @@ class DiagnosticsResult(StepResult):
 
 
 class RemediationConfig(StepConfig):
-    runbook_id: str
+    """No user-facing fields."""
 
 
 class RemediationResult(StepResult):
