@@ -176,12 +176,24 @@ def _build_workflow_from_draft(draft: WorkflowDraft) -> Workflow:
     try:
         return Workflow(name=draft.name, steps=built_steps)
     except ValueError as exc:
-        # Unique-name / cycle / unknown-dep errors from the Workflow model.
+        # Parse handler-requires errors into per-step errors so the
+        # designer can highlight which steps are missing dependencies.
+        msg = str(exc)
+        dag_errors: list[DraftStepError] = []
+        if "handler requires dependencies" in msg:
+            # Extract step name from "Step 'X' handler requires..."
+            import re
+            m = re.search(r"Step '([^']+)' handler requires", msg)
+            step_name = m.group(1) if m else "<workflow>"
+            dag_errors.append(DraftStepError(step=step_name, error=msg))
+        else:
+            dag_errors.append(DraftStepError(step="<workflow>", error=msg))
+
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "detail": "workflow DAG validation failed",
-                "errors": [{"step": "<workflow>", "error": str(exc)}],
+                "errors": [e.model_dump() for e in dag_errors],
             },
         ) from exc
 
