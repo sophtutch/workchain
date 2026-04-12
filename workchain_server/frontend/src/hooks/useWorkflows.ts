@@ -1,33 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WorkflowStats, WorkflowSummary } from "../api/types";
+import type { WorkflowSummary } from "../api/types";
 import {
   cancelWorkflow as apiCancel,
-  fetchStats,
   fetchWorkflows,
 } from "../api/client";
 
 const POLL_MS = 3000;
+const MAX_ERRORS = 3;
 
 export function useWorkflows() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
-  const [stats, setStats] = useState<WorkflowStats | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const errorCountRef = useRef(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const refresh = useCallback(async () => {
     try {
-      const [wf, st] = await Promise.all([fetchWorkflows(), fetchStats()]);
-      setWorkflows(wf);
-      setStats(st);
+      const resp = await fetchWorkflows({ limit: 50 });
+      setWorkflows(resp.items);
+      errorCountRef.current = 0;
     } catch (err) {
       console.warn("Failed to refresh workflows:", err);
+      errorCountRef.current++;
+      if (errorCountRef.current >= MAX_ERRORS && intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = undefined;
+      }
     }
   }, []);
 
   useEffect(() => {
+    errorCountRef.current = 0;
     refresh();
-    const id = setInterval(refresh, POLL_MS);
-    return () => clearInterval(id);
+    intervalRef.current = setInterval(refresh, POLL_MS);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [refresh]);
 
   const cancel = useCallback(
@@ -52,5 +61,5 @@ export function useWorkflows() {
     return () => clearTimeout(timerRef.current);
   }, [toast]);
 
-  return { workflows, stats, cancel, toast, setToast };
+  return { workflows, cancel, toast, setToast };
 }

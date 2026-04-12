@@ -97,7 +97,7 @@ async def prepare_dataset(
     return DatasetResult(dataset_id=dataset_id, record_count=config.sample_size)
 
 
-@step(category="ML Training", description="Partition dataset into train and test splits")
+@step(category="ML Training", description="Partition dataset into train and test splits", depends_on=["prepare_dataset"])
 async def split_train_test(
     config: SplitConfig,
     results: dict[str, StepResult],
@@ -133,6 +133,7 @@ async def check_training(
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=15.0, max_polls=20),
     category="ML Training",
     description="Submit model training job to compute cluster",
+    depends_on=["split_train_test"],
 )
 async def train_model(
     config: TrainConfig,
@@ -148,7 +149,7 @@ async def train_model(
     return TrainResult(job_id=job_id)
 
 
-@step(category="ML Training", description="Evaluate model accuracy on test split")
+@step(category="ML Training", description="Evaluate model accuracy on test split", depends_on=["train_model"])
 async def evaluate_model(
     _config: EvalConfig,
     results: dict[str, StepResult],
@@ -159,7 +160,7 @@ async def evaluate_model(
     return EvalResult(accuracy=0.92, f1_score=0.89)
 
 
-@step(category="ML Training", description="Publish trained model to the model registry")
+@step(category="ML Training", description="Publish trained model to the model registry", depends_on=["train_model"])
 async def publish_model(
     _config: PublishConfig,
     results: dict[str, StepResult],

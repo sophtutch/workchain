@@ -52,10 +52,12 @@ def build_workflow(
             Step(
                 name="evaluate_model",
                 handler="examples.ml_training.steps.evaluate_model",
+                depends_on=["train_model"],
             ),
             Step(
                 name="publish_model",
                 handler="examples.ml_training.steps.publish_model",
+                depends_on=["train_model"],
             ),
         ],
     )

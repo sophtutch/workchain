@@ -179,7 +179,7 @@ async def ingest_upload(
 # --- Audio branch (extract → normalize || waveform) ---
 
 
-@step(category="Audio Processing", description="Extract audio track from uploaded video")
+@step(category="Audio Processing", description="Extract audio track from uploaded video", depends_on=["ingest_upload"])
 async def extract_audio(
     _config: AudioExtractConfig,
     results: dict[str, StepResult],
@@ -191,7 +191,7 @@ async def extract_audio(
     return AudioResult(audio_path=audio_path, codec="aac")
 
 
-@step(category="Audio Processing", description="Normalize audio levels to target loudness")
+@step(category="Audio Processing", description="Normalize audio levels to target loudness", depends_on=["extract_audio"])
 async def normalize_audio(
     _config: NormalizeConfig,
     results: dict[str, StepResult],
@@ -204,7 +204,7 @@ async def normalize_audio(
     return NormalizeResult(normalized_path=normalized_path, peak_db=peak_db)
 
 
-@step(category="Audio Processing", description="Generate audio waveform visualisation image")
+@step(category="Audio Processing", description="Generate audio waveform visualisation image", depends_on=["extract_audio"])
 async def generate_waveform(
     _config: WaveformConfig,
     results: dict[str, StepResult],
@@ -239,6 +239,7 @@ async def check_transcode(
     poll=PollPolicy(interval=2.0, backoff_multiplier=1.0, timeout=120.0, max_polls=15),
     category="Video Processing",
     description="Submit 720p transcode job",
+    depends_on=["ingest_upload"],
 )
 async def transcode_720p(
     config: TranscodeConfig,
@@ -257,6 +258,7 @@ async def transcode_720p(
     poll=PollPolicy(interval=2.0, backoff_multiplier=1.0, timeout=120.0, max_polls=15),
     category="Video Processing",
     description="Submit 1080p transcode job",
+    depends_on=["ingest_upload"],
 )
 async def transcode_1080p(
     config: TranscodeConfig,
@@ -270,7 +272,7 @@ async def transcode_1080p(
     return TranscodeResult(job_id=job_id, output_path=output)
 
 
-@step(category="Video Processing", description="Extract poster thumbnail from 720p transcode")
+@step(category="Video Processing", description="Extract poster thumbnail from 720p transcode", depends_on=["transcode_720p"])
 async def thumbnail_720p(
     _config: ThumbnailConfig,
     results: dict[str, StepResult],
@@ -283,7 +285,7 @@ async def thumbnail_720p(
     return ThumbnailResult(thumbnail_url=url, dimensions="1280x720")
 
 
-@step(category="Video Processing", description="Extract poster thumbnail from 1080p transcode")
+@step(category="Video Processing", description="Extract poster thumbnail from 1080p transcode", depends_on=["transcode_1080p"])
 async def thumbnail_1080p(
     _config: ThumbnailConfig,
     results: dict[str, StepResult],
@@ -299,7 +301,7 @@ async def thumbnail_1080p(
 # --- Cross-branch joins ---
 
 
-@step(category="Video Processing", description="Run face detection across resolution thumbnails")
+@step(category="Video Processing", description="Run face detection across resolution thumbnails", depends_on=["thumbnail_720p", "thumbnail_1080p"])
 async def detect_faces(
     _config: FaceDetectConfig,
     results: dict[str, StepResult],
@@ -313,7 +315,7 @@ async def detect_faces(
     return FaceDetectResult(faces_found=face_count, bounding_boxes=boxes)
 
 
-@step(category="Audio Processing", description="Auto-generate subtitles from normalised audio")
+@step(category="Audio Processing", description="Auto-generate subtitles from normalised audio", depends_on=["normalize_audio"])
 async def generate_subtitles(
     _config: SubtitleConfig,
     results: dict[str, StepResult],
@@ -330,7 +332,7 @@ async def generate_subtitles(
 # --- Major join → final fan-out ---
 
 
-@step(category="Media Processing", description="Package all assets into HLS streaming format")
+@step(category="Media Processing", description="Package all assets into HLS streaming format", depends_on=["detect_faces", "generate_subtitles", "generate_waveform"])
 async def package_hls(
     _config: PackageConfig,
     results: dict[str, StepResult],
@@ -349,7 +351,7 @@ async def package_hls(
     return PackageResult(manifest_url=manifest_url, segment_count=segments)
 
 
-@step(category="Media Processing", description="Push packaged assets to the CDN")
+@step(category="Media Processing", description="Push packaged assets to the CDN", depends_on=["package_hls"])
 async def publish_cdn(
     _config: CdnConfig,
     results: dict[str, StepResult],
@@ -363,7 +365,7 @@ async def publish_cdn(
     return CdnResult(cdn_url=cdn_url, cache_key=cache_key)
 
 
-@step(category="Media Processing", description="Register processed media in the catalog")
+@step(category="Media Processing", description="Register processed media in the catalog", depends_on=["package_hls"])
 async def update_catalog(
     _config: CatalogConfig,
     results: dict[str, StepResult],

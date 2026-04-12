@@ -19,6 +19,7 @@ export interface HandlerDescriptor {
   retry_policy: Record<string, unknown> | null;
   poll_policy: Record<string, unknown> | null;
   completeness_check: string | null;
+  depends_on: string[] | null;
   launchable: boolean;
   introspection_warning: string | null;
 }
@@ -68,6 +69,7 @@ export interface WorkflowSummary {
   total_steps: number;
   completed_steps: number;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WorkflowStats {
@@ -97,6 +99,100 @@ export interface WorkflowTemplate {
   version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkflowListResponse {
+  items: WorkflowSummary[];
+  total: number;
+}
+
+export interface WorkflowAnalytics {
+  total_workflows: number;
+  success_rate: number | null;
+  status_counts: WorkflowStats;
+  avg_duration_seconds: number | null;
+  recent_completions_24h: number;
+  recent_failures_24h: number;
+  throughput_24h: number;
+}
+
+export interface ActivityItem {
+  id: string;
+  name: string;
+  status: string;
+  updated_at: string;
+  created_at: string;
+}
+
+export interface WorkflowSearchParams {
+  status?: string;
+  search?: string;
+  limit?: number;
+  skip?: number;
+}
+
+export interface StepDetail {
+  name: string;
+  handler: string;
+  status: string;
+  attempt: number;
+  is_async: boolean;
+  depends_on: string[];
+  step_timeout: number;
+  config: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  retry_policy: {
+    max_attempts: number;
+    wait_seconds: number;
+    wait_multiplier: number;
+    wait_max: number;
+  };
+  poll_policy: {
+    interval: number;
+    backoff_multiplier: number;
+    max_interval: number;
+    timeout: number;
+    max_polls: number;
+  } | null;
+  poll_count: number;
+  last_poll_progress: number | null;
+  last_poll_message: string | null;
+  locked_by: string | null;
+  fence_token: number;
+}
+
+export interface AuditEvent {
+  event_type: string;
+  timestamp: string;
+  sequence: number;
+  step_name: string | null;
+  step_status: string | null;
+  step_status_before: string | null;
+  instance_id: string | null;
+  attempt: number | null;
+  error: string | null;
+  error_traceback: string | null;
+  poll_count: number | null;
+  poll_progress: number | null;
+  poll_message: string | null;
+  recovery_action: string | null;
+  result_summary: Record<string, unknown> | null;
+}
+
+export interface WorkflowDetailResponse {
+  workflow: {
+    id: string;
+    name: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  };
+  steps: StepDetail[];
+  events: AuditEvent[];
+  graph: {
+    dependencies: Record<string, string[]>;
+    tiers: string[][];
+  };
 }
 
 export interface TemplateUpdateBody {

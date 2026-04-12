@@ -1,15 +1,19 @@
 // Thin typed wrapper around the designer router endpoints.
 
 import type {
+  ActivityItem,
   DraftErrorDetail,
   HandlerDescriptor,
   ServerConfig,
   TemplateCreateBody,
   TemplateUpdateBody,
+  WorkflowAnalytics,
   WorkflowCreatedResponse,
+  WorkflowDetailResponse,
   WorkflowDraft,
+  WorkflowListResponse,
+  WorkflowSearchParams,
   WorkflowStats,
-  WorkflowSummary,
   WorkflowTemplate,
 } from "./types";
 
@@ -74,14 +78,44 @@ export async function fetchConfig(): Promise<ServerConfig> {
   return handleResponse<ServerConfig>(resp);
 }
 
-export async function fetchWorkflows(): Promise<WorkflowSummary[]> {
-  const resp = await fetch(`${API_BASE}/workflows`);
-  return handleResponse<WorkflowSummary[]>(resp);
+export async function fetchWorkflows(
+  params?: WorkflowSearchParams,
+): Promise<WorkflowListResponse> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  if (params?.search) qs.set("search", params.search);
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  if (params?.skip != null) qs.set("skip", String(params.skip));
+  const query = qs.toString();
+  const url = `${API_BASE}/workflows${query ? `?${query}` : ""}`;
+  const resp = await fetch(url);
+  return handleResponse<WorkflowListResponse>(resp);
+}
+
+export async function fetchAnalytics(): Promise<WorkflowAnalytics> {
+  const resp = await fetch(`${API_BASE}/workflows/analytics`);
+  return handleResponse<WorkflowAnalytics>(resp);
+}
+
+export async function fetchActivity(
+  limit = 10,
+): Promise<ActivityItem[]> {
+  const resp = await fetch(`${API_BASE}/workflows/activity?limit=${limit}`);
+  return handleResponse<ActivityItem[]>(resp);
 }
 
 export async function fetchStats(): Promise<WorkflowStats> {
   const resp = await fetch(`${API_BASE}/workflows/stats`);
   return handleResponse<WorkflowStats>(resp);
+}
+
+export async function fetchWorkflowDetail(
+  id: string,
+): Promise<WorkflowDetailResponse> {
+  const resp = await fetch(
+    `${API_BASE}/workflows/${encodeURIComponent(id)}/detail`,
+  );
+  return handleResponse<WorkflowDetailResponse>(resp);
 }
 
 export async function cancelWorkflow(id: string): Promise<void> {
@@ -91,6 +125,20 @@ export async function cancelWorkflow(id: string): Promise<void> {
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`Cancel failed: ${text}`);
+  }
+}
+
+export async function retryStep(
+  workflowId: string,
+  stepName: string,
+): Promise<void> {
+  const resp = await fetch(
+    `${API_BASE}/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepName)}/retry`,
+    { method: "POST" },
+  );
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Retry failed: ${text}`);
   }
 }
 

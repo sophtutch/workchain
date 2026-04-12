@@ -236,6 +236,7 @@ Executed in declaration order:
    - If `depends_on is None` for step at index `i`: set to `[steps[i-1].name]` if `i > 0`, else `[]`
    - Reject self-references and unknown step names
    - Detect cycles via Kahn's algorithm (see Section 6)
+   - **Handler-declared dependency validation**: for each step, look up its handler in `_STEP_REGISTRY`. If the handler has `_step_meta["depends_on"]` (a `list[str]`), verify every name in that list appears in the step's resolved `depends_on`. Missing names raise `ValueError` with a message listing the step name, required dependencies, and which are missing. Handlers not in the registry (e.g. in tests with mock handler paths) are silently skipped.
    - Raises `ValueError` on violations
 
 #### Methods
@@ -379,7 +380,7 @@ All three decorators (`@step`, `@async_step`, `@completeness_check`) return `Ste
 ### 7.2 `@step` Decorator
 
 ```python
-@step(retry=None, idempotent=True, needs_context=False, category=None, description=None)
+@step(retry=None, idempotent=True, needs_context=False, category=None, description=None, depends_on=None)
 ```
 
 **Handler signature:**
@@ -395,6 +396,7 @@ async def handler(config: StepConfig, results: dict[str, StepResult], ctx: dict)
 - `needs_context: bool` — opt into engine context dict (default `False`).
 - `category: str | None` — UI grouping label (e.g. `"Data transformation"`). `None` = uncategorised.
 - `description: str | None` — short one-line summary for the designer palette. Falls back to first line of docstring if `None`.
+- `depends_on: list[str] | None` — handler-declared required step dependencies by name. At workflow construction time, `Workflow._resolve_and_validate_depends_on` validates that every name in this list appears in the step's resolved `depends_on`. Missing dependencies raise `ValueError`. `None` (default) means unconstrained — no validation is performed. The designer uses this metadata to auto-wire edges when handlers are dropped onto the canvas.
 
 **Attaches `_step_meta` to the function:**
 ```python
@@ -406,6 +408,7 @@ async def handler(config: StepConfig, results: dict[str, StepResult], ctx: dict)
     "needs_context": False,           # from parameter
     "category": None,                 # from parameter
     "description": None,              # from parameter
+    "depends_on": None,               # from parameter
 }
 ```
 
@@ -414,12 +417,12 @@ Registers the function in `_STEP_REGISTRY` using the generated handler name.
 ### 7.3 `@async_step` Decorator
 
 ```python
-@async_step(retry=None, idempotent=True, needs_context=False, poll=None, completeness_check=None, category=None, description=None)
+@async_step(retry=None, idempotent=True, needs_context=False, poll=None, completeness_check=None, category=None, description=None, depends_on=None)
 ```
 
 **Handler signature:** Same as `@step`. Handler should submit external work and return immediately with a `StepResult` subclass (e.g., containing a job_id).
 
-**Additional parameters:** `poll`, `completeness_check` (see decorator docstring). Also accepts `category` and `description` with the same semantics as `@step`.
+**Additional parameters:** `poll`, `completeness_check` (see decorator docstring). Also accepts `category`, `description`, and `depends_on` with the same semantics as `@step`.
 
 **Additional `_step_meta` keys:**
 ```python
@@ -430,6 +433,7 @@ Registers the function in `_STEP_REGISTRY` using the generated handler name.
     "completeness_check": str | None, # resolved via _resolve_check_name
     "category": None,                 # from parameter
     "description": None,              # from parameter
+    "depends_on": None,               # from parameter
 }
 ```
 
@@ -577,13 +581,26 @@ Deserializes a MongoDB document back to a typed `Workflow`:
 - `_col.find_one({"_id": workflow_id}, max_time_ms=op_timeout)`
 - Convert via `_doc_to_workflow` or return None
 
-#### `list_workflows(status?, name?, limit=50, skip=0) -> list[Workflow]`
-- Filter by optional `status` and `name`
+#### `list_workflows(status?, name?, search?, limit=50, skip=0) -> list[Workflow]`
+- Filter by optional `status` (exact match), `name` (exact match), and `search` (case-insensitive substring via `$regex`)
 - Sort by `created_at` descending
 - Skip/limit pagination
 
+#### `count_workflows(status?, search?) -> int`
+- Count matching workflows with same filter semantics as `list_workflows`
+- Uses `count_documents` with optional `status` and `search` filters
+
 #### `count_by_status() -> dict[str, int]`
 - Aggregation: `[{"$group": {"_id": "$status", "count": {"$sum": 1}}}]`
+
+#### `get_analytics() -> dict[str, Any]`
+- Returns aggregate analytics: `total_workflows`, `success_rate` (completed/terminal, null if zero), `status_counts`, `avg_duration_seconds` (mean of `updated_at - created_at` for terminal workflows, null if none), `recent_completions_24h`, `recent_failures_24h`, `throughput_24h`
+- Uses `count_by_status()` for status counts, MongoDB aggregation for avg duration, and a 24h `updated_at` filter for recent counts
+
+#### `recent_activity(limit=10) -> list[dict]`
+- Returns recently updated workflows sorted by `updated_at` descending
+- Projects only `_id`, `name`, `status`, `updated_at`, `created_at` fields
+- Returns list of dicts with `id`, `name`, `status`, `updated_at`, `created_at` as strings
 
 #### `delete_workflow(workflow_id) -> bool`
 - Only deletes terminal workflows (COMPLETED, FAILED, NEEDS_REVIEW, CANCELLED)
@@ -764,6 +781,14 @@ All methods use `_fenced_step_update_by_name` internally. Each emits an audit ev
 #### `reset_step_by_name(workflow_id, step_name, fence, status=PENDING) -> Workflow | None`
 - **Updates:** `status = status.value`
 - **Audit:** `RECOVERY_RESET`
+
+#### `retry_step_by_name(workflow_id, step_name) -> Workflow | None`
+- **Purpose:** Manual operator retry of a failed step — no fence token required
+- **Guard:** MongoDB query matches step status in `[failed]` to prevent racing
+- **Resets:** step status to PENDING, attempt to 0, clears result, lock fields, poll state
+- **Workflow:** Sets workflow status to RUNNING so the engine picks it up
+- **Increments:** step fence_token by 1 (invalidates stale writers)
+- **Audit:** `STEP_RETRIED` with `recovery_action="manual_retry"`
 
 ### 9.11 Workflow Status Transitions
 
@@ -1098,14 +1123,18 @@ RAISE RetryExhaustedError
 def _build_results(wf, step_name) -> dict[str, StepResult]:
     step = wf.step_by_name(step_name)
     deps = step.depends_on or []
-    return {
-        dep_name: dep.result
-        for dep_name in deps
-        if (dep := wf.step_by_name(dep_name)) is not None and dep.result is not None
-    }
+    results = {}
+    for dep_name in deps:
+        dep = wf.step_by_name(dep_name)
+        if dep is None: continue
+        if dep.result is not None:
+            results[dep_name] = dep.result
+        elif dep.status == "completed":
+            logger.warning("Dependency %r completed but has no result", dep_name)
+    return results
 ```
 
-Only includes dependency steps' results where result is not None.
+Only includes dependency steps' results where result is not None. Logs a warning when a completed dependency has a `None` result (indicates a storage or deserialization issue), helping diagnose `KeyError` in handlers that assume all dependency results are present.
 
 ### 10.11 Helpers
 
@@ -1420,6 +1449,7 @@ A read-only inspection layer over `_STEP_REGISTRY` that describes each registere
 | `retry_policy` | `dict \| None` | `RetryPolicy.model_dump(mode="json")`, `None` if not set |
 | `poll_policy` | `dict \| None` | `PollPolicy.model_dump(mode="json")`, async steps only |
 | `completeness_check` | `str \| None` | Dotted path of the check handler, async steps only |
+| `depends_on` | `list[str] \| None` | Handler-declared required step dependencies from decorator `depends_on` param. `None` = unconstrained. Used by the Workflow model validator to check that each step's resolved `depends_on` includes all required names, and by the designer to auto-wire edges on drop |
 | `launchable` | `bool` | True only if handler has both a strict `StepConfig` subclass and a strict `StepResult` subclass with schemas successfully emitted |
 | `introspection_warning` | `str \| None` | Human-readable warning if type hint resolution fell back to raw `__annotations__` (e.g. unresolved forward reference) |
 

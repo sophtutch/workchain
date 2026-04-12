@@ -111,6 +111,7 @@ def step(
     needs_context: bool = False,
     category: str | None = None,
     description: str | None = None,
+    depends_on: list[str] | None = None,
 ) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator to register a step handler.
@@ -131,6 +132,9 @@ def step(
             the handler appears in an "Uncategorised" group.
         description: Short one-line summary shown in the designer palette.
             Falls back to the first line of the handler docstring if ``None``.
+        depends_on: Handler short names this step requires results from.
+            Used by the designer to auto-wire dependency edges.
+            E.g. ``["validate_email", "create_account"]``.
 
     The handler name is auto-generated from module + qualname.
     """
@@ -144,6 +148,7 @@ def step(
             "needs_context": needs_context,
             "category": category,
             "description": description,
+            "depends_on": depends_on,
         })
         _STEP_REGISTRY[handler_name] = fn
         return cast(StepHandler, fn)
@@ -158,6 +163,7 @@ def async_step(
     completeness_check: str | Callable[..., Any] | None = None,
     category: str | None = None,
     description: str | None = None,
+    depends_on: list[str] | None = None,
 ) -> Callable[[Callable[..., Any]], StepHandler]:
     """
     Decorator for async steps that submit work and poll until complete.
@@ -195,6 +201,7 @@ def async_step(
             "completeness_check": check_name,
             "category": category,
             "description": description,
+            "depends_on": depends_on,
         })
         _STEP_REGISTRY[handler_name] = fn
         return cast(StepHandler, fn)

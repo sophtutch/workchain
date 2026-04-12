@@ -57,7 +57,8 @@ workchain_server/               — standalone server (pip install workchain[ser
 - Handler names are auto-generated from `fn.__module__.fn.__qualname__` — no `name` parameter
 - `needs_context: bool = False` on all three decorators declares whether the engine should pass the context dict
 - `category: str | None` and `description: str | None` on `@step` / `@async_step` provide UI metadata; `description` falls back to docstring first line when `None`
-- `_step_meta` dict attached to each handler carries all metadata — the engine reads it, never uses `inspect.signature`
+- `depends_on: list[str] | None` on `@step` / `@async_step` declares the handler's required step dependencies by name. At workflow construction time, `Workflow._resolve_and_validate_depends_on` validates that every name in the handler's `depends_on` appears in the step's resolved `depends_on`. Missing dependencies raise `ValueError`. The designer uses this metadata to auto-wire edges when handlers are dropped onto the canvas.
+- `_step_meta` dict attached to each handler carries all metadata (`"handler"`, `"retry"`, `"is_async"`, `"idempotent"`, `"needs_context"`, `"category"`, `"description"`, `"depends_on"`, and for async steps `"poll"`, `"completeness_check"`) — the engine reads it, never uses `inspect.signature`
 - Both sync and async handlers are supported via `asyncio.iscoroutine` safety net
 
 **Distributed safety (step-level locking)**
@@ -170,7 +171,7 @@ When making changes to the library or server, the following documents **must** b
 
 - **`describe_handler(name, *, include_checks=False)`** — returns a `HandlerDescriptor` for a registered handler, or `None` if unknown / is a completeness check and checks are excluded
 - **`list_handlers(*, include_checks=False)`** — returns all registered handlers sorted by dotted name
-- **`HandlerDescriptor`** — Pydantic model with `name`, `module`, `qualname`, `doc`, `description`, `category`, `is_async`, `is_completeness_check`, `needs_context`, `idempotent`, `config_type`, `config_schema` (JSON schema dict), `result_type`, `result_schema`, `retry_policy`, `poll_policy`, `completeness_check`, `launchable`, `introspection_warning`
+- **`HandlerDescriptor`** — Pydantic model with `name`, `module`, `qualname`, `doc`, `description`, `category`, `is_async`, `is_completeness_check`, `needs_context`, `idempotent`, `config_type`, `config_schema` (JSON schema dict), `result_type`, `result_schema`, `retry_policy`, `poll_policy`, `completeness_check`, `depends_on` (handler-declared required step dependencies), `launchable`, `introspection_warning`
 - **`launchable`** is `True` only when both the config and result annotations are strict subclasses of `StepConfig` / `StepResult` and JSON schema extraction succeeded — UIs should treat non-launchable handlers as display-only
 - Type hint resolution uses `typing.get_type_hints` with a `__annotations__` fallback; unresolved forward references populate `introspection_warning` instead of raising
 - Completeness check handlers are excluded by default from both `describe_handler` and `list_handlers`; pass `include_checks=True` for full inventory
@@ -196,7 +197,7 @@ The **store** emits structured `AuditEvent` objects for every MongoDB write that
 - **`store.emit_recovery_started()`** / **`store.emit_step_timeout()`** / **`store.emit_sweep_anomaly()`** / **`store.emit_poll_failure()`** / **`store.emit_poll_checked()`** — diagnostic audit events (no DB write) for engine-only lifecycle events
 - **`store.drain_audit_tasks(timeout)`** — called by engine during shutdown to drain pending writes
 - Store methods accept optional audit context kwargs (`audit_event_type`, `result_summary`, `error`, `error_traceback`, `recovery_action`, etc.) to customize the emitted event
-- **26 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_CLAIMED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `POLL_CHECK_ERRORS_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
+- **27 event types** (`AuditEventType` enum): `WORKFLOW_CREATED`, `WORKFLOW_CLAIMED`, `WORKFLOW_COMPLETED`, `WORKFLOW_FAILED`, `WORKFLOW_CANCELLED`, `STEP_CLAIMED`, `STEP_SUBMITTED`, `STEP_RUNNING`, `STEP_COMPLETED`, `STEP_FAILED`, `STEP_BLOCKED`, `STEP_ADVANCED`, `STEP_TIMEOUT`, `POLL_CHECKED`, `POLL_TIMEOUT`, `POLL_MAX_EXCEEDED`, `POLL_CHECK_ERRORS_EXCEEDED`, `LOCK_RELEASED`, `LOCK_FORCE_RELEASED`, `HEARTBEAT`, `RECOVERY_STARTED`, `RECOVERY_VERIFIED`, `RECOVERY_BLOCKED`, `RECOVERY_RESET`, `RECOVERY_NEEDS_REVIEW`, `SWEEP_ANOMALY`
 - Events ordered by per-workflow `sequence` number (in-memory counter, causal within single instance)
 - `generate_audit_report(events)` produces self-contained HTML execution reports
 
@@ -239,11 +240,15 @@ workchain_server/
 - `GET /` — React SPA (dashboard + designer via client-side routing)
 - `GET /healthz` — health check (pings MongoDB)
 - `GET /api/v1/config` — server config (title + instance ID) for SPA
-- `GET /api/v1/workflows` — list workflows (from contrib router)
+- `GET /api/v1/workflows` — list workflows with pagination and filters (`?status=`, `?search=`, `?limit=`, `?skip=`); returns `{items, total}`
 - `GET /api/v1/workflows/stats` — workflow counts by status
-- `GET /api/v1/workflows/{id}` — workflow detail
+- `GET /api/v1/workflows/analytics` — aggregate analytics (success rate, throughput, avg duration, 24h counts)
+- `GET /api/v1/workflows/activity` — recently updated workflows (`?limit=`)
+- `GET /api/v1/workflows/{id}` — workflow summary
+- `GET /api/v1/workflows/{id}/detail` — full workflow detail (steps, audit events, dependency graph) for the detail page
 - `GET /api/v1/workflows/{id}/report` — HTML audit report
 - `POST /api/v1/workflows/{id}/cancel` — cancel workflow
+- `POST /api/v1/workflows/{id}/steps/{step_name}/retry` — manually retry a failed step
 - `GET /api/v1/handlers` — list registered step handlers with JSON schemas (designer router)
 - `POST /api/v1/workflows` — create a workflow from a designer draft (designer router)
 - `GET/POST/PUT/DELETE /api/v1/templates[/{id}]` — template CRUD (designer router)
@@ -259,7 +264,7 @@ workchain_server/
 - The contrib router (`workchain.contrib.fastapi`) stays read-only — adding workflow creation would widen its public surface. Workflow creation lives in `workchain_server/designer_router.py` instead.
 - Motor client is instantiated at module level (connects lazily) and closed in lifespan teardown
 - The contrib router is mounted at `/api/v1/workflows` (versioned from day one); the designer router is mounted at `/api/v1`
-- The SPA is a unified React app with client-side routing — dashboard at `/`, designer at `/designer`
+- The SPA is a unified React app with client-side routing — dashboard at `/`, workflows at `/workflows`, designer at `/designer`
 - `StaticFiles(html=True)` must be the last mount so it acts as SPA fallback without shadowing API routes
 
 ### Workflow designer router
@@ -282,9 +287,13 @@ workchain_server/
 - **Build**: `hatch run frontend:install` (npm install, once), then `hatch run frontend:build` (tsc + vite build → `static/app/`). The hatch env is `detached = true` — no Python deps installed.
 - **Dev loop**: `hatch run frontend:dev` runs Vite on `:5173` with `/api/*` and `/static/*` proxies to FastAPI on `:8000`, so the SPA gets hot reload without CORS.
 - **Wheel packaging**: `[tool.hatch.build.targets.wheel.force-include]` ships `workchain_server/static/app/` into the wheel at publish time, so end users `pip install workchain[server]` without needing Node. The sdist excludes both the built output and `node_modules`.
-- **Routing**: `AppShell` provides shared nav bar (brand from `/api/v1/config`, nav links, instance ID badge) + `<Outlet />`. `DashboardPage` (index route) polls workflows + stats every 3s. `DesignerPage` wraps the React Flow canvas.
+- **Routing**: `AppShell` provides shared nav bar (brand from `/api/v1/config`, Dashboard/Workflows/Designer nav links, clickable status badges linking to `/workflows?status=X`) + `<Outlet />`. `DashboardPage` (index route) shows key metrics, status breakdown, recent activity, and template catalog. `WorkflowsPage` (`/workflows`) provides search, status filtering, and paginated workflow browsing. `WorkflowDetailPage` (`/workflows/:id`) shows full execution detail with dependency graph, expandable step cards, error diagnostics, and event timeline — auto-refreshes for live workflows. `DesignerPage` wraps the React Flow canvas.
 - **Designer components**: `Toolbar` (top bar: workflow name, Run/Clear + status), `HandlerPalette` (left sidebar: draggable handler list, greys out non-launchable handlers), `DesignerCanvas` (React Flow with custom `StepNode`, `BlockNode` for polling-state indicators, `AnchorNode` for START/END markers, collapsible mini-map, Tidy button in controls), `ConfigPanel` (right sidebar: RJSF form for the selected node). Client-side `draftValidate` runs Kahn's algorithm for cycles before POST; backend is still authoritative.
-- **Template launcher (dashboard)**: The dashboard shows a `TemplateCatalog` card grid between the stats bar and workflow table. Clicking a template card opens a `TemplateLaunchModal` overlay with a workflow name field, expandable step-config accordion (RJSF forms driven by handler `config_schema`), and a Launch button. Steps with no configurable fields show as read-only items. Launches via `POST /api/v1/templates/{id}/launch` with optional `config_overrides`. Each card also has an "Edit" button that navigates to `/designer?template={id}`.
+- **Dashboard components**: `StatsRow` (4 key metric cards: total workflows, success rate, 24h throughput, avg duration), `StatusBreakdown` (6 clickable status pills linking to filtered workflows page), `ActivityFeed` (8 most recently updated workflows with status dot, name, and relative timestamp linking to audit reports).
+- **Workflows page components**: `WorkflowFilters` (search input with debounce + toggleable status filter pills), `WorkflowTable` (paginated table with progress bars), `Pagination` (prev/next with page info).
+- **Workflow detail components**: `DetailHeader` (back link, name, status badge, timing), `DependencyGraph` (horizontal CSS tier layout, clickable step nodes), `StepCard` (expandable card with config/result JSON, error display, event history, poll/retry info — failed steps auto-expand), `EventTimeline` (chronological event log with type badges and status transitions), `JsonPanel` (syntax-highlighted JSON display).
+- **Template launcher (dashboard)**: The dashboard shows a `TemplateCatalog` card grid below the activity feed. Clicking a template card opens a `TemplateLaunchModal` overlay with a workflow name field, expandable step-config accordion (RJSF forms driven by handler `config_schema`), and a Launch button. Steps with no configurable fields show as read-only items. Launches via `POST /api/v1/templates/{id}/launch` with optional `config_overrides`. Each card also has an "Edit" button that navigates to `/designer?template={id}`.
 - **Template editing (designer)**: When the designer is opened with `?template={id}` query param, it fetches the template via `GET /api/v1/templates/{id}`, converts it to nodes/edges via `templateToGraph()`, applies auto-layout, and enables Save/Save As New buttons. "Save" updates the existing template via `PUT /api/v1/templates/{id}` with optimistic locking. "Save As New" creates a copy via `POST /api/v1/templates`. `graphToTemplateSteps()` converts the canvas state back to `TemplateStep[]` for persistence.
+- **Designer step naming**: When a handler is dropped on the canvas, the step name is the handler's short name (last component of `qualname`, e.g. `validate_email`). Each handler can only appear once on the canvas — duplicate drops are rejected. Step names are read-only in the config panel. When a handler declares `depends_on` in its decorator, the designer auto-creates edges to existing canvas nodes with matching step names on drop.
 - **Wire format**: the SPA POSTs `WorkflowDraft` JSON (`{name, steps: [{name, handler, config, depends_on}]}`) directly — no dotted config paths. The server derives `config_type` from the handler signature.
 

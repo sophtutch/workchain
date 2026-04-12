@@ -69,6 +69,9 @@ class AuditEventType(str, Enum):
     # Timeout
     STEP_TIMEOUT = "step_timeout"
 
+    # Manual operator actions
+    STEP_RETRIED = "step_retried"
+
 
 # ---------------------------------------------------------------------------
 # Event model

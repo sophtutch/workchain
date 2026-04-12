@@ -9,7 +9,6 @@ import { isStepNode, type DesignerNode, type StepNode } from "../lib/graphToDraf
 interface ConfigPanelProps {
   selectedNode: DesignerNode | null;
   handler: HandlerDescriptor | null;
-  onStepNameChange: (nodeId: string, name: string) => void;
   onConfigChange: (nodeId: string, values: Record<string, unknown>) => void;
   onBlockLabelChange: (nodeId: string, label: string) => void;
   onDelete: (nodeId: string) => void;
@@ -19,14 +18,13 @@ interface ConfigPanelProps {
 
 /**
  * Right sidebar.  Shows context-appropriate controls for the selected node:
- * - Step node: editable step name, handler info, RJSF config form
+ * - Step node: read-only step name, handler info, RJSF config form
  * - Block node: editable label, delete
  * - Nothing selected: placeholder message
  */
 export function ConfigPanel({
   selectedNode,
   handler,
-  onStepNameChange,
   onConfigChange,
   onBlockLabelChange,
   onDelete,
@@ -90,7 +88,6 @@ export function ConfigPanel({
     <StepConfigPanel
       node={selectedNode}
       handler={handler}
-      onStepNameChange={onStepNameChange}
       onConfigChange={onConfigChange}
       onDelete={onDelete}
       onUnparent={onUnparent}
@@ -106,7 +103,6 @@ export function ConfigPanel({
 function StepConfigPanel({
   node,
   handler,
-  onStepNameChange,
   onConfigChange,
   onDelete,
   onUnparent,
@@ -114,7 +110,6 @@ function StepConfigPanel({
 }: {
   node: StepNode;
   handler: HandlerDescriptor | null;
-  onStepNameChange: (id: string, name: string) => void;
   onConfigChange: (id: string, values: Record<string, unknown>) => void;
   onDelete: (id: string) => void;
   onUnparent: (id: string) => void;
@@ -153,12 +148,7 @@ function StepConfigPanel({
         <label className="config-panel__label" htmlFor="step-name">
           Step name
         </label>
-        <input
-          id="step-name"
-          className="config-panel__input"
-          value={node.data.stepName}
-          onChange={(e) => onStepNameChange(node.id, e.target.value)}
-        />
+        <code className="config-panel__readonly">{node.data.stepName}</code>
       </div>
       <div className="config-panel__handler">
         Handler: <code>{node.data.handlerName}</code>

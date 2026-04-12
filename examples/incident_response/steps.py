@@ -103,6 +103,7 @@ async def create_ticket(
     retry=RetryPolicy(max_attempts=3, wait_seconds=1.0, wait_multiplier=2.0),
     category="Incident Response",
     description="Page on-call engineer via escalation policy",
+    depends_on=["create_ticket"],
 )
 async def page_oncall(
     _config: TicketConfig,
@@ -118,7 +119,7 @@ async def page_oncall(
     return PageResult(paged_user=paged_user, acknowledged=True)
 
 
-@step(category="Incident Response", description="Collect logs and metrics for the affected service")
+@step(category="Incident Response", description="Collect logs and metrics for the affected service", depends_on=["create_ticket"])
 async def gather_diagnostics(
     _config: TicketConfig,
     results: dict[str, StepResult],
@@ -176,6 +177,7 @@ async def check_remediation(
     poll=PollPolicy(interval=2.0, timeout=120.0, max_polls=10),
     category="Incident Response",
     description="Execute automated remediation runbook",
+    depends_on=["gather_diagnostics"],
 )
 async def apply_remediation(
     _config: TicketConfig,
@@ -194,7 +196,7 @@ async def apply_remediation(
     return RemediationResult(remediation_id=remediation_id, action_taken=action)
 
 
-@step(category="Incident Response", description="Verify service has recovered after remediation")
+@step(category="Incident Response", description="Verify service has recovered after remediation", depends_on=["apply_remediation"])
 async def verify_resolution(
     _config: TicketConfig,
     results: dict[str, StepResult],
@@ -210,7 +212,7 @@ async def verify_resolution(
     return VerifyResult(service_healthy=healthy, latency_ms=latency_ms)
 
 
-@step(category="Incident Response", description="Close incident ticket with resolution summary")
+@step(category="Incident Response", description="Close incident ticket with resolution summary", depends_on=["create_ticket", "verify_resolution"])
 async def close_ticket(
     _config: TicketConfig,
     results: dict[str, StepResult],

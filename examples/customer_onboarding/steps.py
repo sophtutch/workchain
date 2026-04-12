@@ -89,6 +89,7 @@ async def validate_email(
     retry=RetryPolicy(max_attempts=5, wait_seconds=0.5, wait_multiplier=2.0),
     category="Customer Onboarding",
     description="Create a user account with exponential backoff retry",
+    depends_on=["validate_email"],
 )
 async def create_account(
     _config: CreateAccountConfig,
@@ -135,6 +136,7 @@ async def check_provisioning(
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=5),
     category="Customer Onboarding",
     description="Provision account resources asynchronously",
+    depends_on=["create_account"],
 )
 async def provision_resources(
     _config: ProvisionConfig,
@@ -147,7 +149,7 @@ async def provision_resources(
     return ProvisionResult(job_id=job_id)
 
 
-@step(category="Notification", description="Send welcome email to new customer")
+@step(category="Notification", description="Send welcome email to new customer", depends_on=["validate_email", "create_account", "provision_resources"])
 async def send_welcome_email(
     _config: WelcomeEmailConfig,
     results: dict[str, StepResult],

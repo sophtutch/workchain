@@ -238,11 +238,20 @@ function DesignerInner() {
       const descriptor = handlersByName.get(handlerName);
       if (!descriptor || !descriptor.launchable) return;
       const shortName = descriptor.qualname.split(".").pop() ?? "step";
-      const stepId = `${shortName}_${nodeCounter.current++}`;
+      const stepId = `step_${nodeCounter.current++}`;
       const projected =
         rfInstance.current?.screenToFlowPosition(position) ?? position;
 
+      let capturedId = stepId;
       setNodes((ns) => {
+        // Each handler can only appear once — reject duplicates
+        const existingHandlers = new Set(
+          ns.filter(isStepNode).map((n) => n.data.handlerName),
+        );
+        if (existingHandlers.has(handlerName)) return ns;
+
+        const stepName = shortName;
+
         const parentBlockId = findBlockAtPosition(projected, ns);
         const block = parentBlockId ? ns.find((n) => n.id === parentBlockId) : null;
 
@@ -260,7 +269,7 @@ function DesignerInner() {
           position: relPos,
           data: {
             handlerName,
-            stepName: stepId,
+            stepName,
             configValues: {},
             handlerDescription: descriptor.description ?? undefined,
             handlerIsAsync: descriptor.is_async,
@@ -270,13 +279,36 @@ function DesignerInner() {
             : {}),
         };
 
+        capturedId = stepId;
         let updated = [...ns, stepNode];
         if (parentBlockId) {
           updated = autoResizeBlock(parentBlockId, updated);
         }
+
+        // Auto-wire edges from handler depends_on metadata
+        if (descriptor.depends_on) {
+          const nameToNodeId = new Map(
+            updated.filter(isStepNode).map((n) => [n.data.stepName, n.id]),
+          );
+          const newEdges: Edge[] = [];
+          for (const dep of descriptor.depends_on) {
+            const sourceId = nameToNodeId.get(dep);
+            if (sourceId) {
+              newEdges.push({
+                id: `e-${sourceId}-${stepId}`,
+                source: sourceId,
+                target: stepId,
+              });
+            }
+          }
+          if (newEdges.length > 0) {
+            setEdges((es) => [...es, ...newEdges]);
+          }
+        }
+
         return updated;
       });
-      setSelectedId(stepId);
+      setSelectedId(capturedId);
     },
     [handlersByName, findBlockAtPosition, autoResizeBlock],
   );
@@ -349,16 +381,6 @@ function DesignerInner() {
   // -----------------------------------------------------------------------
   // Step and block mutations
   // -----------------------------------------------------------------------
-
-  const onStepNameChange = useCallback((nodeId: string, name: string) => {
-    setNodes((ns) =>
-      ns.map((n) =>
-        n.id === nodeId && isStepNode(n)
-          ? { ...n, data: { ...n.data, stepName: name } }
-          : n,
-      ),
-    );
-  }, []);
 
   const onConfigChange = useCallback(
     (nodeId: string, values: Record<string, unknown>) => {
@@ -509,7 +531,7 @@ function DesignerInner() {
     try {
       const draft = graphToDraft(workflowName, nodes, edges);
       const result = await createWorkflow(draft);
-      setStatusMessage(`Launched '${result.name}' (${result.id.slice(0, 8)}…)`);
+      navigate(`/workflows/${encodeURIComponent(result.id)}`);
     } catch (err) {
       if (err instanceof DraftValidationError) {
         const sNodes = nodes.filter(isStepNode);
@@ -591,7 +613,6 @@ function DesignerInner() {
           <ConfigPanel
             selectedNode={selectedNode}
             handler={selectedHandler}
-            onStepNameChange={onStepNameChange}
             onConfigChange={onConfigChange}
             onBlockLabelChange={onBlockLabelChange}
             onDelete={onDelete}

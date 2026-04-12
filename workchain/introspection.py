@@ -79,6 +79,7 @@ class HandlerDescriptor(BaseModel):
     retry_policy: dict[str, Any] | None = None
     poll_policy: dict[str, Any] | None = None
     completeness_check: str | None = None
+    depends_on: list[str] | None = None
     launchable: bool = False
     introspection_warning: str | None = None
 
@@ -242,6 +243,7 @@ def describe_handler(name: str, *, include_checks: bool = False) -> HandlerDescr
         retry_policy=_policy_dump(meta.get("retry")),
         poll_policy=_policy_dump(meta.get("poll")),
         completeness_check=meta.get("completeness_check"),
+        depends_on=meta.get("depends_on"),
         launchable=launchable,
         introspection_warning=warning,
     )

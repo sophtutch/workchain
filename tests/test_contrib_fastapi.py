@@ -74,7 +74,8 @@ class TestListWorkflows:
     def test_empty_list(self, client):
         resp = client.get("/workflows")
         assert resp.status_code == 200
-        assert resp.json() == []
+        body = resp.json()
+        assert body == {"items": [], "total": 0}
 
     def test_list_after_insert(self, client, store):
         wf = _make_workflow()
@@ -82,7 +83,9 @@ class TestListWorkflows:
 
         resp = client.get("/workflows")
         assert resp.status_code == 200
-        data = resp.json()
+        body = resp.json()
+        assert body["total"] == 1
+        data = body["items"]
         assert len(data) == 1
         assert data[0]["name"] == "test_wf"
         assert data[0]["status"] == "pending"
