@@ -18,6 +18,7 @@ from examples.infra_provisioning.steps import (
     TlsConfig,
     VpcConfig,
 )
+
 from workchain import PollPolicy, Step, Workflow
 
 
@@ -47,14 +48,14 @@ def build_workflow(
             Step(
                 name="create_vpc",
                 handler="examples.infra_provisioning.steps.create_vpc",
-                config=VpcConfig(cidr_block="10.0.0.0/16", region=region),
+                config=VpcConfig(region=region),
                 depends_on=[],  # root step — starts immediately
             ),
             # 2. Provision database (root -- runs in parallel with create_vpc)
             Step(
                 name="provision_database",
                 handler="examples.infra_provisioning.steps.provision_database",
-                config=DatabaseConfig(engine="postgres", instance_class="db.t3.medium"),
+                config=DatabaseConfig(),
                 is_async=True,
                 completeness_check=(
                     "examples.infra_provisioning.steps.check_database"
@@ -72,7 +73,7 @@ def build_workflow(
             Step(
                 name="deploy_application",
                 handler="examples.infra_provisioning.steps.deploy_application",
-                config=DeployConfig(image=image, replicas=2),
+                config=DeployConfig(image=image),
                 is_async=True,
                 completeness_check=(
                     "examples.infra_provisioning.steps.check_deployment"
@@ -89,7 +90,7 @@ def build_workflow(
             Step(
                 name="configure_dns",
                 handler="examples.infra_provisioning.steps.configure_dns",
-                config=DnsConfig(domain=domain, record_type="A"),
+                config=DnsConfig(domain=domain),
                 depends_on=["deploy_application"],
             ),
             # 5. Issue TLS certificate (async -- polls until issued)
@@ -115,7 +116,6 @@ def build_workflow(
                 handler="examples.infra_provisioning.steps.health_check",
                 config=HealthCheckConfig(
                     endpoint=f"https://{domain}/healthz",
-                    expected_status=200,
                 ),
                 depends_on=["issue_tls_cert"],
             ),

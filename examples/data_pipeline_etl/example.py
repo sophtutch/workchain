@@ -35,8 +35,6 @@ async def main() -> None:
     workflow = build_workflow(
         source_uri="postgres://src-db:5432/sales",
         target_table="fact_orders",
-        columns=["order_id", "customer_id", "amount", "created_at"],
-        batch_size=500,
     )
     await store.insert(workflow)
     logger.info("Inserted workflow %s (%s)", workflow.name, workflow.id)

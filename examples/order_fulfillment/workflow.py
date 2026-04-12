@@ -23,11 +23,6 @@ from examples.order_fulfillment import steps  # noqa: F401
 from examples.order_fulfillment.steps import (
     ArrangeShippingConfig,
     CalculateShippingConfig,
-    CheckInventoryConfig,
-    PickAndPackConfig,
-    ProcessPaymentConfig,
-    ReserveInventoryConfig,
-    SendConfirmationConfig,
     ValidateOrderConfig,
 )
 from workchain import PollPolicy, RetryPolicy, Step, Workflow
@@ -79,7 +74,7 @@ def build_workflow(
             Step(
                 name="check_inventory",
                 handler="examples.order_fulfillment.steps.check_inventory",
-                config=CheckInventoryConfig(),
+                config={},
                 depends_on=["validate_order"],
             ),
             # 3. Calculate shipping (parallel branch B)
@@ -96,7 +91,7 @@ def build_workflow(
             Step(
                 name="process_payment",
                 handler="examples.order_fulfillment.steps.process_payment",
-                config=ProcessPaymentConfig(),
+                config={},
                 depends_on=["check_inventory", "calculate_shipping"],
                 is_async=True,
                 completeness_check=(
@@ -112,7 +107,7 @@ def build_workflow(
             Step(
                 name="reserve_inventory",
                 handler="examples.order_fulfillment.steps.reserve_inventory",
-                config=ReserveInventoryConfig(),
+                config={},
                 depends_on=["check_inventory", "process_payment"],
                 retry_policy=RetryPolicy(
                     max_attempts=3,
@@ -124,7 +119,7 @@ def build_workflow(
             Step(
                 name="pick_and_pack",
                 handler="examples.order_fulfillment.steps.pick_and_pack",
-                config=PickAndPackConfig(),
+                config={},
                 depends_on=["reserve_inventory"],
             ),
             # 7. Arrange shipping (async — polls carrier)
@@ -133,7 +128,6 @@ def build_workflow(
                 handler="examples.order_fulfillment.steps.arrange_shipping",
                 config=ArrangeShippingConfig(
                     carrier=carrier,
-                    service_level="ground",
                 ),
                 depends_on=["pick_and_pack"],
                 is_async=True,
@@ -150,7 +144,7 @@ def build_workflow(
             Step(
                 name="send_confirmation",
                 handler="examples.order_fulfillment.steps.send_confirmation",
-                config=SendConfirmationConfig(include_tracking=True),
+                config={},
                 depends_on=["validate_order", "arrange_shipping"],
             ),
         ],

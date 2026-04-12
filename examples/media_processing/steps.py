@@ -94,8 +94,7 @@ class WaveformResult(StepResult):
 
 
 class TranscodeConfig(StepConfig):
-    resolution: str = "720p"
-    codec: str = "h264"
+    """No user-facing fields."""
 
 
 class TranscodeResult(StepResult):
@@ -242,10 +241,12 @@ async def check_transcode(
     depends_on=["ingest_upload"],
 )
 async def transcode_720p(
-    config: TranscodeConfig,
+    _config: TranscodeConfig,
     results: dict[str, StepResult],
 ) -> TranscodeResult:
     """Submit 720p transcode job."""
+    resolution = "720p"
+    codec = "h264"
     ingest = cast(IngestResult, results["ingest_upload"])
     job_id = f"tx-720-{uuid.uuid4().hex[:8]}"
     output = f"/processed/{ingest.asset_id}/720p.mp4"
@@ -261,10 +262,12 @@ async def transcode_720p(
     depends_on=["ingest_upload"],
 )
 async def transcode_1080p(
-    config: TranscodeConfig,
+    _config: TranscodeConfig,
     results: dict[str, StepResult],
 ) -> TranscodeResult:
     """Submit 1080p transcode job."""
+    resolution = "1080p"
+    codec = "h264"
     ingest = cast(IngestResult, results["ingest_upload"])
     job_id = f"tx-1080-{uuid.uuid4().hex[:8]}"
     output = f"/processed/{ingest.asset_id}/1080p.mp4"

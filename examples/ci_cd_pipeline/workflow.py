@@ -2,21 +2,7 @@
 
 from __future__ import annotations
 
-from examples.ci_cd_pipeline.steps import (
-    BuildConfig,
-    ComplianceConfig,
-    DashboardConfig,
-    DeployConfig,
-    IntegrationTestConfig,
-    LicenseAuditConfig,
-    LintConfig,
-    NotifyConfig,
-    RegistryConfig,
-    ReportConfig,
-    SecurityScanConfig,
-    TestConfig,
-    VulnReportConfig,
-)
+from examples.ci_cd_pipeline.steps import BuildConfig
 from workchain import PollPolicy, RetryPolicy, Step, Workflow
 
 
@@ -45,7 +31,7 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             Step(
                 name="lint_code",
                 handler="examples.ci_cd_pipeline.steps.lint_code",
-                config=LintConfig(source_dir="src"),
+                config={},
                 depends_on=[],
             ),
             # --- Lane 0: unit tests (depth 1) ---
@@ -53,7 +39,7 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             Step(
                 name="run_unit_tests",
                 handler="examples.ci_cd_pipeline.steps.run_unit_tests",
-                config=TestConfig(test_dir="tests/unit", coverage_threshold=80.0),
+                config={},
                 depends_on=["lint_code"],
                 retry_policy=RetryPolicy(
                     max_attempts=3,
@@ -66,28 +52,28 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             Step(
                 name="security_scan",
                 handler="examples.ci_cd_pipeline.steps.security_scan",
-                config=SecurityScanConfig(scan_profile="strict"),
+                config={},
                 depends_on=["lint_code"],
             ),
             # 4. Run integration tests  --- Lane 2 start ---
             Step(
                 name="run_integration_tests",
                 handler="examples.ci_cd_pipeline.steps.run_integration_tests",
-                config=IntegrationTestConfig(db_url="postgres://test/ci"),
+                config={},
                 depends_on=["lint_code"],
             ),
             # 5. License audit (depends on security_scan — lane 1, fork A)
             Step(
                 name="license_audit",
                 handler="examples.ci_cd_pipeline.steps.license_audit",
-                config=LicenseAuditConfig(policy="strict"),
+                config={},
                 depends_on=["security_scan"],
             ),
             # 6. Vulnerability report (depends on security_scan — lane 1, fork B)
             Step(
                 name="vulnerability_report",
                 handler="examples.ci_cd_pipeline.steps.vulnerability_report",
-                config=VulnReportConfig(format="sarif"),
+                config={},
                 depends_on=["security_scan"],
             ),
             # 7. Build artifact (async — lane 2, polls for completion)
@@ -111,21 +97,21 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             Step(
                 name="push_to_registry",
                 handler="examples.ci_cd_pipeline.steps.push_to_registry",
-                config=RegistryConfig(registry="ghcr.io"),
+                config={},
                 depends_on=["build_artifact"],
             ),
             # 9. Compliance sign-off (depends on vulnerability_report — lane 1)
             Step(
                 name="compliance_sign_off",
                 handler="examples.ci_cd_pipeline.steps.compliance_sign_off",
-                config=ComplianceConfig(require_zero_critical=True),
+                config={},
                 depends_on=["vulnerability_report"],
             ),
             # 10. Deploy to staging (async — lane 2, polls for healthy rollout)
             Step(
                 name="deploy_staging",
                 handler="examples.ci_cd_pipeline.steps.deploy_staging",
-                config=DeployConfig(environment="staging"),
+                config={},
                 depends_on=["push_to_registry"],
                 is_async=True,
                 completeness_check=(
@@ -143,7 +129,7 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             Step(
                 name="generate_report",
                 handler="examples.ci_cd_pipeline.steps.generate_report",
-                config=ReportConfig(include_coverage=True),
+                config={},
                 depends_on=[
                     "run_unit_tests",
                     "license_audit",
@@ -156,14 +142,14 @@ def build_workflow(repo: str, branch: str = "main") -> Workflow:
             Step(
                 name="notify_team",
                 handler="examples.ci_cd_pipeline.steps.notify_team",
-                config=NotifyConfig(channel="#ci-cd"),
+                config={},
                 depends_on=["generate_report"],
             ),
             # 13. Update dashboard
             Step(
                 name="update_dashboard",
                 handler="examples.ci_cd_pipeline.steps.update_dashboard",
-                config=DashboardConfig(dashboard_id="ci-main"),
+                config={},
                 depends_on=["generate_report"],
             ),
         ],

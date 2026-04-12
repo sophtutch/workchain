@@ -43,7 +43,7 @@ _rng = random.SystemRandom()
 
 
 class LintConfig(StepConfig):
-    source_dir: str = "src"
+    """No user-facing fields."""
 
 
 class LintResult(StepResult):
@@ -52,8 +52,7 @@ class LintResult(StepResult):
 
 
 class TestConfig(StepConfig):
-    test_dir: str = "tests"
-    coverage_threshold: float = 80.0
+    """No user-facing fields."""
 
 
 class TestResult(StepResult):
@@ -63,7 +62,7 @@ class TestResult(StepResult):
 
 
 class SecurityScanConfig(StepConfig):
-    scan_profile: str = "default"
+    """No user-facing fields."""
 
 
 class SecurityScanResult(StepResult):
@@ -74,7 +73,7 @@ class SecurityScanResult(StepResult):
 
 
 class IntegrationTestConfig(StepConfig):
-    db_url: str = "postgres://test/ci"
+    """No user-facing fields."""
 
 
 class IntegrationTestResult(StepResult):
@@ -84,7 +83,7 @@ class IntegrationTestResult(StepResult):
 
 
 class LicenseAuditConfig(StepConfig):
-    policy: str = "strict"
+    """No user-facing fields."""
 
 
 class LicenseAuditResult(StepResult):
@@ -94,7 +93,7 @@ class LicenseAuditResult(StepResult):
 
 
 class VulnReportConfig(StepConfig):
-    format: str = "sarif"
+    """No user-facing fields."""
 
 
 class VulnReportResult(StepResult):
@@ -115,7 +114,7 @@ class BuildResult(StepResult):
 
 
 class RegistryConfig(StepConfig):
-    registry: str = "ghcr.io"
+    """No user-facing fields."""
 
 
 class RegistryResult(StepResult):
@@ -124,7 +123,7 @@ class RegistryResult(StepResult):
 
 
 class ComplianceConfig(StepConfig):
-    require_zero_critical: bool = True
+    """No user-facing fields."""
 
 
 class ComplianceResult(StepResult):
@@ -133,7 +132,7 @@ class ComplianceResult(StepResult):
 
 
 class DeployConfig(StepConfig):
-    environment: str = "staging"
+    """No user-facing fields."""
 
 
 class DeployResult(StepResult):
@@ -142,7 +141,7 @@ class DeployResult(StepResult):
 
 
 class ReportConfig(StepConfig):
-    include_coverage: bool = True
+    """No user-facing fields."""
 
 
 class ReportResult(StepResult):
@@ -151,7 +150,7 @@ class ReportResult(StepResult):
 
 
 class NotifyConfig(StepConfig):
-    channel: str = "#ci-cd"
+    """No user-facing fields."""
 
 
 class NotifyResult(StepResult):
@@ -160,7 +159,7 @@ class NotifyResult(StepResult):
 
 
 class DashboardConfig(StepConfig):
-    dashboard_id: str = "ci-main"
+    """No user-facing fields."""
 
 
 class DashboardResult(StepResult):
@@ -173,11 +172,12 @@ class DashboardResult(StepResult):
 # ---------------------------------------------------------------------------
 
 @step(category="Code Quality", description="Run static analysis and linting on source files")
-async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
+async def lint_code(_config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
     """Run static analysis / linting on source files."""
+    source_dir = "src"
     files_checked = _rng.randint(40, 120)
     warnings = _rng.randint(0, 5)
-    logger.info("[lint] Checked %d files in '%s/', %d warning(s)", files_checked, config.source_dir, warnings)
+    logger.info("[lint] Checked %d files in '%s/', %d warning(s)", files_checked, source_dir, warnings)
     return LintResult(files_checked=files_checked, warnings=warnings)
 
 
@@ -190,12 +190,14 @@ async def lint_code(config: LintConfig, _results: dict[str, StepResult]) -> Lint
     category="Testing",
     description="Execute unit test suite with coverage reporting",
 )
-async def run_unit_tests(config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
+async def run_unit_tests(_config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
     """Execute the unit test suite. May flake on first attempt."""
+    test_dir = "tests"
+    coverage_threshold = 80.0
     total = _rng.randint(80, 200)
     if _rng.random() < 0.2:
         raise RuntimeError("Flaky test failure -- transient network timeout in test_api_integration")
-    coverage = round(_rng.uniform(config.coverage_threshold, 98.0), 1)
+    coverage = round(_rng.uniform(coverage_threshold, 98.0), 1)
     logger.info("[unit-test] %d passed, 0 failed, coverage %s%%", total, coverage)
     return TestResult(tests_passed=total, tests_failed=0, coverage=coverage)
 
@@ -205,8 +207,9 @@ async def run_unit_tests(config: TestConfig, _results: dict[str, StepResult]) ->
 # ---------------------------------------------------------------------------
 
 @step(category="Security", description="Run SAST and dependency vulnerability scan")
-async def security_scan(config: SecurityScanConfig, _results: dict[str, StepResult]) -> SecurityScanResult:
+async def security_scan(_config: SecurityScanConfig, _results: dict[str, StepResult]) -> SecurityScanResult:
     """Run SAST and dependency vulnerability scan."""
+    scan_profile = "strict"
     scan_id = uuid.uuid4().hex[:10]
     vulns = _rng.randint(0, 12)
     critical = 1 if vulns > 0 and _rng.random() < 0.15 else 0
@@ -221,13 +224,14 @@ async def security_scan(config: SecurityScanConfig, _results: dict[str, StepResu
 
 @step(category="Testing", description="Run integration tests against a test database")
 async def run_integration_tests(
-    config: IntegrationTestConfig,
+    _config: IntegrationTestConfig,
     _results: dict[str, StepResult],
 ) -> IntegrationTestResult:
     """Run integration tests against a test database."""
+    db_url = "postgres://test/ci"
     total = _rng.randint(30, 80)
     migrations = _rng.randint(2, 8)
-    logger.info("[integration] %d passed, 0 failed, %d migrations applied (%s)", total, migrations, config.db_url)
+    logger.info("[integration] %d passed, 0 failed, %d migrations applied (%s)", total, migrations, db_url)
     return IntegrationTestResult(tests_passed=total, tests_failed=0, db_migrations_applied=migrations)
 
 
@@ -236,14 +240,15 @@ async def run_integration_tests(
 # ---------------------------------------------------------------------------
 
 @step(category="Security", description="Audit dependency licenses against compliance policy", depends_on=["security_scan"])
-async def license_audit(config: LicenseAuditConfig, results: dict[str, StepResult]) -> LicenseAuditResult:
+async def license_audit(_config: LicenseAuditConfig, results: dict[str, StepResult]) -> LicenseAuditResult:
     """Audit dependency licenses against policy."""
+    policy = "strict"
     scan_result = cast(SecurityScanResult, results["security_scan"])
     packages = _rng.randint(80, 200)
     violations = 0  # clean audit
     logger.info(
         "[license] Scanned %d packages (policy=%s, scan=%s), %d violations",
-        packages, config.policy, scan_result.scan_id, violations,
+        packages, policy, scan_result.scan_id, violations,
     )
     return LicenseAuditResult(packages_scanned=packages, violations=violations, approved=True)
 
@@ -253,10 +258,11 @@ async def license_audit(config: LicenseAuditConfig, results: dict[str, StepResul
 # ---------------------------------------------------------------------------
 
 @step(category="Security", description="Generate detailed CVE vulnerability report", depends_on=["security_scan"])
-async def vulnerability_report(config: VulnReportConfig, results: dict[str, StepResult]) -> VulnReportResult:
+async def vulnerability_report(_config: VulnReportConfig, results: dict[str, StepResult]) -> VulnReportResult:
     """Generate a detailed vulnerability report from scan results."""
+    format = "sarif"
     scan_result = cast(SecurityScanResult, results["security_scan"])
-    report_url = f"https://reports.example.com/vuln/{scan_result.scan_id}.{config.format}"
+    report_url = f"https://reports.example.com/vuln/{scan_result.scan_id}.{format}"
     remediation = _rng.randint(0, scan_result.vulnerabilities_found)
     logger.info("[vuln-report] Generated %s (%d CVEs, %d remediations)", report_url, scan_result.vulnerabilities_found, remediation)
     return VulnReportResult(
@@ -312,13 +318,14 @@ async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -
 
 @step(category="Build & Deploy", description="Push built image to container registry", depends_on=["build_artifact"])
 async def push_to_registry(
-    config: RegistryConfig,
+    _config: RegistryConfig,
     results: dict[str, StepResult],
 ) -> RegistryResult:
     """Push the built artifact to a container registry."""
+    registry = "ghcr.io"
     build_result = cast(BuildResult, results["build_artifact"])
     image_tag = f"{build_result.build_id[:8]}-latest"
-    registry_url = f"{config.registry}/myorg/myapp:{image_tag}"
+    registry_url = f"{registry}/myorg/myapp:{image_tag}"
     logger.info("[registry] Pushed %s", registry_url)
     return RegistryResult(image_tag=image_tag, registry_url=registry_url)
 
@@ -328,10 +335,11 @@ async def push_to_registry(
 # ---------------------------------------------------------------------------
 
 @step(category="Security", description="Verify all compliance checks passed before deploy", depends_on=["vulnerability_report"])
-async def compliance_sign_off(config: ComplianceConfig, results: dict[str, StepResult]) -> ComplianceResult:
+async def compliance_sign_off(_config: ComplianceConfig, results: dict[str, StepResult]) -> ComplianceResult:
     """Verify all compliance checks passed before deployment."""
+    require_zero_critical = True
     vuln_result = cast(VulnReportResult, results["vulnerability_report"])
-    approved = vuln_result.critical == 0 or not config.require_zero_critical
+    approved = vuln_result.critical == 0 or not require_zero_critical
     sign_off_id = uuid.uuid4().hex[:10]
     logger.info(
         "[compliance] Sign-off %s: approved=%s (%d critical CVEs)",
@@ -370,17 +378,18 @@ async def check_deployment(
     depends_on=["push_to_registry"],
 )
 async def deploy_staging(
-    config: DeployConfig,
+    _config: DeployConfig,
     results: dict[str, StepResult],
 ) -> DeployResult:
     """Deploy the container image to staging."""
+    environment = "staging"
     registry_result = cast(RegistryResult, results["push_to_registry"])
     deployment_id = uuid.uuid4().hex[:12]
     logger.info(
         "[deploy] Deploying %s to %s (deployment %s)",
-        registry_result.registry_url, config.environment, deployment_id,
+        registry_result.registry_url, environment, deployment_id,
     )
-    return DeployResult(deployment_id=deployment_id, environment=config.environment)
+    return DeployResult(deployment_id=deployment_id, environment=environment)
 
 
 # ---------------------------------------------------------------------------
@@ -388,12 +397,13 @@ async def deploy_staging(
 # ---------------------------------------------------------------------------
 
 @step(category="Reporting", description="Aggregate pipeline results into a final report", depends_on=["run_unit_tests", "deploy_staging"])
-async def generate_report(config: ReportConfig, results: dict[str, StepResult]) -> ReportResult:
+async def generate_report(_config: ReportConfig, results: dict[str, StepResult]) -> ReportResult:
     """Aggregate results from all pipeline branches into a final report."""
+    include_coverage = True
     test_result = cast(TestResult, results["run_unit_tests"])
     deploy_result = cast(DeployResult, results["deploy_staging"])
     report_url = f"https://ci.example.com/reports/{deploy_result.deployment_id}"
-    sections = 4 + (1 if config.include_coverage else 0)
+    sections = 4 + (1 if include_coverage else 0)
     logger.info(
         "[report] Generated %s (%d sections, coverage=%.1f%%)",
         report_url, sections, test_result.coverage,
@@ -406,12 +416,13 @@ async def generate_report(config: ReportConfig, results: dict[str, StepResult]) 
 # ---------------------------------------------------------------------------
 
 @step(category="Notification", description="Send pipeline completion notification to team channel", depends_on=["generate_report"])
-async def notify_team(config: NotifyConfig, results: dict[str, StepResult]) -> NotifyResult:
+async def notify_team(_config: NotifyConfig, results: dict[str, StepResult]) -> NotifyResult:
     """Send pipeline completion notification to team channel."""
+    channel = "#ci-cd"
     report_result = cast(ReportResult, results["generate_report"])
     message_id = uuid.uuid4().hex[:10]
-    logger.info("[notify] Sent to %s (msg=%s, report=%s)", config.channel, message_id, report_result.report_url)
-    return NotifyResult(message_id=message_id, channel=config.channel)
+    logger.info("[notify] Sent to %s (msg=%s, report=%s)", channel, message_id, report_result.report_url)
+    return NotifyResult(message_id=message_id, channel=channel)
 
 
 # ---------------------------------------------------------------------------
@@ -419,10 +430,11 @@ async def notify_team(config: NotifyConfig, results: dict[str, StepResult]) -> N
 # ---------------------------------------------------------------------------
 
 @step(category="Reporting", description="Push pipeline metrics to monitoring dashboard", depends_on=["generate_report"])
-async def update_dashboard(config: DashboardConfig, results: dict[str, StepResult]) -> DashboardResult:
+async def update_dashboard(_config: DashboardConfig, results: dict[str, StepResult]) -> DashboardResult:
     """Push pipeline metrics to CI/CD monitoring dashboard."""
+    dashboard_id = "ci-main"
     report_result = cast(ReportResult, results["generate_report"])
     metrics = report_result.sections + _rng.randint(3, 8)
-    dashboard_url = f"https://dashboard.example.com/{config.dashboard_id}"
+    dashboard_url = f"https://dashboard.example.com/{dashboard_id}"
     logger.info("[dashboard] Pushed %d metrics to %s", metrics, dashboard_url)
     return DashboardResult(metrics_pushed=metrics, dashboard_url=dashboard_url)

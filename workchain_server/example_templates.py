@@ -87,17 +87,13 @@ def _data_pipeline_etl() -> WorkflowTemplate:
                 config={
                     "source_uri": "postgres://localhost:5432/source_db",
                     "table_name": "events",
-                    "batch_size": 1000,
                 },
                 depends_on=[],
             ),
             StepTemplate(
                 name="validate_schema",
                 handler="examples.data_pipeline_etl.steps.validate_schema",
-                config={
-                    "expected_columns": ["id", "timestamp", "event_type", "payload"],
-                    "strict": True,
-                },
+                config={},
                 depends_on=["extract_from_source"],
             ),
             StepTemplate(
@@ -110,7 +106,6 @@ def _data_pipeline_etl() -> WorkflowTemplate:
                 name="load_to_warehouse",
                 handler="examples.data_pipeline_etl.steps.load_to_warehouse",
                 config={
-                    "warehouse_uri": "warehouse://localhost:5439/analytics",
                     "target_table": "events",
                 },
                 depends_on=["transform_records"],
@@ -138,37 +133,37 @@ def _ci_cd_pipeline() -> WorkflowTemplate:
             StepTemplate(
                 name="lint_code",
                 handler="examples.ci_cd_pipeline.steps.lint_code",
-                config={"source_dir": "src"},
+                config={},
                 depends_on=[],
             ),
             StepTemplate(
                 name="run_unit_tests",
                 handler="examples.ci_cd_pipeline.steps.run_unit_tests",
-                config={"test_dir": "tests/unit", "coverage_threshold": 80.0},
+                config={},
                 depends_on=["lint_code"],
             ),
             StepTemplate(
                 name="security_scan",
                 handler="examples.ci_cd_pipeline.steps.security_scan",
-                config={"scan_profile": "strict"},
+                config={},
                 depends_on=["lint_code"],
             ),
             StepTemplate(
                 name="run_integration_tests",
                 handler="examples.ci_cd_pipeline.steps.run_integration_tests",
-                config={"db_url": "postgres://test/ci"},
+                config={},
                 depends_on=["lint_code"],
             ),
             StepTemplate(
                 name="license_audit",
                 handler="examples.ci_cd_pipeline.steps.license_audit",
-                config={"policy": "strict"},
+                config={},
                 depends_on=["security_scan"],
             ),
             StepTemplate(
                 name="vulnerability_report",
                 handler="examples.ci_cd_pipeline.steps.vulnerability_report",
-                config={"format": "sarif"},
+                config={},
                 depends_on=["security_scan"],
             ),
             StepTemplate(
@@ -180,25 +175,25 @@ def _ci_cd_pipeline() -> WorkflowTemplate:
             StepTemplate(
                 name="push_to_registry",
                 handler="examples.ci_cd_pipeline.steps.push_to_registry",
-                config={"registry": "ghcr.io"},
+                config={},
                 depends_on=["build_artifact"],
             ),
             StepTemplate(
                 name="compliance_sign_off",
                 handler="examples.ci_cd_pipeline.steps.compliance_sign_off",
-                config={"require_zero_critical": True},
+                config={},
                 depends_on=["vulnerability_report"],
             ),
             StepTemplate(
                 name="deploy_staging",
                 handler="examples.ci_cd_pipeline.steps.deploy_staging",
-                config={"environment": "staging"},
+                config={},
                 depends_on=["push_to_registry"],
             ),
             StepTemplate(
                 name="generate_report",
                 handler="examples.ci_cd_pipeline.steps.generate_report",
-                config={"include_coverage": True},
+                config={},
                 depends_on=[
                     "run_unit_tests",
                     "license_audit",
@@ -209,13 +204,13 @@ def _ci_cd_pipeline() -> WorkflowTemplate:
             StepTemplate(
                 name="notify_team",
                 handler="examples.ci_cd_pipeline.steps.notify_team",
-                config={"channel": "#ci-cd"},
+                config={},
                 depends_on=["generate_report"],
             ),
             StepTemplate(
                 name="update_dashboard",
                 handler="examples.ci_cd_pipeline.steps.update_dashboard",
-                config={"dashboard_id": "ci-main"},
+                config={},
                 depends_on=["generate_report"],
             ),
         ],
@@ -247,13 +242,13 @@ def _media_processing() -> WorkflowTemplate:
             StepTemplate(
                 name="transcode_720p",
                 handler="examples.media_processing.steps.transcode_720p",
-                config={"resolution": "720p", "codec": "h264"},
+                config={},
                 depends_on=["ingest_upload"],
             ),
             StepTemplate(
                 name="transcode_1080p",
                 handler="examples.media_processing.steps.transcode_1080p",
-                config={"resolution": "1080p", "codec": "h264"},
+                config={},
                 depends_on=["ingest_upload"],
             ),
             StepTemplate(
@@ -333,7 +328,7 @@ def _ml_training() -> WorkflowTemplate:
             StepTemplate(
                 name="split_train_test",
                 handler="examples.ml_training.steps.split_train_test",
-                config={"train_ratio": 0.8},
+                config={},
                 depends_on=["prepare_dataset"],
             ),
             StepTemplate(
@@ -341,8 +336,6 @@ def _ml_training() -> WorkflowTemplate:
                 handler="examples.ml_training.steps.train_model",
                 config={
                     "model_type": "resnet50",
-                    "epochs": 100,
-                    "learning_rate": 0.001,
                 },
                 depends_on=["split_train_test"],
             ),
@@ -450,25 +443,25 @@ def _infra_provisioning() -> WorkflowTemplate:
             StepTemplate(
                 name="create_vpc",
                 handler="examples.infra_provisioning.steps.create_vpc",
-                config={"cidr_block": "10.0.0.0/16", "region": "us-east-1"},
+                config={"region": "us-east-1"},
                 depends_on=[],
             ),
             StepTemplate(
                 name="provision_database",
                 handler="examples.infra_provisioning.steps.provision_database",
-                config={"engine": "postgres", "instance_class": "db.t3.medium"},
+                config={},
                 depends_on=[],
             ),
             StepTemplate(
                 name="deploy_application",
                 handler="examples.infra_provisioning.steps.deploy_application",
-                config={"image": "myorg/myapp:latest", "replicas": 2},
+                config={"image": "myorg/myapp:latest"},
                 depends_on=["create_vpc", "provision_database"],
             ),
             StepTemplate(
                 name="configure_dns",
                 handler="examples.infra_provisioning.steps.configure_dns",
-                config={"domain": "app.example.com", "record_type": "A"},
+                config={"domain": "app.example.com"},
                 depends_on=["deploy_application"],
             ),
             StepTemplate(
@@ -482,7 +475,6 @@ def _infra_provisioning() -> WorkflowTemplate:
                 handler="examples.infra_provisioning.steps.health_check",
                 config={
                     "endpoint": "https://app.example.com/healthz",
-                    "expected_status": 200,
                 },
                 depends_on=["issue_tls_cert"],
             ),
@@ -549,13 +541,13 @@ def _order_fulfillment() -> WorkflowTemplate:
             StepTemplate(
                 name="arrange_shipping",
                 handler="examples.order_fulfillment.steps.arrange_shipping",
-                config={"carrier": "ups", "service_level": "ground"},
+                config={"carrier": "ups"},
                 depends_on=["pick_and_pack"],
             ),
             StepTemplate(
                 name="send_confirmation",
                 handler="examples.order_fulfillment.steps.send_confirmation",
-                config={"include_tracking": True},
+                config={},
                 depends_on=["validate_order", "arrange_shipping"],
             ),
         ],

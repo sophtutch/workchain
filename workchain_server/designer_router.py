@@ -178,10 +178,7 @@ def _build_workflow_from_draft(draft: WorkflowDraft) -> Workflow:
     except (ValueError, Exception) as exc:
         import re
 
-        # Pydantic wraps ValueError in ValidationError — unwrap to get
-        # the original message.
         msg = str(exc)
-        # Look through the full error text for our handler-requires pattern
         match = re.search(
             r"Step '([^']+)' handler requires dependencies (\[[^\]]+\]) "
             r"but step depends_on is missing (\[[^\]]+\])",
@@ -191,23 +188,26 @@ def _build_workflow_from_draft(draft: WorkflowDraft) -> Workflow:
         dag_errors: list[DraftStepError] = []
         if match:
             step_name = match.group(1)
-            missing = match.group(3)  # e.g. "['validate_email']"
+            missing = match.group(3)
             dag_errors.append(DraftStepError(
                 step=step_name,
                 error=f"Missing connections from: {missing}",
             ))
-            detail_msg = f"'{step_name}' needs connections from {missing}"
         else:
+            # Extract the meaningful error from Pydantic's wrapper.
+            # Format: "1 validation error for Workflow\n  Value error, <msg> ..."
+            import re as _re
+            value_match = _re.search(r"Value error,\s*(.+?)(?:\s*\[type=|\s*$)", msg)
+            clean = value_match.group(1).strip() if value_match else msg.split("\n")[0][:120]
             dag_errors.append(DraftStepError(
                 step="<workflow>",
-                error=msg.split("\n")[0][:120],
+                error=clean,
             ))
-            detail_msg = msg.split("\n")[0][:120]
 
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
-                "detail": detail_msg,
+                "detail": "workflow DAG validation failed",
                 "errors": [e.model_dump() for e in dag_errors],
             },
         ) from exc

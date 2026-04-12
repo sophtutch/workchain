@@ -37,7 +37,6 @@ _rng = random.SystemRandom()
 
 
 class VpcConfig(StepConfig):
-    cidr_block: str = "10.0.0.0/16"
     region: str = "us-east-1"
 
 
@@ -47,8 +46,7 @@ class VpcResult(StepResult):
 
 
 class DatabaseConfig(StepConfig):
-    engine: str = "postgres"
-    instance_class: str = "db.t3.medium"
+    """No user-facing fields."""
 
 
 class DatabaseResult(StepResult):
@@ -59,7 +57,6 @@ class DatabaseResult(StepResult):
 
 class DeployConfig(StepConfig):
     image: str = ""
-    replicas: int = 2
 
 
 class DeployResult(StepResult):
@@ -69,7 +66,6 @@ class DeployResult(StepResult):
 
 class DnsConfig(StepConfig):
     domain: str = ""
-    record_type: str = "A"
 
 
 class DnsResult(StepResult):
@@ -88,7 +84,6 @@ class TlsResult(StepResult):
 
 class HealthCheckConfig(StepConfig):
     endpoint: str = ""
-    expected_status: int = 200
 
 
 class HealthCheckResult(StepResult):
@@ -105,12 +100,13 @@ class HealthCheckResult(StepResult):
 @step(category="Infrastructure", description="Create a VPC with public and private subnets")
 async def create_vpc(config: VpcConfig, _results: dict[str, StepResult]) -> VpcResult:
     """Create a VPC with public and private subnets."""
+    cidr_block = "10.0.0.0/16"
     vpc_id = f"vpc-{uuid.uuid4().hex[:12]}"
     subnet_count = _rng.randint(2, 4)
     subnet_ids = [f"subnet-{uuid.uuid4().hex[:12]}" for _ in range(subnet_count)]
     logger.info(
         "[vpc] Created %s (%s) in %s with %d subnets",
-        vpc_id, config.cidr_block, config.region, subnet_count,
+        vpc_id, cidr_block, config.region, subnet_count,
     )
     return VpcResult(vpc_id=vpc_id, subnet_ids=subnet_ids)
 
@@ -149,15 +145,17 @@ async def check_database(
     description="Provision an RDS database instance",
 )
 async def provision_database(
-    config: DatabaseConfig,
+    _config: DatabaseConfig,
     _results: dict[str, StepResult],
 ) -> DatabaseResult:
     """Provision an RDS database instance (root step — no dependencies)."""
+    engine = "postgres"
+    instance_class = "db.t3.medium"
     db_instance_id = f"db-{uuid.uuid4().hex[:12]}"
-    endpoint = f"{db_instance_id}.cluster.{config.engine}.amazonaws.com"
+    endpoint = f"{db_instance_id}.cluster.{engine}.amazonaws.com"
     logger.info(
         "[db] Provisioning %s (%s) -- instance %s",
-        config.engine, config.instance_class, db_instance_id,
+        engine, instance_class, db_instance_id,
     )
     return DatabaseResult(
         db_instance_id=db_instance_id,
@@ -173,25 +171,26 @@ async def provision_database(
 
 @completeness_check()
 async def check_deployment(
-    config: DeployConfig,
+    _config: DeployConfig,
     _results: dict[str, StepResult],
     result: DeployResult,
 ) -> CheckResult:
     """Completeness check: simulates deployment becoming healthy after 2 polls."""
+    replicas = 2
     if _rng.random() < 0.5:
-        ready = max(1, config.replicas - 1)
+        ready = max(1, replicas - 1)
         logger.info(
             "[deploy] Deployment %s -- %d/%d replicas ready",
-            result.deployment_id, ready, config.replicas,
+            result.deployment_id, ready, replicas,
         )
         return CheckResult(
             complete=False,
-            progress=ready / config.replicas,
-            message=f"{ready}/{config.replicas} replicas ready",
+            progress=ready / replicas,
+            message=f"{ready}/{replicas} replicas ready",
         )
     logger.info(
         "[deploy] Deployment %s -- %d/%d replicas healthy!",
-        result.deployment_id, config.replicas, config.replicas,
+        result.deployment_id, replicas, replicas,
     )
     return CheckResult(complete=True, progress=1.0, message="All replicas healthy")
 
@@ -208,11 +207,12 @@ async def deploy_application(
     results: dict[str, StepResult],
 ) -> DeployResult:
     """Deploy the application containers."""
+    replicas = 2
     db_result = cast(DatabaseResult, results["provision_database"])
     deployment_id = f"deploy-{uuid.uuid4().hex[:12]}"
     logger.info(
         "[deploy] Deploying %s (%d replicas) with DB endpoint %s -- deployment %s",
-        config.image, config.replicas, db_result.endpoint, deployment_id,
+        config.image, replicas, db_result.endpoint, deployment_id,
     )
     return DeployResult(deployment_id=deployment_id, replicas_ready=0)
 
@@ -228,12 +228,13 @@ async def configure_dns(
     results: dict[str, StepResult],
 ) -> DnsResult:
     """Create DNS records pointing to the deployed application."""
+    record_type = "A"
     deploy_result = cast(DeployResult, results["deploy_application"])
     record_id = f"rec-{uuid.uuid4().hex[:12]}"
     fqdn = f"{config.domain}."
     logger.info(
         "[dns] Created %s record %s for %s -> deployment %s",
-        config.record_type, record_id, fqdn, deploy_result.deployment_id,
+        record_type, record_id, fqdn, deploy_result.deployment_id,
     )
     return DnsResult(record_id=record_id, fqdn=fqdn)
 
@@ -289,14 +290,15 @@ async def health_check(
     results: dict[str, StepResult],
 ) -> HealthCheckResult:
     """Verify the full stack is reachable and returns the expected status."""
+    expected_status = 200
     tls_result = cast(TlsResult, results["issue_tls_cert"])
     response_time = round(_rng.uniform(50.0, 200.0), 1)
     logger.info(
         "[health] GET %s -> %d (%sms), cert %s...",
-        config.endpoint, config.expected_status, response_time, tls_result.certificate_arn[:40],
+        config.endpoint, expected_status, response_time, tls_result.certificate_arn[:40],
     )
     return HealthCheckResult(
-        status_code=config.expected_status,
+        status_code=expected_status,
         response_time_ms=response_time,
         healthy=True,
     )
