@@ -85,7 +85,7 @@ async def extract_from_source(
     )
 
 
-@step(category="ETL Pipeline", description="Validate extracted data matches expected schema")
+@step(category="ETL Pipeline", description="Validate extracted data matches expected schema", depends_on=["extract_from_source"])
 async def validate_schema(
     config: SchemaConfig,
     results: dict[str, StepResult],
@@ -105,7 +105,7 @@ async def validate_schema(
     return SchemaResult(valid=valid, column_count=column_count)
 
 
-@step(category="ETL Pipeline", description="Clean, map and deduplicate records")
+@step(category="ETL Pipeline", description="Clean, map and deduplicate records", depends_on=["extract_from_source"])
 async def transform_records(
     _config: TransformConfig,
     results: dict[str, StepResult],
@@ -175,7 +175,7 @@ async def load_to_warehouse(
 # Final step: update catalog
 # ---------------------------------------------------------------------------
 
-@step(category="ETL Pipeline", description="Register loaded dataset in the data catalog")
+@step(category="ETL Pipeline", description="Register loaded dataset in the data catalog", depends_on=["load_to_warehouse"])
 async def update_catalog(
     _config: CatalogConfig,
     results: dict[str, StepResult],

@@ -353,17 +353,26 @@ class MongoWorkflowStore:
         self,
         status: WorkflowStatus | None = None,
         name: str | None = None,
+        search: str | None = None,
         limit: int = 50,
         skip: int = 0,
     ) -> list[Workflow]:
-        """
-        List workflows with optional filters, sorted by created_at descending.
+        """List workflows with optional filters, sorted by created_at descending.
+
+        Args:
+            status: Filter by workflow status.
+            name: Filter by exact workflow name.
+            search: Case-insensitive substring match on workflow name.
+            limit: Maximum number of workflows to return.
+            skip: Number of workflows to skip (for pagination).
         """
         query: dict[str, Any] = {}
         if status is not None:
             query["status"] = status.value
         if name is not None:
             query["name"] = name
+        if search is not None:
+            query["name"] = {"$regex": search, "$options": "i"}
 
         cursor = (
             self._col.find(query, max_time_ms=self._op_timeout)
@@ -372,6 +381,26 @@ class MongoWorkflowStore:
             .limit(limit)
         )
         return [self._doc_to_workflow(doc) async for doc in cursor]
+
+    async def count_workflows(
+        self,
+        status: WorkflowStatus | None = None,
+        search: str | None = None,
+    ) -> int:
+        """Count workflows matching the given filters.
+
+        Args:
+            status: Filter by workflow status.
+            search: Case-insensitive substring match on workflow name.
+        """
+        query: dict[str, Any] = {}
+        if status is not None:
+            query["status"] = status.value
+        if search is not None:
+            query["name"] = {"$regex": search, "$options": "i"}
+        return await self._col.count_documents(
+            query, maxTimeMS=self._op_timeout
+        )
 
     async def count_by_status(self) -> dict[str, int]:
         """
@@ -385,6 +414,92 @@ class MongoWorkflowStore:
         async for doc in self._col.aggregate(pipeline, maxTimeMS=self._op_timeout):
             result[doc["_id"]] = doc["count"]
         return result
+
+    async def get_analytics(self) -> dict[str, Any]:
+        """Return aggregate analytics for all workflows.
+
+        Returns a dict with keys: total_workflows, success_rate,
+        status_counts, avg_duration_seconds, recent_completions_24h,
+        recent_failures_24h, throughput_24h.
+        """
+        status_counts = await self.count_by_status()
+        total = sum(status_counts.values())
+
+        completed = status_counts.get("completed", 0)
+        failed = status_counts.get("failed", 0)
+        cancelled = status_counts.get("cancelled", 0)
+        terminal = completed + failed + cancelled
+        success_rate = completed / terminal if terminal > 0 else None
+
+        # Average duration for terminal workflows
+        avg_pipeline: list[dict[str, Any]] = [
+            {"$match": {"status": {"$in": ["completed", "failed", "cancelled"]}}},
+            {"$project": {
+                "duration": {"$subtract": ["$updated_at", "$created_at"]},
+            }},
+            {"$group": {"_id": None, "avg_ms": {"$avg": "$duration"}}},
+        ]
+        avg_duration: float | None = None
+        async for doc in self._col.aggregate(
+            avg_pipeline, maxTimeMS=self._op_timeout
+        ):
+            if doc.get("avg_ms") is not None:
+                avg_duration = doc["avg_ms"] / 1000.0
+
+        # 24h activity
+        cutoff = datetime.now(UTC) - timedelta(hours=24)
+        count_24h_pipeline: list[dict[str, Any]] = [
+            {"$match": {
+                "status": {"$in": ["completed", "failed"]},
+                "updated_at": {"$gte": cutoff},
+            }},
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+        ]
+        completions_24h = 0
+        failures_24h = 0
+        async for doc in self._col.aggregate(
+            count_24h_pipeline, maxTimeMS=self._op_timeout
+        ):
+            if doc["_id"] == "completed":
+                completions_24h = doc["count"]
+            elif doc["_id"] == "failed":
+                failures_24h = doc["count"]
+
+        return {
+            "total_workflows": total,
+            "success_rate": success_rate,
+            "status_counts": status_counts,
+            "avg_duration_seconds": avg_duration,
+            "recent_completions_24h": completions_24h,
+            "recent_failures_24h": failures_24h,
+            "throughput_24h": completions_24h + failures_24h,
+        }
+
+    async def recent_activity(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return recently updated workflows sorted by updated_at descending.
+
+        Args:
+            limit: Maximum number of workflows to return.
+        """
+        cursor = (
+            self._col.find(
+                {},
+                {"_id": 1, "name": 1, "status": 1, "updated_at": 1, "created_at": 1},
+                max_time_ms=self._op_timeout,
+            )
+            .sort("updated_at", -1)
+            .limit(limit)
+        )
+        results: list[dict[str, Any]] = []
+        async for doc in cursor:
+            results.append({
+                "id": doc["_id"],
+                "name": doc["name"],
+                "status": doc["status"],
+                "updated_at": str(doc.get("updated_at", "")),
+                "created_at": str(doc.get("created_at", "")),
+            })
+        return results
 
     async def delete_workflow(self, workflow_id: str) -> bool:
         """
@@ -763,6 +878,72 @@ class MongoWorkflowStore:
                 recovery_action="reset",
                 fence_token_override=step_fence_token,
             )
+        return wf
+
+    async def retry_step_by_name(
+        self,
+        workflow_id: str,
+        step_name: str,
+    ) -> Workflow | None:
+        """Manually retry a failed or needs_review step.
+
+        Atomically resets the step to PENDING, clears result/lock/poll
+        state, resets the attempt counter, and sets the workflow back to
+        RUNNING so the engine can pick it up.
+
+        No fence token is required — this is an operator action on a
+        terminal step that no engine instance holds a lock on. The
+        MongoDB query guards against racing by matching the step status.
+
+        Returns the updated Workflow, or None if the step is not in a
+        retryable state (failed).
+        """
+        idx = await self._step_index(workflow_id, step_name)
+        if idx is None:
+            return None
+
+        prefix = f"steps.{idx}"
+        now = datetime.now(UTC)
+
+        doc = await self._col.find_one_and_update(
+            {
+                "_id": workflow_id,
+                f"{prefix}.name": step_name,
+                f"{prefix}.status": {"$in": [
+                    StepStatus.FAILED.value,
+                ]},
+            },
+            {
+                "$set": {
+                    f"{prefix}.status": StepStatus.PENDING.value,
+                    f"{prefix}.attempt": 0,
+                    f"{prefix}.result": None,
+                    f"{prefix}.locked_by": None,
+                    f"{prefix}.lock_expires_at": None,
+                    f"{prefix}.poll_count": 0,
+                    f"{prefix}.poll_started_at": None,
+                    f"{prefix}.next_poll_at": None,
+                    f"{prefix}.last_poll_at": None,
+                    f"{prefix}.current_poll_interval": None,
+                    f"{prefix}.last_poll_progress": None,
+                    f"{prefix}.last_poll_message": None,
+                    "status": WorkflowStatus.RUNNING.value,
+                    "updated_at": now,
+                },
+                "$inc": {f"{prefix}.fence_token": 1},
+            },
+            return_document=ReturnDocument.AFTER,
+            maxTimeMS=self._op_timeout,
+        )
+        if doc is None:
+            return None
+
+        wf = self._doc_to_workflow(doc)
+        self._emit(
+            AuditEventType.STEP_RETRIED, wf,
+            step=wf.step_by_name(step_name), idx=idx,
+            recovery_action="manual_retry",
+        )
         return wf
 
     # ------------------------------------------------------------------

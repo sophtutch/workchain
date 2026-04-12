@@ -235,7 +235,7 @@ async def run_integration_tests(
 # Step 5: license_audit
 # ---------------------------------------------------------------------------
 
-@step(category="Security", description="Audit dependency licenses against compliance policy")
+@step(category="Security", description="Audit dependency licenses against compliance policy", depends_on=["security_scan"])
 async def license_audit(config: LicenseAuditConfig, results: dict[str, StepResult]) -> LicenseAuditResult:
     """Audit dependency licenses against policy."""
     scan_result = cast(SecurityScanResult, results["security_scan"])
@@ -252,7 +252,7 @@ async def license_audit(config: LicenseAuditConfig, results: dict[str, StepResul
 # Step 6: vulnerability_report
 # ---------------------------------------------------------------------------
 
-@step(category="Security", description="Generate detailed CVE vulnerability report")
+@step(category="Security", description="Generate detailed CVE vulnerability report", depends_on=["security_scan"])
 async def vulnerability_report(config: VulnReportConfig, results: dict[str, StepResult]) -> VulnReportResult:
     """Generate a detailed vulnerability report from scan results."""
     scan_result = cast(SecurityScanResult, results["security_scan"])
@@ -310,7 +310,7 @@ async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -
 # Step 8: push_to_registry
 # ---------------------------------------------------------------------------
 
-@step(category="Build & Deploy", description="Push built image to container registry")
+@step(category="Build & Deploy", description="Push built image to container registry", depends_on=["build_artifact"])
 async def push_to_registry(
     config: RegistryConfig,
     results: dict[str, StepResult],
@@ -327,7 +327,7 @@ async def push_to_registry(
 # Step 9: compliance_sign_off
 # ---------------------------------------------------------------------------
 
-@step(category="Security", description="Verify all compliance checks passed before deploy")
+@step(category="Security", description="Verify all compliance checks passed before deploy", depends_on=["vulnerability_report"])
 async def compliance_sign_off(config: ComplianceConfig, results: dict[str, StepResult]) -> ComplianceResult:
     """Verify all compliance checks passed before deployment."""
     vuln_result = cast(VulnReportResult, results["vulnerability_report"])
@@ -367,6 +367,7 @@ async def check_deployment(
     poll=PollPolicy(interval=5.0, backoff_multiplier=1.0, timeout=300.0, max_polls=10),
     category="Build & Deploy",
     description="Deploy container image to staging environment",
+    depends_on=["push_to_registry"],
 )
 async def deploy_staging(
     config: DeployConfig,
@@ -386,7 +387,7 @@ async def deploy_staging(
 # Step 11: generate_report
 # ---------------------------------------------------------------------------
 
-@step(category="Reporting", description="Aggregate pipeline results into a final report")
+@step(category="Reporting", description="Aggregate pipeline results into a final report", depends_on=["run_unit_tests", "deploy_staging"])
 async def generate_report(config: ReportConfig, results: dict[str, StepResult]) -> ReportResult:
     """Aggregate results from all pipeline branches into a final report."""
     test_result = cast(TestResult, results["run_unit_tests"])
@@ -404,7 +405,7 @@ async def generate_report(config: ReportConfig, results: dict[str, StepResult]) 
 # Step 12: notify_team
 # ---------------------------------------------------------------------------
 
-@step(category="Notification", description="Send pipeline completion notification to team channel")
+@step(category="Notification", description="Send pipeline completion notification to team channel", depends_on=["generate_report"])
 async def notify_team(config: NotifyConfig, results: dict[str, StepResult]) -> NotifyResult:
     """Send pipeline completion notification to team channel."""
     report_result = cast(ReportResult, results["generate_report"])
@@ -417,7 +418,7 @@ async def notify_team(config: NotifyConfig, results: dict[str, StepResult]) -> N
 # Step 13: update_dashboard
 # ---------------------------------------------------------------------------
 
-@step(category="Reporting", description="Push pipeline metrics to monitoring dashboard")
+@step(category="Reporting", description="Push pipeline metrics to monitoring dashboard", depends_on=["generate_report"])
 async def update_dashboard(config: DashboardConfig, results: dict[str, StepResult]) -> DashboardResult:
     """Push pipeline metrics to CI/CD monitoring dashboard."""
     report_result = cast(ReportResult, results["generate_report"])

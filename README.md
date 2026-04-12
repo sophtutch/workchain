@@ -109,14 +109,10 @@ Use `depends_on` to express parallelism. In this example, `create_vpc` and `prov
 workflow = Workflow(
     name="infra",
     steps=[
-        Step(name="create_vpc", handler="myapp.steps.create_vpc",
-             depends_on=[]),                                       # root step — runs immediately
-        Step(name="provision_database", handler="myapp.steps.provision_db",
-             depends_on=[]),                                       # root step — runs in parallel
-        Step(name="deploy_application", handler="myapp.steps.deploy",
-             depends_on=["create_vpc", "provision_database"]),     # waits for both
-        Step(name="health_check", handler="myapp.steps.health_check",
-             depends_on=["deploy_application"]),
+        Step(name="create_vpc", handler="myapp.steps.create_vpc", depends_on=[]), # root step — runs immediately
+        Step(name="provision_database", handler="myapp.steps.provision_db", depends_on=[]), # root step — runs in parallel
+        Step(name="deploy_application", handler="myapp.steps.deploy", depends_on=["create_vpc", "provision_database"]), # waits for both
+        Step(name="health_check", handler="myapp.steps.health_check", depends_on=["deploy_application"]), # runs after deploy
     ],
 )
 ```
@@ -126,12 +122,48 @@ workflow = Workflow(
 Handlers receive a `results` dict keyed by step name. Only results from completed dependencies are included:
 
 ```python
-@step()
+@step(depends_on=["create_vpc", "provision_database"])
 async def deploy(config: DeployConfig, results: dict[str, StepResult]) -> DeployResult:
     vpc = cast(VpcResult, results["create_vpc"])
     db = cast(DatabaseResult, results["provision_database"])
     return DeployResult(deployment_id=start_deploy(vpc.vpc_id, db.endpoint))
 ```
+
+### Declaring handler dependencies (`depends_on` on decorators)
+
+The `depends_on` parameter on `@step` and `@async_step` declares which step results the handler requires. This serves as a **validation contract**: at workflow construction time, the `Workflow` model checks that each step's resolved `depends_on` includes every name the handler declares. Missing dependencies raise `ValueError` immediately rather than causing a `KeyError` at runtime.
+
+```python
+@step(depends_on=["validate_email"])
+async def create_account(config: AccountConfig, results: dict[str, StepResult]) -> AccountResult:
+    email = cast(ValidateEmailResult, results["validate_email"])
+    # ...
+
+@async_step(
+    completeness_check=check_provisioning,
+    poll=PollPolicy(interval=2.0),
+    depends_on=["create_account"],
+)
+async def provision_resources(config: ProvisionConfig, results: dict[str, StepResult]) -> ProvisionResult:
+    account = cast(AccountResult, results["create_account"])
+    # ...
+
+@step(depends_on=["validate_email", "create_account", "provision_resources"])
+async def send_welcome_email(config: EmailConfig, results: dict[str, StepResult]) -> EmailResult:
+    email = cast(ValidateEmailResult, results["validate_email"])
+    account = cast(AccountResult, results["create_account"])
+    # ...
+```
+
+If a workflow is constructed where `send_welcome_email` depends only on `["provision_resources"]`, the `Workflow` model raises:
+
+```
+ValueError: Step 'send_welcome_email' handler requires dependencies
+['validate_email', 'create_account', 'provision_resources'] but step
+depends_on is missing ['validate_email', 'create_account']
+```
+
+Handlers without `depends_on` (or `depends_on=None`) are unconstrained — no validation is performed. The handler's `depends_on` is also exposed via `HandlerDescriptor.depends_on` in the introspection API, which the workflow designer uses to auto-wire dependency edges when handlers are dropped onto the canvas.
 
 ### Validation
 
@@ -139,6 +171,7 @@ The `Workflow` model validates the dependency graph at construction time:
 - Unknown step names in `depends_on` raise `ValueError`
 - Self-references raise `ValueError`
 - Cycles (A→B→C→A) are detected via topological sort and raise `ValueError`
+- Handler-declared dependencies missing from the step's `depends_on` raise `ValueError`
 
 ### 3. FastAPI integration
 
@@ -153,7 +186,7 @@ router = create_workchain_router(store, audit_logger)
 app.include_router(router, prefix="/api/v1/workflows")
 ```
 
-Provides: list, stats, get, cancel, and HTML audit report endpoints. Add your own workflow creation routes on top.
+Provides: list (with search/filter/pagination), stats, analytics, activity feed, detail (full step + event data), get, cancel, and HTML audit report endpoints. Add your own workflow creation routes on top.
 
 **Option B: Standalone server** (`pip install workchain[server]`)
 
@@ -426,6 +459,8 @@ if handler and handler.launchable:
 
 A handler is **launchable** only when both its `config` and `result` type annotations are strict subclasses of `StepConfig` / `StepResult` and JSON schema extraction succeeds. The workflow designer UI uses this flag to enable or disable handler drag-and-drop.
 
+The `depends_on` field exposes the handler's declared dependency requirements (from the `@step`/`@async_step` decorator). The designer uses this to auto-wire edges when handlers are dropped onto the canvas. Pass `include_checks=True` to `list_handlers()` or `describe_handler()` to include completeness check handlers in the results.
+
 Pass `include_checks=True` to `list_handlers()` or `describe_handler()` to include completeness check handlers in the results.
 
 ## Workflow Templates
@@ -529,7 +564,7 @@ The server mounts a designer router at `/api/v1` that powers the upcoming drag-a
 | `DELETE` | `/api/v1/templates/{id}` | Delete a template |
 | `POST` | `/api/v1/templates/{id}/launch` | Instantiate a template into a runnable `Workflow` (supports `name_override` + per-step `config_overrides`) |
 
-**Web UI**: the server serves a React SPA at `/` with two pages — a dashboard (workflow stats + table) and a drag-and-drop workflow designer. Build it once before running the server for the first time:
+**Web UI**: the server serves a React SPA at `/` with four pages — a dashboard (`/`, key metrics + status breakdown + activity feed + template catalog), a workflows browser (`/workflows`, search + filter + paginated table), a workflow detail page (`/workflows/:id`, dependency graph + expandable step cards with error diagnostics + event timeline), and a drag-and-drop workflow designer (`/designer`). Build it once before running the server for the first time:
 
 ```bash
 hatch run frontend:install   # npm install (one-time)

@@ -308,6 +308,30 @@ class Workflow(BaseModel):
             depends_on_by_name={s.name: s.depends_on or [] for s in self.steps},
             container="Step",
         )
+
+        # --- Validate handler-declared dependency requirements ---
+        # Only validate on fresh workflows (PENDING status with no steps
+        # in progress).  Workflows loaded from MongoDB may predate handler
+        # depends_on declarations and must not fail on read.
+        if self.status == WorkflowStatus.PENDING:
+            from workchain.decorators import _STEP_META_ATTR, _STEP_REGISTRY
+
+            for step in self.steps:
+                fn = _STEP_REGISTRY.get(step.handler)
+                if fn is None:
+                    continue
+                meta = getattr(fn, _STEP_META_ATTR, None) or {}
+                required: list[str] | None = meta.get("depends_on")
+                if not required:
+                    continue
+                actual = set(step.depends_on or [])
+                missing = [r for r in required if r not in actual]
+                if missing:
+                    raise ValueError(
+                        f"Step {step.name!r} handler requires dependencies "
+                        f"{required!r} but step depends_on is missing {missing!r}"
+                    )
+
         return self
 
     created_at: datetime = Field(default_factory=_utcnow)

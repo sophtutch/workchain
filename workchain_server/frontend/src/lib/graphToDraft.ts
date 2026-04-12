@@ -13,6 +13,8 @@ export interface StepNodeData {
   handlerDescription?: string;
   /** Whether this is an async step (shown with an indicator). */
   handlerIsAsync?: boolean;
+  /** Validation errors to display on the node. */
+  errors?: string[];
 }
 
 export interface AnchorNodeData {

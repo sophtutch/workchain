@@ -201,6 +201,7 @@ async def check_deployment(
     poll=PollPolicy(interval=3.0, backoff_multiplier=1.0, timeout=300.0, max_polls=10),
     category="Infrastructure",
     description="Deploy application containers",
+    depends_on=["provision_database"],
 )
 async def deploy_application(
     config: DeployConfig,
@@ -221,7 +222,7 @@ async def deploy_application(
 # ---------------------------------------------------------------------------
 
 
-@step(category="Infrastructure", description="Create DNS records for the deployed application")
+@step(category="Infrastructure", description="Create DNS records for the deployed application", depends_on=["deploy_application"])
 async def configure_dns(
     config: DnsConfig,
     results: dict[str, StepResult],
@@ -261,6 +262,7 @@ async def check_tls_cert(
     poll=PollPolicy(interval=10.0, backoff_multiplier=1.0, timeout=900.0, max_polls=20),
     category="Infrastructure",
     description="Request and validate a TLS certificate",
+    depends_on=["configure_dns"],
 )
 async def issue_tls_cert(
     _config: TlsConfig,
@@ -281,7 +283,7 @@ async def issue_tls_cert(
 # ---------------------------------------------------------------------------
 
 
-@step(category="Infrastructure", description="Verify full stack is reachable and healthy")
+@step(category="Infrastructure", description="Verify full stack is reachable and healthy", depends_on=["issue_tls_cert"])
 async def health_check(
     config: HealthCheckConfig,
     results: dict[str, StepResult],

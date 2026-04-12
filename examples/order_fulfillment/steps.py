@@ -175,7 +175,7 @@ async def validate_order(
 # ---------------------------------------------------------------------------
 
 
-@step(category="Order Fulfilment", description="Verify stock availability at warehouse")
+@step(category="Order Fulfilment", description="Verify stock availability at warehouse", depends_on=["validate_order"])
 async def check_inventory(
     config: CheckInventoryConfig,
     results: dict[str, StepResult],
@@ -199,7 +199,7 @@ async def check_inventory(
 # ---------------------------------------------------------------------------
 
 
-@step(category="Order Fulfilment", description="Compute shipping cost and delivery estimate")
+@step(category="Order Fulfilment", description="Compute shipping cost and delivery estimate", depends_on=["validate_order"])
 async def calculate_shipping(
     config: CalculateShippingConfig,
     results: dict[str, StepResult],
@@ -264,6 +264,7 @@ async def check_payment(
     poll=PollPolicy(interval=2.0, timeout=60.0, max_polls=5),
     category="Order Fulfilment",
     description="Charge payment method via gateway and poll until settled",
+    depends_on=["check_inventory", "calculate_shipping"],
 )
 async def process_payment(
     config: ProcessPaymentConfig,
@@ -300,6 +301,7 @@ async def process_payment(
     retry=RetryPolicy(max_attempts=3, wait_seconds=0.5, wait_multiplier=2.0),
     category="Order Fulfilment",
     description="Atomically reserve stock for the order",
+    depends_on=["check_inventory"],
 )
 async def reserve_inventory(
     config: ReserveInventoryConfig,
@@ -325,7 +327,7 @@ async def reserve_inventory(
 # ---------------------------------------------------------------------------
 
 
-@step(category="Order Fulfilment", description="Warehouse picks and packs items for shipment")
+@step(category="Order Fulfilment", description="Warehouse picks and packs items for shipment", depends_on=["reserve_inventory"])
 async def pick_and_pack(
     config: PickAndPackConfig,
     results: dict[str, StepResult],
@@ -388,6 +390,7 @@ async def check_shipment(
     poll=PollPolicy(interval=3.0, timeout=120.0, max_polls=8),
     category="Order Fulfilment",
     description="Book carrier pickup and get tracking number",
+    depends_on=["pick_and_pack"],
 )
 async def arrange_shipping(
     config: ArrangeShippingConfig,
@@ -416,7 +419,7 @@ async def arrange_shipping(
 # ---------------------------------------------------------------------------
 
 
-@step(category="Notification", description="Send order confirmation email with tracking info")
+@step(category="Notification", description="Send order confirmation email with tracking info", depends_on=["validate_order", "arrange_shipping"])
 async def send_confirmation(
     config: SendConfirmationConfig,
     results: dict[str, StepResult],

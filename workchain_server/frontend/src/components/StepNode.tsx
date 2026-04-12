@@ -30,8 +30,10 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
 
   const isConnected = (handleId: string) => connectedHandles.includes(handleId);
 
+  const hasErrors = data.errors && data.errors.length > 0;
+
   return (
-    <div className={`step-node${selected ? " step-node--selected" : ""}${data.handlerIsAsync ? " step-node--async" : ""}`}>
+    <div className={`step-node${selected ? " step-node--selected" : ""}${data.handlerIsAsync ? " step-node--async" : ""}${hasErrors ? " step-node--error" : ""}`}>
       {/* Left: input */}
       <Handle type="target" id="deps" position={Position.Left}
         className="step-handle step-handle--input" />

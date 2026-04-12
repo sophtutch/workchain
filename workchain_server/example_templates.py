@@ -356,7 +356,7 @@ def _ml_training() -> WorkflowTemplate:
                 name="publish_model",
                 handler="examples.ml_training.steps.publish_model",
                 config={},
-                depends_on=["evaluate_model"],
+                depends_on=["train_model"],
             ),
         ],
     )

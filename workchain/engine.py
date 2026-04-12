@@ -49,17 +49,31 @@ class _ActiveStep(NamedTuple):
 
 
 def _build_results(wf: Workflow, step_name: str) -> dict[str, StepResult]:
-    """Build a dict of dependency step results for the given step."""
+    """Build a dict of dependency step results for the given step.
+
+    Includes results from all completed dependency steps. Logs a warning
+    if a dependency is marked completed but has no result (indicates a
+    storage or deserialization issue).
+    """
     step = wf.step_by_name(step_name)
     if step is None:
         return {}
     deps = step.depends_on or []
-    return {
-        dep_name: dep.result
-        for dep_name in deps
-        if (dep := wf.step_by_name(dep_name)) is not None
-        and dep.result is not None
-    }
+    results: dict[str, StepResult] = {}
+    for dep_name in deps:
+        dep = wf.step_by_name(dep_name)
+        if dep is None:
+            continue
+        if dep.result is not None:
+            results[dep_name] = dep.result
+        elif dep.status.value == "completed":
+            logger.warning(
+                "Dependency %r of step %r is completed but has no result "
+                "(workflow=%s). The handler may receive an incomplete "
+                "results dict.",
+                dep_name, step_name, wf.id,
+            )
+    return results
 
 
 def _expect_step(step: Step | None, step_name: str) -> Step:

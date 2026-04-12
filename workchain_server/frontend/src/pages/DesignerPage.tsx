@@ -91,6 +91,7 @@ function DesignerInner() {
   const nodeCounter = useRef(1);
   const blockCounter = useRef(1);
   const rfInstance = useRef<ReactFlowInstance | null>(null);
+  const bottomHeightRef = useRef(200);
 
   const handlersByName = useMemo(() => {
     const m = new Map<string, HandlerDescriptor>();
@@ -238,11 +239,20 @@ function DesignerInner() {
       const descriptor = handlersByName.get(handlerName);
       if (!descriptor || !descriptor.launchable) return;
       const shortName = descriptor.qualname.split(".").pop() ?? "step";
-      const stepId = `${shortName}_${nodeCounter.current++}`;
+      const stepId = `step_${nodeCounter.current++}`;
       const projected =
         rfInstance.current?.screenToFlowPosition(position) ?? position;
 
+      let capturedId = stepId;
       setNodes((ns) => {
+        // Each handler can only appear once — reject duplicates
+        const existingHandlers = new Set(
+          ns.filter(isStepNode).map((n) => n.data.handlerName),
+        );
+        if (existingHandlers.has(handlerName)) return ns;
+
+        const stepName = shortName;
+
         const parentBlockId = findBlockAtPosition(projected, ns);
         const block = parentBlockId ? ns.find((n) => n.id === parentBlockId) : null;
 
@@ -260,7 +270,7 @@ function DesignerInner() {
           position: relPos,
           data: {
             handlerName,
-            stepName: stepId,
+            stepName,
             configValues: {},
             handlerDescription: descriptor.description ?? undefined,
             handlerIsAsync: descriptor.is_async,
@@ -270,13 +280,36 @@ function DesignerInner() {
             : {}),
         };
 
+        capturedId = stepId;
         let updated = [...ns, stepNode];
         if (parentBlockId) {
           updated = autoResizeBlock(parentBlockId, updated);
         }
+
+        // Auto-wire edges from handler depends_on metadata
+        if (descriptor.depends_on) {
+          const nameToNodeId = new Map(
+            updated.filter(isStepNode).map((n) => [n.data.stepName, n.id]),
+          );
+          const newEdges: Edge[] = [];
+          for (const dep of descriptor.depends_on) {
+            const sourceId = nameToNodeId.get(dep);
+            if (sourceId) {
+              newEdges.push({
+                id: `e-${sourceId}-${stepId}`,
+                source: sourceId,
+                target: stepId,
+              });
+            }
+          }
+          if (newEdges.length > 0) {
+            setEdges((es) => [...es, ...newEdges]);
+          }
+        }
+
         return updated;
       });
-      setSelectedId(stepId);
+      setSelectedId(capturedId);
     },
     [handlersByName, findBlockAtPosition, autoResizeBlock],
   );
@@ -349,16 +382,6 @@ function DesignerInner() {
   // -----------------------------------------------------------------------
   // Step and block mutations
   // -----------------------------------------------------------------------
-
-  const onStepNameChange = useCallback((nodeId: string, name: string) => {
-    setNodes((ns) =>
-      ns.map((n) =>
-        n.id === nodeId && isStepNode(n)
-          ? { ...n, data: { ...n.data, stepName: name } }
-          : n,
-      ),
-    );
-  }, []);
 
   const onConfigChange = useCallback(
     (nodeId: string, values: Record<string, unknown>) => {
@@ -497,19 +520,59 @@ function DesignerInner() {
   // -----------------------------------------------------------------------
 
   const issues = useMemo(
-    () => draftValidate(workflowName, nodes, edges),
-    [workflowName, nodes, edges],
+    () => draftValidate(workflowName, nodes, edges, handlers),
+    [workflowName, nodes, edges, handlers],
   );
+
+  // Sync validation issues onto node data for real-time error display.
+  // Uses a ref to avoid re-triggering the useMemo that computes issues.
+  const prevIssueKeyRef = useRef("");
+  useEffect(() => {
+    // Build a stable key to avoid unnecessary node updates
+    const issueKey = issues
+      .filter((i) => i.nodeId)
+      .map((i) => `${i.nodeId}:${i.message}`)
+      .join("|");
+    if (issueKey === prevIssueKeyRef.current) return;
+    prevIssueKeyRef.current = issueKey;
+
+    const byNode = new Map<string, string[]>();
+    for (const issue of issues) {
+      if (!issue.nodeId) continue;
+      const arr = byNode.get(issue.nodeId) ?? [];
+      arr.push(issue.message);
+      byNode.set(issue.nodeId, arr);
+    }
+
+    setNodes((ns) =>
+      ns.map((n) => {
+        if (!isStepNode(n)) return n;
+        const errs = byNode.get(n.id);
+        const cur = n.data.errors;
+        if (!errs && !cur) return n;
+        if (!errs && cur) return { ...n, data: { ...n.data, errors: undefined } };
+        return { ...n, data: { ...n.data, errors: errs } };
+      }),
+    );
+  }, [issues]);
 
   const onRun = useCallback(async () => {
     if (issues.length > 0) return;
     setRunning(true);
     setStatusMessage(null);
     setStepErrorsByNode({});
+    // Clear any previous errors from node data
+    setNodes((ns) =>
+      ns.map((n) =>
+        isStepNode(n) && n.data.errors
+          ? { ...n, data: { ...n.data, errors: undefined } }
+          : n,
+      ),
+    );
     try {
       const draft = graphToDraft(workflowName, nodes, edges);
       const result = await createWorkflow(draft);
-      setStatusMessage(`Launched '${result.name}' (${result.id.slice(0, 8)}…)`);
+      navigate(`/workflows/${encodeURIComponent(result.id)}`);
     } catch (err) {
       if (err instanceof DraftValidationError) {
         const sNodes = nodes.filter(isStepNode);
@@ -523,6 +586,18 @@ function DesignerInner() {
           mapped[id] = [e.error, ...fieldLines];
         }
         setStepErrorsByNode(mapped);
+        // Stamp errors onto node data so StepNode can render them
+        setNodes((ns) =>
+          ns.map((n) => {
+            if (!isStepNode(n)) return n;
+            const errs = mapped[n.id];
+            return errs
+              ? { ...n, data: { ...n.data, errors: errs } }
+              : n.data.errors
+                ? { ...n, data: { ...n.data, errors: undefined } }
+                : n;
+          }),
+        );
         setStatusMessage(err.detail.detail);
       } else {
         setStatusMessage(
@@ -545,7 +620,18 @@ function DesignerInner() {
   const selectedHandler = selectedStepNode
     ? handlersByName.get(selectedStepNode.data.handlerName) ?? null
     : null;
-  const selectedErrors = selectedId ? stepErrorsByNode[selectedId] ?? [] : [];
+  // Combine graph issues + backend step errors into one list
+  const allIssues = useMemo(() => {
+    const combined = [...issues];
+    for (const [nodeId, errs] of Object.entries(stepErrorsByNode)) {
+      const node = nodes.find((n) => n.id === nodeId);
+      const name = node && isStepNode(node) ? node.data.stepName : nodeId;
+      for (const e of errs) {
+        combined.push({ nodeId, message: `${name}: ${e}` });
+      }
+    }
+    return combined;
+  }, [issues, stepErrorsByNode, nodes]);
 
   return (
     <>
@@ -569,35 +655,80 @@ function DesignerInner() {
             loading={loading}
             error={handlersError}
           />
-          <DesignerCanvas
-            key={canvasKey}
-            nodes={nodes}
-            edges={edges}
-            handlers={handlers}
-            selectedId={selectedId}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onAddEdge={onAddEdge}
-            onUpdateEdge={onUpdateEdge}
-            onDropHandler={onDropHandler}
-            onSelect={setSelectedId}
-            onNodeDragStop={onNodeDragStop}
-            setReactFlowInstance={(inst) => {
-              rfInstance.current = inst;
-              // Always fit on init — covers both fresh canvas and template load.
-              inst.fitView({ padding: 0.1 });
-            }}
-          />
-          <ConfigPanel
-            selectedNode={selectedNode}
-            handler={selectedHandler}
-            onStepNameChange={onStepNameChange}
-            onConfigChange={onConfigChange}
-            onBlockLabelChange={onBlockLabelChange}
-            onDelete={onDelete}
-            onUnparent={onUnparent}
-            errors={selectedErrors}
-          />
+          <div className="designer__main">
+            <DesignerCanvas
+              key={canvasKey}
+              nodes={nodes}
+              edges={edges}
+              handlers={handlers}
+              selectedId={selectedId}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onAddEdge={onAddEdge}
+              onUpdateEdge={onUpdateEdge}
+              onDropHandler={onDropHandler}
+              onSelect={setSelectedId}
+              onNodeDragStop={onNodeDragStop}
+              setReactFlowInstance={(inst) => {
+                rfInstance.current = inst;
+                inst.fitView({ padding: 0.1 });
+              }}
+              onTidy={() => {
+                const { nodes: laid, edges: smartEdges } = autoLayout(nodes, edges);
+                setNodes(laid);
+                setEdges(smartEdges);
+                setTimeout(() => rfInstance.current?.fitView({ padding: 0.1 }), 50);
+              }}
+            />
+            <div
+              className="designer__divider"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const startY = e.clientY;
+                const startH = bottomHeightRef.current;
+                const onMove = (ev: PointerEvent) => {
+                  const newH = Math.max(80, Math.min(window.innerHeight * 0.6, startH - (ev.clientY - startY)));
+                  bottomHeightRef.current = newH;
+                  const el = document.getElementById("designer-bottom");
+                  if (el) el.style.height = `${newH}px`;
+                };
+                const onUp = () => {
+                  document.removeEventListener("pointermove", onMove);
+                  document.removeEventListener("pointerup", onUp);
+                };
+                document.addEventListener("pointermove", onMove);
+                document.addEventListener("pointerup", onUp);
+              }}
+            />
+            <div id="designer-bottom" className="designer__bottom">
+              <div className="designer__bottom-content">
+                <ConfigPanel
+                  selectedNode={selectedNode}
+                  handler={selectedHandler}
+                  onConfigChange={onConfigChange}
+                  onBlockLabelChange={onBlockLabelChange}
+                  onDelete={onDelete}
+                  onUnparent={onUnparent}
+                />
+                <div className="issue-panel">
+                  <div className="issue-panel__heading">
+                    Issues{allIssues.length > 0 ? ` (${allIssues.length})` : ""}
+                  </div>
+                  {allIssues.length > 0 ? (
+                    <ul className="issue-panel__list">
+                      {allIssues.map((issue, i) => (
+                        <li key={i} className="issue-panel__item">
+                          {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="issue-panel__empty">No issues</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </>
