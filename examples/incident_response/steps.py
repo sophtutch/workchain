@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import time
 import uuid
 from typing import cast
@@ -90,6 +92,7 @@ async def create_ticket(
     _results: dict[str, StepResult],
 ) -> TicketResult:
     """Open an incident ticket in the tracking system."""
+    await asyncio.sleep(random.uniform(5, 20))
     ticket_id = f"INC-{uuid.uuid4().hex[:8].upper()}"
     created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     logger.info(
@@ -110,6 +113,7 @@ async def page_oncall(
     results: dict[str, StepResult],
 ) -> PageResult:
     """Page the on-call engineer via the escalation policy."""
+    await asyncio.sleep(random.uniform(5, 20))
     ticket_result = cast(TicketResult, results["create_ticket"])
     paged_user = "oncall-eng@example.com"
     logger.info(
@@ -125,6 +129,7 @@ async def gather_diagnostics(
     results: dict[str, StepResult],
 ) -> DiagnosticsResult:
     """Collect logs and metrics snapshots for the affected service."""
+    await asyncio.sleep(random.uniform(5, 20))
     ticket_result = cast(TicketResult, results["create_ticket"])
     logs_collected = 142
     metrics_snapshot = {
@@ -153,6 +158,7 @@ async def check_remediation(
 
     Simulates an external remediation system that resolves after 3 polls.
     """
+    await asyncio.sleep(random.uniform(3, 8))
     rem_id = result.remediation_id
     count = _poll_counts.get(rem_id, 0) + 1
     _poll_counts[rem_id] = count
@@ -184,6 +190,7 @@ async def apply_remediation(
     results: dict[str, StepResult],
 ) -> RemediationResult:
     """Submit the automated remediation runbook for execution."""
+    await asyncio.sleep(random.uniform(5, 20))
     diagnostics = cast(DiagnosticsResult, results["gather_diagnostics"])
     remediation_id = f"REM-{uuid.uuid4().hex[:8].upper()}"
     action = "restart_service"
@@ -202,6 +209,7 @@ async def verify_resolution(
     results: dict[str, StepResult],
 ) -> VerifyResult:
     """Verify the service has recovered after remediation."""
+    await asyncio.sleep(random.uniform(5, 20))
     remediation = cast(RemediationResult, results["apply_remediation"])
     healthy = True
     latency_ms = 45.2
@@ -218,6 +226,7 @@ async def close_ticket(
     results: dict[str, StepResult],
 ) -> CloseTicketResult:
     """Close the incident ticket with a resolution summary."""
+    await asyncio.sleep(random.uniform(5, 20))
     ticket_result = cast(TicketResult, results["create_ticket"])
     verify = cast(VerifyResult, results["verify_resolution"])
     resolution_minutes = 8.5  # simulated

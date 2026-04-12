@@ -10,7 +10,9 @@ Steps:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import uuid
 from typing import cast
 
@@ -87,6 +89,7 @@ async def prepare_dataset(
     _results: dict[str, StepResult],
 ) -> DatasetResult:
     """Download and clean the training dataset."""
+    await asyncio.sleep(random.uniform(5, 20))
     dataset_id = f"ds-{uuid.uuid4().hex[:8]}"
     logger.info(
         "[dataset] Prepared %s: %d records (id=%s)",
@@ -101,6 +104,7 @@ async def split_train_test(
     results: dict[str, StepResult],
 ) -> SplitResult:
     """Split dataset into training and test partitions."""
+    await asyncio.sleep(random.uniform(5, 20))
     train_ratio = 0.8
     ds = cast(DatasetResult, results["prepare_dataset"])
     train_count = int(ds.record_count * train_ratio)
@@ -123,6 +127,7 @@ async def check_training(
     This simulates a GPU job that stalls (e.g. quota exhausted, gradient
     divergence) so the poll timeout fires.
     """
+    await asyncio.sleep(random.uniform(3, 8))
     logger.info("[train] Job %s still running — loss not converging...", result.job_id)
     return CheckResult(complete=False, progress=0.1, message="Loss not converging")
 
@@ -139,6 +144,7 @@ async def train_model(
     results: dict[str, StepResult],
 ) -> TrainResult:
     """Submit a model training job to the compute cluster."""
+    await asyncio.sleep(random.uniform(5, 20))
     epochs = 100
     learning_rate = 0.001
     split = cast(SplitResult, results["split_train_test"])
@@ -156,6 +162,7 @@ async def evaluate_model(
     results: dict[str, StepResult],
 ) -> EvalResult:
     """Evaluate model accuracy on test split."""
+    await asyncio.sleep(random.uniform(5, 20))
     train = cast(TrainResult, results["train_model"])
     logger.info("[eval] Evaluating model from job %s", train.job_id)
     return EvalResult(accuracy=0.92, f1_score=0.89)
@@ -167,6 +174,7 @@ async def publish_model(
     results: dict[str, StepResult],
 ) -> PublishResult:
     """Publish trained model to the model registry."""
+    await asyncio.sleep(random.uniform(5, 20))
     train = cast(TrainResult, results["train_model"])
     uri = f"registry/models/{train.job_id}"
     logger.info("[publish] Published model to %s", uri)

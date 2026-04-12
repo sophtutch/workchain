@@ -18,6 +18,7 @@ Steps:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import uuid
@@ -174,6 +175,7 @@ class DashboardResult(StepResult):
 @step(category="Code Quality", description="Run static analysis and linting on source files")
 async def lint_code(_config: LintConfig, _results: dict[str, StepResult]) -> LintResult:
     """Run static analysis / linting on source files."""
+    await asyncio.sleep(random.uniform(5, 20))
     source_dir = "src"
     files_checked = _rng.randint(40, 120)
     warnings = _rng.randint(0, 5)
@@ -192,6 +194,7 @@ async def lint_code(_config: LintConfig, _results: dict[str, StepResult]) -> Lin
 )
 async def run_unit_tests(_config: TestConfig, _results: dict[str, StepResult]) -> TestResult:
     """Execute the unit test suite. May flake on first attempt."""
+    await asyncio.sleep(random.uniform(5, 20))
     test_dir = "tests"
     coverage_threshold = 80.0
     total = _rng.randint(80, 200)
@@ -209,6 +212,7 @@ async def run_unit_tests(_config: TestConfig, _results: dict[str, StepResult]) -
 @step(category="Security", description="Run SAST and dependency vulnerability scan")
 async def security_scan(_config: SecurityScanConfig, _results: dict[str, StepResult]) -> SecurityScanResult:
     """Run SAST and dependency vulnerability scan."""
+    await asyncio.sleep(random.uniform(5, 20))
     scan_profile = "strict"
     scan_id = uuid.uuid4().hex[:10]
     vulns = _rng.randint(0, 12)
@@ -228,6 +232,7 @@ async def run_integration_tests(
     _results: dict[str, StepResult],
 ) -> IntegrationTestResult:
     """Run integration tests against a test database."""
+    await asyncio.sleep(random.uniform(5, 20))
     db_url = "postgres://test/ci"
     total = _rng.randint(30, 80)
     migrations = _rng.randint(2, 8)
@@ -242,6 +247,7 @@ async def run_integration_tests(
 @step(category="Security", description="Audit dependency licenses against compliance policy", depends_on=["security_scan"])
 async def license_audit(_config: LicenseAuditConfig, results: dict[str, StepResult]) -> LicenseAuditResult:
     """Audit dependency licenses against policy."""
+    await asyncio.sleep(random.uniform(5, 20))
     policy = "strict"
     scan_result = cast(SecurityScanResult, results["security_scan"])
     packages = _rng.randint(80, 200)
@@ -260,6 +266,7 @@ async def license_audit(_config: LicenseAuditConfig, results: dict[str, StepResu
 @step(category="Security", description="Generate detailed CVE vulnerability report", depends_on=["security_scan"])
 async def vulnerability_report(_config: VulnReportConfig, results: dict[str, StepResult]) -> VulnReportResult:
     """Generate a detailed vulnerability report from scan results."""
+    await asyncio.sleep(random.uniform(5, 20))
     format = "sarif"
     scan_result = cast(SecurityScanResult, results["security_scan"])
     report_url = f"https://reports.example.com/vuln/{scan_result.scan_id}.{format}"
@@ -284,6 +291,7 @@ async def check_build(
     result: BuildResult,
 ) -> CheckResult:
     """Completeness check: simulates build completing after a few polls."""
+    await asyncio.sleep(random.uniform(3, 8))
     progress_steps = [0.3, 0.6, 1.0]
     progress = _rng.choice(progress_steps)
 
@@ -306,6 +314,7 @@ async def check_build(
 )
 async def build_artifact(config: BuildConfig, _results: dict[str, StepResult]) -> BuildResult:
     """Kick off a container image build."""
+    await asyncio.sleep(random.uniform(5, 20))
     build_id = uuid.uuid4().hex[:12]
     artifact_url = f"https://builds.example.com/{config.repo}/{build_id}"
     logger.info("[build] Started build %s for %s@%s", build_id, config.repo, config.branch)
@@ -322,6 +331,7 @@ async def push_to_registry(
     results: dict[str, StepResult],
 ) -> RegistryResult:
     """Push the built artifact to a container registry."""
+    await asyncio.sleep(random.uniform(5, 20))
     registry = "ghcr.io"
     build_result = cast(BuildResult, results["build_artifact"])
     image_tag = f"{build_result.build_id[:8]}-latest"
@@ -337,6 +347,7 @@ async def push_to_registry(
 @step(category="Security", description="Verify all compliance checks passed before deploy", depends_on=["vulnerability_report"])
 async def compliance_sign_off(_config: ComplianceConfig, results: dict[str, StepResult]) -> ComplianceResult:
     """Verify all compliance checks passed before deployment."""
+    await asyncio.sleep(random.uniform(5, 20))
     require_zero_critical = True
     vuln_result = cast(VulnReportResult, results["vulnerability_report"])
     approved = vuln_result.critical == 0 or not require_zero_critical
@@ -363,6 +374,7 @@ async def check_deployment(
     result: DeployResult,
 ) -> CheckResult:
     """Completeness check: deployment becomes healthy (50% chance per poll)."""
+    await asyncio.sleep(random.uniform(3, 8))
     if _rng.random() < 0.5:
         logger.info("[deploy] Deployment %s rolling out...", result.deployment_id)
         return CheckResult(complete=False, progress=0.5, message="Rolling update in progress")
@@ -382,6 +394,7 @@ async def deploy_staging(
     results: dict[str, StepResult],
 ) -> DeployResult:
     """Deploy the container image to staging."""
+    await asyncio.sleep(random.uniform(5, 20))
     environment = "staging"
     registry_result = cast(RegistryResult, results["push_to_registry"])
     deployment_id = uuid.uuid4().hex[:12]
@@ -399,6 +412,7 @@ async def deploy_staging(
 @step(category="Reporting", description="Aggregate pipeline results into a final report", depends_on=["run_unit_tests", "deploy_staging"])
 async def generate_report(_config: ReportConfig, results: dict[str, StepResult]) -> ReportResult:
     """Aggregate results from all pipeline branches into a final report."""
+    await asyncio.sleep(random.uniform(5, 20))
     include_coverage = True
     test_result = cast(TestResult, results["run_unit_tests"])
     deploy_result = cast(DeployResult, results["deploy_staging"])
@@ -418,6 +432,7 @@ async def generate_report(_config: ReportConfig, results: dict[str, StepResult])
 @step(category="Notification", description="Send pipeline completion notification to team channel", depends_on=["generate_report"])
 async def notify_team(_config: NotifyConfig, results: dict[str, StepResult]) -> NotifyResult:
     """Send pipeline completion notification to team channel."""
+    await asyncio.sleep(random.uniform(5, 20))
     channel = "#ci-cd"
     report_result = cast(ReportResult, results["generate_report"])
     message_id = uuid.uuid4().hex[:10]
@@ -432,6 +447,7 @@ async def notify_team(_config: NotifyConfig, results: dict[str, StepResult]) -> 
 @step(category="Reporting", description="Push pipeline metrics to monitoring dashboard", depends_on=["generate_report"])
 async def update_dashboard(_config: DashboardConfig, results: dict[str, StepResult]) -> DashboardResult:
     """Push pipeline metrics to CI/CD monitoring dashboard."""
+    await asyncio.sleep(random.uniform(5, 20))
     dashboard_id = "ci-main"
     report_result = cast(ReportResult, results["generate_report"])
     metrics = report_result.sections + _rng.randint(3, 8)
