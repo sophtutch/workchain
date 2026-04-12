@@ -519,9 +519,41 @@ function DesignerInner() {
   // -----------------------------------------------------------------------
 
   const issues = useMemo(
-    () => draftValidate(workflowName, nodes, edges),
-    [workflowName, nodes, edges],
+    () => draftValidate(workflowName, nodes, edges, handlers),
+    [workflowName, nodes, edges, handlers],
   );
+
+  // Sync validation issues onto node data for real-time error display.
+  // Uses a ref to avoid re-triggering the useMemo that computes issues.
+  const prevIssueKeyRef = useRef("");
+  useEffect(() => {
+    // Build a stable key to avoid unnecessary node updates
+    const issueKey = issues
+      .filter((i) => i.nodeId)
+      .map((i) => `${i.nodeId}:${i.message}`)
+      .join("|");
+    if (issueKey === prevIssueKeyRef.current) return;
+    prevIssueKeyRef.current = issueKey;
+
+    const byNode = new Map<string, string[]>();
+    for (const issue of issues) {
+      if (!issue.nodeId) continue;
+      const arr = byNode.get(issue.nodeId) ?? [];
+      arr.push(issue.message);
+      byNode.set(issue.nodeId, arr);
+    }
+
+    setNodes((ns) =>
+      ns.map((n) => {
+        if (!isStepNode(n)) return n;
+        const errs = byNode.get(n.id);
+        const cur = n.data.errors;
+        if (!errs && !cur) return n;
+        if (!errs && cur) return { ...n, data: { ...n.data, errors: undefined } };
+        return { ...n, data: { ...n.data, errors: errs } };
+      }),
+    );
+  }, [issues]);
 
   const onRun = useCallback(async () => {
     if (issues.length > 0) return;

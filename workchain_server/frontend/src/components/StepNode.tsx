@@ -77,7 +77,7 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
       {hasErrors && (
         <div className="step-node__error">
           <AlertCircle size={12} />
-          <span>{data.errors![0].length > 80 ? data.errors![0].slice(0, 77) + "..." : data.errors![0]}</span>
+          <span>{data.errors![0]}</span>
         </div>
       )}
     </div>

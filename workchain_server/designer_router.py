@@ -175,24 +175,39 @@ def _build_workflow_from_draft(draft: WorkflowDraft) -> Workflow:
 
     try:
         return Workflow(name=draft.name, steps=built_steps)
-    except ValueError as exc:
-        # Parse handler-requires errors into per-step errors so the
-        # designer can highlight which steps are missing dependencies.
+    except (ValueError, Exception) as exc:
+        import re
+
+        # Pydantic wraps ValueError in ValidationError — unwrap to get
+        # the original message.
         msg = str(exc)
+        # Look through the full error text for our handler-requires pattern
+        match = re.search(
+            r"Step '([^']+)' handler requires dependencies (\[[^\]]+\]) "
+            r"but step depends_on is missing (\[[^\]]+\])",
+            msg,
+        )
+
         dag_errors: list[DraftStepError] = []
-        if "handler requires dependencies" in msg:
-            # Extract step name from "Step 'X' handler requires..."
-            import re
-            m = re.search(r"Step '([^']+)' handler requires", msg)
-            step_name = m.group(1) if m else "<workflow>"
-            dag_errors.append(DraftStepError(step=step_name, error=msg))
+        if match:
+            step_name = match.group(1)
+            missing = match.group(3)  # e.g. "['validate_email']"
+            dag_errors.append(DraftStepError(
+                step=step_name,
+                error=f"Missing connections from: {missing}",
+            ))
+            detail_msg = f"'{step_name}' needs connections from {missing}"
         else:
-            dag_errors.append(DraftStepError(step="<workflow>", error=msg))
+            dag_errors.append(DraftStepError(
+                step="<workflow>",
+                error=msg.split("\n")[0][:120],
+            ))
+            detail_msg = msg.split("\n")[0][:120]
 
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
-                "detail": "workflow DAG validation failed",
+                "detail": detail_msg,
                 "errors": [e.model_dump() for e in dag_errors],
             },
         ) from exc

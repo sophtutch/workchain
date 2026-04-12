@@ -75,6 +75,16 @@ export function Toolbar({
       >
         <Copy size={14} /> Save As New
       </button>
+      {issues.length > 0 && (
+        <div className="toolbar__issues">
+          {issues.slice(0, 3).map((issue, i) => (
+            <span key={i} className="toolbar__issue">{issue.message}</span>
+          ))}
+          {issues.length > 3 && (
+            <span className="toolbar__issue">+{issues.length - 3} more</span>
+          )}
+        </div>
+      )}
       <button
         type="button"
         className="btn btn--primary"
