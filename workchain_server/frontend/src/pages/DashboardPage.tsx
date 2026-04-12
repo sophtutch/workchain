@@ -12,7 +12,7 @@ import { TemplateLaunchModal } from "../components/TemplateLaunchModal";
 import type { WorkflowTemplate } from "../api/types";
 
 export function DashboardPage() {
-  const { analytics, activity } = useAnalytics();
+  const { analytics, activity, failures } = useAnalytics();
   const { templates, loading: templatesLoading, refresh: refreshTemplates } = useTemplates();
   const { handlers } = useHandlers();
   const navigate = useNavigate();
@@ -27,8 +27,15 @@ export function DashboardPage() {
       {/* Status breakdown */}
       <StatusBreakdown counts={analytics?.status_counts ?? null} />
 
-      {/* Recent activity */}
-      <ActivityFeed items={activity} />
+      {/* Recent activity + failures side by side */}
+      <div className="dashboard__split">
+        <ActivityFeed items={activity} />
+        <ActivityFeed
+          items={failures}
+          title="Recent Failures"
+          emptyText="No recent failures."
+        />
+      </div>
 
       {/* Template catalog */}
       <TemplateCatalog

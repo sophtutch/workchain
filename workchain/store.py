@@ -475,15 +475,21 @@ class MongoWorkflowStore:
             "throughput_24h": completions_24h + failures_24h,
         }
 
-    async def recent_activity(self, limit: int = 10) -> list[dict[str, Any]]:
+    async def recent_activity(
+        self, limit: int = 10, status: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Return recently updated workflows sorted by updated_at descending.
 
         Args:
             limit: Maximum number of workflows to return.
+            status: Optional status filter (e.g. ``"failed"``).
         """
+        query: dict[str, Any] = {}
+        if status is not None:
+            query["status"] = status
         cursor = (
             self._col.find(
-                {},
+                query,
                 {"_id": 1, "name": 1, "status": 1, "updated_at": 1, "created_at": 1},
                 max_time_ms=self._op_timeout,
             )

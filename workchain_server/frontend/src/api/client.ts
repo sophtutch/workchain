@@ -99,8 +99,11 @@ export async function fetchAnalytics(): Promise<WorkflowAnalytics> {
 
 export async function fetchActivity(
   limit = 10,
+  status?: string,
 ): Promise<ActivityItem[]> {
-  const resp = await fetch(`${API_BASE}/workflows/activity?limit=${limit}`);
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (status) qs.set("status", status);
+  const resp = await fetch(`${API_BASE}/workflows/activity?${qs}`);
   return handleResponse<ActivityItem[]>(resp);
 }
 

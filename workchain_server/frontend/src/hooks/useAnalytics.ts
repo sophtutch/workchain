@@ -5,22 +5,25 @@ import type { WorkflowAnalytics, ActivityItem } from "../api/types";
 const POLL_MS = 5000;
 const MAX_ERRORS = 3;
 
-/** Poll workflow analytics and recent activity for the dashboard. */
+/** Poll workflow analytics, recent activity, and recent failures for the dashboard. */
 export function useAnalytics() {
   const [analytics, setAnalytics] = useState<WorkflowAnalytics | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [failures, setFailures] = useState<ActivityItem[]>([]);
   const errorCountRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
     const refresh = async () => {
       try {
-        const [a, act] = await Promise.all([
+        const [a, act, fail] = await Promise.all([
           fetchAnalytics(),
           fetchActivity(8),
+          fetchActivity(8, "failed"),
         ]);
         setAnalytics(a);
         setActivity(act);
+        setFailures(fail);
         errorCountRef.current = 0;
       } catch (err) {
         console.warn("Failed to fetch analytics:", err);
@@ -39,5 +42,5 @@ export function useAnalytics() {
     };
   }, []);
 
-  return { analytics, activity };
+  return { analytics, activity, failures };
 }
