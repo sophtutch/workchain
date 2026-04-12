@@ -528,6 +528,14 @@ function DesignerInner() {
     setRunning(true);
     setStatusMessage(null);
     setStepErrorsByNode({});
+    // Clear any previous errors from node data
+    setNodes((ns) =>
+      ns.map((n) =>
+        isStepNode(n) && n.data.errors
+          ? { ...n, data: { ...n.data, errors: undefined } }
+          : n,
+      ),
+    );
     try {
       const draft = graphToDraft(workflowName, nodes, edges);
       const result = await createWorkflow(draft);
@@ -545,6 +553,18 @@ function DesignerInner() {
           mapped[id] = [e.error, ...fieldLines];
         }
         setStepErrorsByNode(mapped);
+        // Stamp errors onto node data so StepNode can render them
+        setNodes((ns) =>
+          ns.map((n) => {
+            if (!isStepNode(n)) return n;
+            const errs = mapped[n.id];
+            return errs
+              ? { ...n, data: { ...n.data, errors: errs } }
+              : n.data.errors
+                ? { ...n, data: { ...n.data, errors: undefined } }
+                : n;
+          }),
+        );
         setStatusMessage(err.detail.detail);
       } else {
         setStatusMessage(

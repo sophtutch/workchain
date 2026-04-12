@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Handle, Position, useStore, type NodeProps } from "reactflow";
-import { Play, Zap } from "lucide-react";
+import { AlertCircle, Play, Zap } from "lucide-react";
 import type { StepNodeData } from "../lib/graphToDraft";
 
 /**
@@ -30,8 +30,10 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
 
   const isConnected = (handleId: string) => connectedHandles.includes(handleId);
 
+  const hasErrors = data.errors && data.errors.length > 0;
+
   return (
-    <div className={`step-node${selected ? " step-node--selected" : ""}${data.handlerIsAsync ? " step-node--async" : ""}`}>
+    <div className={`step-node${selected ? " step-node--selected" : ""}${data.handlerIsAsync ? " step-node--async" : ""}${hasErrors ? " step-node--error" : ""}`}>
       {/* Left: input */}
       <Handle type="target" id="deps" position={Position.Left}
         className="step-handle step-handle--input" />
@@ -72,6 +74,12 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
           )}
         </div>
       </div>
+      {hasErrors && (
+        <div className="step-node__error">
+          <AlertCircle size={12} />
+          <span>{data.errors![0].length > 80 ? data.errors![0].slice(0, 77) + "..." : data.errors![0]}</span>
+        </div>
+      )}
     </div>
   );
 }
