@@ -16,37 +16,40 @@ function timeAgo(iso: string): string {
 
 interface ActivityFeedProps {
   items: ActivityItem[];
+  title?: string;
+  emptyText?: string;
 }
 
-export function ActivityFeed({ items }: ActivityFeedProps) {
-  if (items.length === 0) {
-    return (
-      <section className="activity-feed">
-        <h3 className="activity-feed__heading">Recent Activity</h3>
-        <p className="activity-feed__empty">No recent workflow activity.</p>
-      </section>
-    );
-  }
-
+export function ActivityFeed({
+  items,
+  title = "Recent Activity",
+  emptyText = "No recent workflow activity.",
+}: ActivityFeedProps) {
   return (
     <section className="activity-feed">
-      <h3 className="activity-feed__heading">Recent Activity</h3>
-      <div className="activity-feed__list">
-        {items.map((item) => (
-          <Link
-            key={item.id}
-            to={`/workflows/${encodeURIComponent(item.id)}`}
-            className="activity-feed__item"
-          >
-            <span className={`activity-feed__dot activity-feed__dot--${item.status}`} />
-            <span className="activity-feed__name">{item.name}</span>
-            <span className={`activity-feed__status activity-feed__status--${item.status}`}>
-              {item.status}
-            </span>
-            <span className="activity-feed__time">{timeAgo(item.updated_at)}</span>
-            <Eye size={12} className="activity-feed__icon" />
-          </Link>
-        ))}
+      <h2 className="activity-feed__heading">{title}</h2>
+      <div className="activity-feed__card">
+        {items.length === 0 ? (
+          <p className="activity-feed__empty">{emptyText}</p>
+        ) : (
+          <div className="activity-feed__list">
+            {items.map((item) => (
+              <Link
+                key={item.id}
+                to={`/workflows/${encodeURIComponent(item.id)}`}
+                className="activity-feed__item"
+              >
+                <span className={`activity-feed__dot activity-feed__dot--${item.status}`} />
+                <span className="activity-feed__name">{item.name}</span>
+                <span className={`activity-feed__status activity-feed__status--${item.status}`}>
+                  {item.status}
+                </span>
+                <span className="activity-feed__time">{timeAgo(item.updated_at)}</span>
+                <Eye size={12} className="activity-feed__icon" />
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

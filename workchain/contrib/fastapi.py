@@ -105,13 +105,18 @@ def create_workchain_router(
         return await store.get_analytics()
 
     @router.get("/activity")
-    async def workflow_activity(limit: int = 10) -> list[dict[str, Any]]:
+    async def workflow_activity(
+        limit: int = 10, status: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Return recently updated workflows.
 
         Args:
             limit: Maximum number of items to return (max 50).
+            status: Optional status filter (e.g. ``"failed"``).
         """
-        return await store.recent_activity(limit=min(limit, 50))
+        return await store.recent_activity(
+            limit=min(limit, 50), status=status,
+        )
 
     @router.get("/{workflow_id}/detail")
     async def get_workflow_detail(workflow_id: str) -> dict[str, Any]:

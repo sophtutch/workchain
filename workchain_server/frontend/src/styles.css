@@ -6,10 +6,10 @@
 
   /* Neon accent */
   --neon: #00f0ff;
-  --neon-glow: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 30px rgba(0, 240, 255, 0.2);
+  --neon-glow: 0 0 12px rgba(0, 240, 255, 0.6), 0 0 35px rgba(0, 240, 255, 0.25);
   --neon-subtle: rgba(0, 240, 255, 0.1);
   --neon-border: rgba(0, 240, 255, 0.35);
-  --card-glow: 0 0 12px rgba(0, 240, 255, 0.06);
+  --card-glow: 0 0 14px rgba(0, 240, 255, 0.1);
 
   /* Step mode colors */
   --c-sync: #bf5fff;
@@ -218,6 +218,12 @@ body,
   padding-right: max(48px, calc((100% - 1400px) / 2 + 48px));
 }
 
+.dashboard__split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
 .dashboard__heading {
   font-size: 1rem;
   font-weight: 700;
@@ -423,7 +429,7 @@ body,
   right: 1.5rem;
   background: var(--bg-elevated);
   color: var(--neon);
-  border: 1px solid var(--neon-border);
+  border: 2px solid var(--neon-border);
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 1rem;
@@ -572,20 +578,26 @@ body,
 
 .activity-feed {
   margin-bottom: 32px;
-  background: var(--bg-card);
-  border: 2px solid var(--border-dim);
-  border-radius: 10px;
-  padding: 20px 24px;
-  box-shadow: var(--card-glow);
+  display: flex;
+  flex-direction: column;
 }
 
 .activity-feed__heading {
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: var(--text-muted);
+  color: #f9fafb;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.activity-feed__card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-dim);
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: var(--card-glow);
+  flex: 1;
 }
 
 .activity-feed__empty {
@@ -973,7 +985,7 @@ body,
   font-family: "SF Mono", "Fira Code", monospace;
   color: var(--neon);
   padding: 2px 8px;
-  border: 1px solid var(--neon-border);
+  border: 2px solid var(--neon-border);
   border-radius: 4px;
 }
 
@@ -1025,7 +1037,7 @@ body,
 }
 
 .dep-graph-inline__tier--parallel {
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.06);
   border-left: 3px solid var(--text-muted);
   border-radius: 8px;
   padding: 8px;
@@ -1244,7 +1256,7 @@ body,
 .step-card__mode--async {
   color: var(--c-async);
   background: rgba(255, 170, 0, 0.1);
-  border: 1px solid rgba(255, 170, 0, 0.2);
+  border: 2px solid rgba(255, 170, 0, 0.2);
 }
 
 .step-card__meta {
@@ -1275,7 +1287,7 @@ body,
   margin-left: auto;
   padding: 3px 10px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 170, 0, 0.3);
+  border: 2px solid rgba(255, 170, 0, 0.3);
   background: rgba(255, 170, 0, 0.08);
   color: var(--c-needs_review);
   font-size: 0.72rem;
@@ -1313,7 +1325,7 @@ body,
 /* Step card error */
 .step-card__error {
   background: rgba(255, 51, 102, 0.06);
-  border: 1px solid rgba(255, 51, 102, 0.2);
+  border: 2px solid rgba(255, 51, 102, 0.2);
   border-radius: 6px;
   padding: 12px;
 }
@@ -1509,7 +1521,7 @@ body,
   letter-spacing: 0.03em;
   padding: 1px 6px;
   border-radius: 3px;
-  border: 1px solid;
+  border: 2px solid;
   white-space: nowrap;
   min-width: 160px;
   text-align: center;
@@ -2048,7 +2060,7 @@ body,
   right: 14px;
   z-index: 5;
   background: #111827;
-  border: 1px solid #1f2937;
+  border: 2px solid #1f2937;
   border-radius: 4px;
   color: #9ca3af;
   font-size: 0.72rem;
@@ -2261,7 +2273,7 @@ body,
 .block-node {
   width: 100%;
   height: 100%;
-  border: 1px solid #47556966;
+  border: 2px solid #47556966;
   border-left: 3px solid #94a3b8;
   border-radius: 10px;
   background: rgba(71, 85, 105, 0.06);
@@ -2400,7 +2412,7 @@ body,
   width: 100%;
   box-sizing: border-box;
   padding: 6px 10px;
-  border: 1px solid #374151;
+  border: 2px solid #374151;
   border-radius: 4px;
   font-size: 0.9rem;
   background: #0d1117;
@@ -2428,7 +2440,7 @@ body,
 .btn {
   padding: 7px 16px;
   border-radius: 5px;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
   font-size: 0.95rem;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
@@ -2558,7 +2570,7 @@ body,
   width: 100%;
   box-sizing: border-box;
   padding: 6px 10px;
-  border: 1px solid #374151;
+  border: 2px solid #374151;
   border-radius: 4px;
   font-size: 0.88rem;
   background: #0d1117;
@@ -2820,7 +2832,7 @@ body,
   width: 100%;
   box-sizing: border-box;
   padding: 8px 12px;
-  border: 1px solid #374151;
+  border: 2px solid #374151;
   border-radius: 6px;
   font-size: 0.9rem;
   background: #0d1117;
@@ -2846,7 +2858,7 @@ body,
 }
 
 .launch-modal__step {
-  border: 1px solid #1f2937;
+  border: 2px solid #1f2937;
   border-radius: 6px;
   margin-bottom: 6px;
   overflow: hidden;
@@ -2941,7 +2953,7 @@ body,
 }
 
 .launch-modal form fieldset {
-  border: 1px solid #374151;
+  border: 2px solid #374151;
   border-radius: 4px;
   padding: 8px 12px 12px;
   margin: 8px 0;
@@ -2971,7 +2983,7 @@ body,
   width: 100%;
   box-sizing: border-box;
   padding: 6px 10px;
-  border: 1px solid #374151;
+  border: 2px solid #374151;
   border-radius: 4px;
   font-size: 0.88rem;
   background: #0d1117;

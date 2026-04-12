@@ -42,7 +42,7 @@ export function TemplateCatalog({
   if (loading) {
     return (
       <section className="tpl-catalog">
-        <h2 className="tpl-catalog__heading">Create Workflow</h2>
+        <h2 className="tpl-catalog__heading">Workflows</h2>
         <div className="tpl-catalog__loading">Loading templates…</div>
       </section>
     );
@@ -52,7 +52,7 @@ export function TemplateCatalog({
 
   return (
     <section className="tpl-catalog">
-      <h2 className="tpl-catalog__heading">Create Workflow</h2>
+      <h2 className="tpl-catalog__heading">Workflows</h2>
       <div className="tpl-catalog__grid">
         {templates.map((t) => (
           <div key={t.id} className="tpl-card">
