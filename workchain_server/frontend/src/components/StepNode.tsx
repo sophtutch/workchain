@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Handle, Position, useStore, type NodeProps } from "reactflow";
-import { AlertCircle, Play, Zap } from "lucide-react";
+import { Play, Zap } from "lucide-react";
 import type { StepNodeData } from "../lib/graphToDraft";
 
 /**
@@ -74,12 +74,6 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
           )}
         </div>
       </div>
-      {hasErrors && (
-        <div className="step-node__error">
-          <AlertCircle size={12} />
-          <span>{data.errors![0]}</span>
-        </div>
-      )}
     </div>
   );
 }

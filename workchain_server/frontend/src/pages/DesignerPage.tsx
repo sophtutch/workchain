@@ -91,6 +91,7 @@ function DesignerInner() {
   const nodeCounter = useRef(1);
   const blockCounter = useRef(1);
   const rfInstance = useRef<ReactFlowInstance | null>(null);
+  const bottomHeightRef = useRef(200);
 
   const handlersByName = useMemo(() => {
     const m = new Map<string, HandlerDescriptor>();
@@ -619,7 +620,18 @@ function DesignerInner() {
   const selectedHandler = selectedStepNode
     ? handlersByName.get(selectedStepNode.data.handlerName) ?? null
     : null;
-  const selectedErrors = selectedId ? stepErrorsByNode[selectedId] ?? [] : [];
+  // Combine graph issues + backend step errors into one list
+  const allIssues = useMemo(() => {
+    const combined = [...issues];
+    for (const [nodeId, errs] of Object.entries(stepErrorsByNode)) {
+      const node = nodes.find((n) => n.id === nodeId);
+      const name = node && isStepNode(node) ? node.data.stepName : nodeId;
+      for (const e of errs) {
+        combined.push({ nodeId, message: `${name}: ${e}` });
+      }
+    }
+    return combined;
+  }, [issues, stepErrorsByNode, nodes]);
 
   return (
     <>
@@ -643,34 +655,80 @@ function DesignerInner() {
             loading={loading}
             error={handlersError}
           />
-          <DesignerCanvas
-            key={canvasKey}
-            nodes={nodes}
-            edges={edges}
-            handlers={handlers}
-            selectedId={selectedId}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onAddEdge={onAddEdge}
-            onUpdateEdge={onUpdateEdge}
-            onDropHandler={onDropHandler}
-            onSelect={setSelectedId}
-            onNodeDragStop={onNodeDragStop}
-            setReactFlowInstance={(inst) => {
-              rfInstance.current = inst;
-              // Always fit on init — covers both fresh canvas and template load.
-              inst.fitView({ padding: 0.1 });
-            }}
-          />
-          <ConfigPanel
-            selectedNode={selectedNode}
-            handler={selectedHandler}
-            onConfigChange={onConfigChange}
-            onBlockLabelChange={onBlockLabelChange}
-            onDelete={onDelete}
-            onUnparent={onUnparent}
-            errors={selectedErrors}
-          />
+          <div className="designer__main">
+            <DesignerCanvas
+              key={canvasKey}
+              nodes={nodes}
+              edges={edges}
+              handlers={handlers}
+              selectedId={selectedId}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onAddEdge={onAddEdge}
+              onUpdateEdge={onUpdateEdge}
+              onDropHandler={onDropHandler}
+              onSelect={setSelectedId}
+              onNodeDragStop={onNodeDragStop}
+              setReactFlowInstance={(inst) => {
+                rfInstance.current = inst;
+                inst.fitView({ padding: 0.1 });
+              }}
+              onTidy={() => {
+                const { nodes: laid, edges: smartEdges } = autoLayout(nodes, edges);
+                setNodes(laid);
+                setEdges(smartEdges);
+                setTimeout(() => rfInstance.current?.fitView({ padding: 0.1 }), 50);
+              }}
+            />
+            <div
+              className="designer__divider"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const startY = e.clientY;
+                const startH = bottomHeightRef.current;
+                const onMove = (ev: PointerEvent) => {
+                  const newH = Math.max(80, Math.min(window.innerHeight * 0.6, startH - (ev.clientY - startY)));
+                  bottomHeightRef.current = newH;
+                  const el = document.getElementById("designer-bottom");
+                  if (el) el.style.height = `${newH}px`;
+                };
+                const onUp = () => {
+                  document.removeEventListener("pointermove", onMove);
+                  document.removeEventListener("pointerup", onUp);
+                };
+                document.addEventListener("pointermove", onMove);
+                document.addEventListener("pointerup", onUp);
+              }}
+            />
+            <div id="designer-bottom" className="designer__bottom">
+              <div className="designer__bottom-content">
+                <ConfigPanel
+                  selectedNode={selectedNode}
+                  handler={selectedHandler}
+                  onConfigChange={onConfigChange}
+                  onBlockLabelChange={onBlockLabelChange}
+                  onDelete={onDelete}
+                  onUnparent={onUnparent}
+                />
+                <div className="issue-panel">
+                  <div className="issue-panel__heading">
+                    Issues{allIssues.length > 0 ? ` (${allIssues.length})` : ""}
+                  </div>
+                  {allIssues.length > 0 ? (
+                    <ul className="issue-panel__list">
+                      {allIssues.map((issue, i) => (
+                        <li key={i} className="issue-panel__item">
+                          {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="issue-panel__empty">No issues</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </>

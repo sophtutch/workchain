@@ -116,21 +116,17 @@ export function draftValidate(
       const descriptor = handlerMap.get(node.data.handlerName);
       if (!descriptor?.depends_on) continue;
       const actual = actualDeps.get(node.id) ?? new Set();
-      const missing = descriptor.depends_on.filter((d) => !actual.has(d));
-      if (missing.length > 0) {
-        // Check if the required steps even exist on the canvas
-        const onCanvas = missing.filter((d) => nameToNodeId.has(d));
-        const notOnCanvas = missing.filter((d) => !nameToNodeId.has(d));
-        if (notOnCanvas.length > 0) {
+      const missing = descriptor.depends_on.filter((d) => d && !actual.has(d));
+      for (const dep of missing) {
+        if (nameToNodeId.has(dep)) {
           issues.push({
             nodeId: node.id,
-            message: `Needs step${notOnCanvas.length > 1 ? "s" : ""} not on canvas: ${notOnCanvas.join(", ")}`,
+            message: `Add '${dep}' \u2192 '${node.data.stepName}' connection`,
           });
-        }
-        if (onCanvas.length > 0) {
+        } else {
           issues.push({
             nodeId: node.id,
-            message: `Connect from: ${onCanvas.join(", ")}`,
+            message: `Add '${dep}' step to canvas and connect to '${node.data.stepName}'`,
           });
         }
       }
