@@ -18,17 +18,20 @@ interface ActivityFeedProps {
   items: ActivityItem[];
   title?: string;
   emptyText?: string;
+  variant?: "activity" | "failures";
 }
 
 export function ActivityFeed({
   items,
   title = "Recent Activity",
   emptyText = "No recent workflow activity.",
+  variant,
 }: ActivityFeedProps) {
+  const variantCls = variant ? ` activity-feed__card--${variant}` : "";
   return (
     <section className="activity-feed">
       <h2 className="activity-feed__heading">{title}</h2>
-      <div className="activity-feed__card">
+      <div className={`activity-feed__card${variantCls}`}>
         {items.length === 0 ? (
           <p className="activity-feed__empty">{emptyText}</p>
         ) : (

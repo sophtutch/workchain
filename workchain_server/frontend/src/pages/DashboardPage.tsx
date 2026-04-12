@@ -20,7 +20,7 @@ export function DashboardPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   return (
-    <div className="dashboard">
+    <div className="dashboard page-grid">
       {/* Key metrics */}
       <StatsRow analytics={analytics} />
 
@@ -29,11 +29,12 @@ export function DashboardPage() {
 
       {/* Recent activity + failures side by side */}
       <div className="dashboard__split">
-        <ActivityFeed items={activity} />
+        <ActivityFeed items={activity} variant="activity" />
         <ActivityFeed
           items={failures}
           title="Recent Failures"
           emptyText="No recent failures."
+          variant="failures"
         />
       </div>
 

@@ -49,7 +49,6 @@ export function AppShell() {
                 >
                   {icon}
                   <span className="nav-stat__count">{count}</span>
-                  <span className="nav-stat__label">{label}</span>
                 </button>
               );
             })}

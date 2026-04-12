@@ -20,7 +20,7 @@ export function WorkflowsPage() {
   } = useWorkflowSearch();
 
   return (
-    <div className="dashboard">
+    <div className="dashboard page-grid">
       <h2 className="dashboard__heading">
         <List size={16} /> Workflows
       </h2>

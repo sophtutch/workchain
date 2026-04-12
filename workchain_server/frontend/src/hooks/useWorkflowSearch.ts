@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import type { WorkflowSummary } from "../api/types";
 import { fetchWorkflows, cancelWorkflow as apiCancel } from "../api/client";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 const DEBOUNCE_MS = 300;
 const POLL_MS = 3000;
 const MAX_ERRORS = 3;

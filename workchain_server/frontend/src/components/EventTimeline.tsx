@@ -1,26 +1,27 @@
 import type { AuditEvent } from "../api/types";
 
-const EVENT_COLORS: Record<string, string> = {
-  step_completed: "var(--c-completed)",
-  step_failed: "var(--c-failed)",
-  step_running: "var(--c-running)",
-  step_submitted: "var(--c-running)",
-  step_blocked: "var(--c-needs_review)",
-  step_claimed: "var(--neon)",
-  step_timeout: "var(--c-failed)",
-  step_retried: "var(--c-needs_review)",
-  workflow_completed: "var(--c-completed)",
-  workflow_failed: "var(--c-failed)",
-  workflow_cancelled: "var(--c-cancelled)",
-  workflow_created: "var(--neon)",
-  poll_checked: "var(--c-needs_review)",
-  poll_timeout: "var(--c-failed)",
-  poll_max_exceeded: "var(--c-failed)",
-  recovery_started: "var(--c-needs_review)",
-  recovery_verified: "var(--c-completed)",
-  recovery_needs_review: "var(--c-failed)",
-  lock_released: "var(--text-muted)",
-  heartbeat: "var(--text-muted)",
+/** Map event types to badge style categories (matches wf-badge pattern). */
+const EVENT_CATEGORY: Record<string, string> = {
+  step_completed: "completed",
+  step_failed: "failed",
+  step_running: "running",
+  step_submitted: "pending",
+  step_blocked: "needs_review",
+  step_claimed: "pending",
+  step_timeout: "failed",
+  step_retried: "needs_review",
+  workflow_completed: "completed",
+  workflow_failed: "failed",
+  workflow_cancelled: "cancelled",
+  workflow_created: "pending",
+  poll_checked: "needs_review",
+  poll_timeout: "failed",
+  poll_max_exceeded: "failed",
+  recovery_started: "needs_review",
+  recovery_verified: "completed",
+  recovery_needs_review: "failed",
+  lock_released: "pending",
+  heartbeat: "pending",
 };
 
 function formatTimeMs(iso: string): string {
@@ -111,7 +112,7 @@ export function EventTimeline({
         </thead>
         <tbody>
           {filtered.map((e, i) => {
-            const color = EVENT_COLORS[e.event_type] || "var(--text-muted)";
+            const cat = EVENT_CATEGORY[e.event_type] || "pending";
             const isError = e.error != null;
             const endTime = endTimes.get(i);
 
@@ -136,10 +137,7 @@ export function EventTimeline({
                   {endTime ? formatTimeMs(endTime) : "\u2014"}
                 </td>
                 <td>
-                  <span
-                    className="event-timeline__badge"
-                    style={{ color, borderColor: color }}
-                  >
+                  <span className={`wf-badge wf-badge--${cat}`}>
                     {formatEventType(e.event_type)}
                   </span>
                 </td>
