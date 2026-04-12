@@ -9,7 +9,6 @@ import type { StepNodeData } from "../lib/graphToDraft";
  * Secondary handles (top/bottom) hidden unless connected to an edge.
  */
 export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
-  const shortName = data.handlerName.split(".").pop() ?? data.handlerName;
 
   // Subscribe only to edges connected to THIS node, avoiding full-graph
   // re-renders that useEdges() would cause.
@@ -66,9 +65,6 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeData>) {
         </span>
         <div className="step-node__text">
           <div className="step-node__name">{data.stepName}</div>
-          <div className="step-node__handler" title={data.handlerName}>
-            {shortName}
-          </div>
           {data.handlerDescription && (
             <div className="step-node__desc">{data.handlerDescription}</div>
           )}

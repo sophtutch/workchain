@@ -374,13 +374,30 @@ class MongoWorkflowStore:
         if search is not None:
             query["name"] = {"$regex": search, "$options": "i"}
 
-        cursor = (
-            self._col.find(query, max_time_ms=self._op_timeout)
-            .sort("created_at", -1)
-            .skip(skip)
-            .limit(limit)
-        )
-        return [self._doc_to_workflow(doc) async for doc in cursor]
+        # Sort active workflows (running, pending) first, then by created_at desc
+        pipeline: list[dict[str, Any]] = []
+        if query:
+            pipeline.append({"$match": query})
+        pipeline.append({"$addFields": {
+            "_sort_priority": {"$switch": {
+                "branches": [
+                    {"case": {"$eq": ["$status", "running"]}, "then": 0},
+                    {"case": {"$eq": ["$status", "pending"]}, "then": 1},
+                ],
+                "default": 2,
+            }},
+        }})
+        pipeline.append({"$sort": {"_sort_priority": 1, "created_at": -1}})
+        pipeline.append({"$skip": skip})
+        pipeline.append({"$limit": limit})
+
+        results: list[Workflow] = []
+        async for doc in self._col.aggregate(
+            pipeline, maxTimeMS=self._op_timeout,
+        ):
+            doc.pop("_sort_priority", None)
+            results.append(self._doc_to_workflow(doc))
+        return results
 
     async def count_workflows(
         self,
@@ -431,9 +448,10 @@ class MongoWorkflowStore:
         terminal = completed + failed + cancelled
         success_rate = completed / terminal if terminal > 0 else None
 
-        # Average duration for terminal workflows
+        # Average duration for completed workflows only (successful runs).
+        # Excludes failed/cancelled to avoid skewing with retries and timeouts.
         avg_pipeline: list[dict[str, Any]] = [
-            {"$match": {"status": {"$in": ["completed", "failed", "cancelled"]}}},
+            {"$match": {"status": "completed"}},
             {"$project": {
                 "duration": {"$subtract": ["$updated_at", "$created_at"]},
             }},

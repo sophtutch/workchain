@@ -100,7 +100,7 @@ export function WorkflowDetailPage() {
 
   if (loading && !data) {
     return (
-      <div className="detail-page">
+      <div className="detail-page page-grid">
         <div className="detail-page__loading">
           <Loader size={24} className="detail-page__spinner" />
           <span>Loading workflow...</span>
@@ -111,7 +111,7 @@ export function WorkflowDetailPage() {
 
   if (error && !data) {
     return (
-      <div className="detail-page">
+      <div className="detail-page page-grid">
         <div className="detail-page__error">
           <p>{error}</p>
           <button className="btn btn--ghost" onClick={refresh}>
@@ -134,16 +134,19 @@ export function WorkflowDetailPage() {
   );
 
   return (
-    <div className="detail-page">
+    <div className="detail-page page-grid">
       <DetailHeader workflow={data.workflow} />
 
-      <div className="detail-page__content">
+      <div className="detail-page__graph">
         <DependencyGraph
           steps={data.steps}
           tiers={data.graph.tiers}
+          dependencies={data.graph.dependencies}
           onStepClick={scrollToStep}
         />
+      </div>
 
+      <div className="detail-page__content">
         <section className="detail-page__section">
           <h2 className="detail-page__section-title">Steps</h2>
           {orderedSteps.map((step) => (
