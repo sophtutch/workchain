@@ -1617,3 +1617,203 @@ class TestGracefulShutdown:
         # s2 should still be PENDING
         step2 = loaded.step_by_name("s2")
         assert step2.status == StepStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# Concurrent retry race condition
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentRetryRace:
+    """Regression test for stuck-RUNNING workflow after concurrent retries.
+
+    Scenario: two independent steps both fail, both are manually retried,
+    one succeeds (slowly) and the other fails fast.  The fast failure calls
+    try_fail_workflow → workflow=FAILED.  The slow success then discovers
+    the workflow is FAILED.
+
+    Bug (before fix): the slow step's result was discarded and the step was
+    left in SUBMITTED status.  The sweep could not resolve the workflow
+    because not all steps were terminal → stuck RUNNING forever.
+
+    Fix: the slow step now persists its COMPLETED result even when the
+    workflow is already FAILED, ensuring all steps reach terminal state.
+
+    Tests use asyncio.Event barriers for deterministic ordering — no sleeps.
+    """
+
+    async def test_sibling_failure_does_not_orphan_successful_step(self, store):
+        """When step B fails the workflow while step A is mid-execution,
+        step A must still persist its COMPLETED result."""
+
+        # Barriers to enforce exact interleaving.
+        step_a_started = asyncio.Event()
+        step_b_may_proceed = asyncio.Event()
+
+        async def handler_a(_config, _results):
+            """Slow handler: signals it started, waits for B to fail first."""
+            step_a_started.set()
+            await step_b_may_proceed.wait()
+            return StepResult()
+
+        handler_a._step_meta = {"needs_context": False}
+
+        async def handler_b(_config, _results):
+            """Fast-fail handler: waits for A to start, then fails."""
+            await step_a_started.wait()
+            raise RuntimeError("intentional failure")
+
+        handler_b._step_meta = {"needs_context": False}
+
+        _STEP_REGISTRY["tests.race_handler_a"] = handler_a
+        _STEP_REGISTRY["tests.race_handler_b"] = handler_b
+
+        wf = Workflow(
+            name="race_test",
+            steps=[
+                Step(name="step_a", handler="tests.race_handler_a", depends_on=[]),
+                Step(
+                    name="step_b", handler="tests.race_handler_b", depends_on=[],
+                    retry_policy=RetryPolicy(max_attempts=1, wait_seconds=0),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        engine = WorkflowEngine(
+            store, instance_id="race-test",
+            claim_interval=0.05, heartbeat_interval=60,
+            sweep_interval=60, max_concurrent=5,
+        )
+
+        # Claim both steps.
+        claim_a = await store.try_claim_step(wf.id, "step_a", engine._instance_id)
+        claim_b = await store.try_claim_step(wf.id, "step_b", engine._instance_id)
+        assert claim_a is not None
+        assert claim_b is not None
+        _, fence_a = claim_a
+        _, fence_b = claim_b
+
+        # Run both steps concurrently. handler_b will fail first (by design),
+        # calling try_fail_workflow. Then handler_a completes.
+        async def run_both():
+            task_a = asyncio.create_task(engine._run_step(wf.id, "step_a", fence_a))
+            task_b = asyncio.create_task(engine._run_step(wf.id, "step_b", fence_b))
+            # Wait for step_a to start executing (handler entered).
+            await step_a_started.wait()
+            # step_b is also running and waiting for step_a_started, which
+            # is now set — so step_b will fail and call try_fail_workflow.
+            # Give step_b time to complete its failure path.
+            await task_b
+            # Now workflow is FAILED. Let step_a finish.
+            step_b_may_proceed.set()
+            await task_a
+
+        await run_both()
+
+        # Verify: workflow is FAILED, both steps are terminal.
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.step_by_name("step_b").status == StepStatus.FAILED
+        assert loaded.step_by_name("step_a").status == StepStatus.COMPLETED, (
+            f"step_a should be COMPLETED but is {loaded.step_by_name('step_a').status.value} "
+            "(result was discarded due to sibling failure race)"
+        )
+
+    async def test_retry_both_failed_one_fails_again(self, store):
+        """Full retry scenario: both steps fail, both retried, one fails again.
+
+        Reproduces the exact user-reported sequence:
+        1. Both steps fail → workflow FAILED
+        2. User retries both
+        3. One succeeds, the other fails → workflow FAILED, both steps terminal
+        """
+        # Barriers for deterministic ordering during the retry phase.
+        retry_a_started = asyncio.Event()
+        retry_b_may_proceed = asyncio.Event()
+        phase = {"retry": False}
+
+        async def handler_a(_config, _results):
+            if not phase["retry"]:
+                raise RuntimeError("first-pass failure")
+            # Retry phase: signal start, wait for B to fail first.
+            retry_a_started.set()
+            await retry_b_may_proceed.wait()
+            return StepResult()
+
+        handler_a._step_meta = {"needs_context": False}
+
+        async def handler_b(_config, _results):
+            if not phase["retry"]:
+                raise RuntimeError("first-pass failure")
+            # Retry phase: wait for A to start, then fail.
+            await retry_a_started.wait()
+            raise RuntimeError("retry failure")
+
+        handler_b._step_meta = {"needs_context": False}
+
+        _STEP_REGISTRY["tests.retry_race_a"] = handler_a
+        _STEP_REGISTRY["tests.retry_race_b"] = handler_b
+
+        wf = Workflow(
+            name="retry_race_full",
+            steps=[
+                Step(
+                    name="will_succeed", handler="tests.retry_race_a", depends_on=[],
+                    retry_policy=RetryPolicy(max_attempts=1, wait_seconds=0),
+                ),
+                Step(
+                    name="will_fail", handler="tests.retry_race_b", depends_on=[],
+                    retry_policy=RetryPolicy(max_attempts=1, wait_seconds=0),
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        # Phase 1: both steps fail (run sequentially — no race needed here).
+        engine = WorkflowEngine(
+            store, instance_id="retry-race",
+            claim_interval=0.05, heartbeat_interval=60,
+            sweep_interval=60, max_concurrent=5,
+        )
+        claim_a = await store.try_claim_step(wf.id, "will_succeed", engine._instance_id)
+        assert claim_a is not None
+        await engine._run_step(wf.id, "will_succeed", claim_a[1])
+
+        # Workflow is FAILED after first step fails — retry_step_by_name
+        # requires FAILED status, so fail the second step directly.
+        fail_result = StepResult(error="first-pass failure", completed_at=datetime.now(UTC))
+        loaded = await store.get(wf.id)
+        step_b = loaded.step_by_name("will_fail")
+        await store.fail_step_by_name(wf.id, "will_fail", step_b.fence_token, result=fail_result)
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.step_by_name("will_succeed").status == StepStatus.FAILED
+        assert loaded.step_by_name("will_fail").status == StepStatus.FAILED
+
+        # Phase 2: retry both steps.
+        phase["retry"] = True
+        await store.retry_step_by_name(wf.id, "will_succeed")
+        await store.retry_step_by_name(wf.id, "will_fail")
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.RUNNING
+
+        # Phase 3: run retried steps with deterministic ordering.
+        claim_a2 = await store.try_claim_step(wf.id, "will_succeed", engine._instance_id)
+        claim_b2 = await store.try_claim_step(wf.id, "will_fail", engine._instance_id)
+        assert claim_a2 and claim_b2
+
+        task_a = asyncio.create_task(engine._run_step(wf.id, "will_succeed", claim_a2[1]))
+        task_b = asyncio.create_task(engine._run_step(wf.id, "will_fail", claim_b2[1]))
+        await retry_a_started.wait()
+        await task_b  # B fails, workflow → FAILED
+        retry_b_may_proceed.set()
+        await task_a  # A completes after workflow is FAILED
+
+        # Phase 4: verify — workflow FAILED, both steps terminal.
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+        assert loaded.step_by_name("will_succeed").status == StepStatus.COMPLETED
+        assert loaded.step_by_name("will_fail").status == StepStatus.FAILED

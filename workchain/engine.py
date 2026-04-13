@@ -507,10 +507,15 @@ class WorkflowEngine:
                     WorkflowStatus.NEEDS_REVIEW,
                 ):
                     logger.info(
-                        "Workflow %s is %s, discarding step %s result.",
+                        "Workflow %s is %s, persisting step %s result "
+                        "(not advancing workflow).",
                         wf_id, wf.status.value, step_name,
                     )
-                    await self._release_step_lock_safe(wf_id, step_name, step_fence)
+                    await self._store.complete_step_by_name(
+                        wf_id, step_name, step_fence,
+                        result=result,
+                        result_type=result_type,
+                    )
                     return
                 step = _expect_step(wf.step_by_name(step_name), step_name)
             except Exception:
