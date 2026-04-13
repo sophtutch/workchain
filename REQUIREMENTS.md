@@ -1032,7 +1032,13 @@ FUNCTION _run_step(wf_id, step_name, step_fence):
 
         Refresh wf  // check if sibling step failed/cancelled workflow
         IF wf.status is terminal (CANCELLED/FAILED/NEEDS_REVIEW):
-            release_step_lock_safe; RETURN
+            // Step result is still valid — persist it so the step reaches a
+            // terminal state.  Without this, the step stays SUBMITTED and the
+            // sweep cannot resolve the workflow (orphaned_workflow requires all
+            // steps to be terminal).  Do NOT call try_complete_workflow — the
+            // workflow is already in a terminal state.
+            complete_step_by_name(wf_id, step_name, fence, result, result_type)
+            RETURN
 
     EXCEPT Exception:
         fail_result = StepResult(error=traceback, completed_at=now)
