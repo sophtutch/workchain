@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -7,6 +8,8 @@ import {
   XCircle,
   AlertTriangle,
   Ban,
+  Copy,
+  Check,
 } from "lucide-react";
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
@@ -43,6 +46,17 @@ interface DetailHeaderProps {
 
 export function DetailHeader({ workflow }: DetailHeaderProps) {
   const isTerminal = TERMINAL.has(workflow.status);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(workflow.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Ignore clipboard failures (e.g. insecure context); user can select the text manually.
+    }
+  };
 
   return (
     <div className="detail-header">
@@ -54,6 +68,17 @@ export function DetailHeader({ workflow }: DetailHeaderProps) {
       <span className={`wf-badge wf-badge--${workflow.status}`}>
         {STATUS_ICONS[workflow.status]} {workflow.status}
       </span>
+      <code className="detail-header__id" title={workflow.id}>
+        {workflow.id}
+        <button
+          type="button"
+          className="detail-header__id-copy"
+          onClick={handleCopy}
+          aria-label="Copy workflow ID"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+      </code>
       <div className="detail-header__timing">
         <span className="detail-header__time">
           {new Date(workflow.created_at).toLocaleString()}
