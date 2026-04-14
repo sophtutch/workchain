@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Boxes,
-  Cpu,
   GitBranch,
   LayoutDashboard,
   Lock,
@@ -199,15 +198,10 @@ export function LandingPage() {
               <span className="landing__section-tag">Decorator-driven</span>
               <h2 className="landing__section-title">Declare once.<br />Run everywhere.</h2>
               <p className="landing__code-lede">
-                Decorator metadata auto-propagates to the Step model at workflow
-                construction time. Retry, poll, and depends_on flow through to
-                the engine without a single line of glue code.
+                Workflows are plain Python functions with decorators. The engine
+                handles the rest: scheduling, retries, polling, recovery, and
+                state persistence.
               </p>
-              <ul className="landing__code-bullets">
-                <li><Cpu size={14} /> Handler names auto-generated from module + qualname</li>
-                <li><Cpu size={14} /> Typed configs pass through template CRUD and the designer</li>
-                <li><Cpu size={14} /> Completeness checks carry their own retry policy</li>
-              </ul>
             </div>
             <pre className="landing__code">
               <code>{CODE_SAMPLE}</code>
@@ -218,14 +212,13 @@ export function LandingPage() {
         {/* -------- CTA BAND -------- */}
         <section className="landing__cta-band">
           <h2 className="landing__cta-band-title">
-            Eight production-style example workflows<br />
+            Example workflows<br />
             <span className="landing__cta-band-accent">ready to launch.</span>
           </h2>
           <p className="landing__cta-band-lede">
-            Customer onboarding, CI/CD, media processing, ML training, incident
-            response, infrastructure provisioning, order fulfillment, and a
-            28-step data lakehouse pipeline — seeded into your instance on
-            first start and visible in the template catalog.
+            A catalog of production-style templates is seeded into your
+            instance on first start. Open one in the designer, tweak its
+            config, and run it.
           </p>
           <Link to="/dashboard" className="landing__cta landing__cta--primary">
             Browse templates <ArrowRight size={16} />

@@ -3524,30 +3524,7 @@ body,
   font-size: 1rem;
   line-height: 1.6;
   color: var(--text-secondary);
-  margin: 0 0 24px;
-}
-
-.landing__code-bullets {
-  list-style: none;
-  padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.landing__code-bullets li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.88rem;
-  color: var(--text-secondary);
-}
-
-.landing__code-bullets svg {
-  color: var(--c-completed);
-  filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.5));
-  flex-shrink: 0;
 }
 
 .landing__code {
