@@ -348,8 +348,12 @@ class WorkflowEngine:
         Anomalies handled:
         - **step_stuck_in_transient_state** / **stale_step_lock**: force-release
           the step lock so it can be reclaimed and recovered.
-        - **orphaned_workflow**: all steps are terminal but the workflow is
-          still RUNNING — attempt to finalise via try_complete/try_fail.
+        - **orphaned_workflow**: workflow is RUNNING but no step is
+          in-flight. Either every step is terminal (finalise via
+          try_complete/try_fail) or PENDING steps remain whose
+          dependencies include a FAILED step (deadlock — fail the
+          workflow). Workflows with only PENDING steps and no failure
+          are skipped: the claim loop will pick them up next tick.
         """
         while not self._shutdown_event.is_set():
             try:
