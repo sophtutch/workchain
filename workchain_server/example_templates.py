@@ -73,48 +73,244 @@ def _customer_onboarding() -> WorkflowTemplate:
 
 
 def _data_pipeline_etl() -> WorkflowTemplate:
-    """ETL pipeline: extract → validate + transform → load → catalog."""
+    """28-step data-lakehouse pipeline with 5 parallel ingests and 5 async jobs."""
+    module = "examples.data_pipeline_etl.steps"
+
+    def _handler(name: str) -> str:
+        return f"{module}.{name}"
+
     return WorkflowTemplate(
         name="Data Pipeline ETL",
         description=(
-            "Five-step ETL workflow: extract from source, validate schema, "
-            "transform records, async load to warehouse, and catalog update."
+            "28-step data-lakehouse pipeline: 5 parallel source ingests "
+            "(Postgres CDC, Salesforce, S3, Kafka, Stripe), per-source schema "
+            "validation, fan-in to a bronze Parquet landing zone, dedup + PII "
+            "detection/masking + quality metrics, currency/timestamp "
+            "normalization, async GeoIP and user-profile enrichment, "
+            "sessionization, hourly/daily rollups, cohort metrics, async "
+            "feature-store training, async Snowflake + Elasticsearch loads, "
+            "dashboard cache refresh, and downstream notification."
         ),
         steps=[
+            # --- Ingestion roots (5 parallel) ---
             StepTemplate(
-                name="extract_from_source",
-                handler="examples.data_pipeline_etl.steps.extract_from_source",
+                name="ingest_postgres_cdc",
+                handler=_handler("ingest_postgres_cdc"),
                 config={
-                    "source_uri": "postgres://localhost:5432/source_db",
-                    "table_name": "events",
+                    "dsn": "postgres://pg-primary.prod.internal:5432/core",
+                    "slot": "workchain_cdc_slot",
+                    "max_lsn_batch": 50000,
                 },
                 depends_on=[],
             ),
             StepTemplate(
-                name="validate_schema",
-                handler="examples.data_pipeline_etl.steps.validate_schema",
-                config={},
-                depends_on=["extract_from_source"],
+                name="ingest_salesforce_api",
+                handler=_handler("ingest_salesforce_api"),
+                config={"org_id": "00D5f000000TEST", "page_size": 2000},
+                depends_on=[],
             ),
             StepTemplate(
-                name="transform_records",
-                handler="examples.data_pipeline_etl.steps.transform_records",
-                config={},
-                depends_on=["validate_schema", "extract_from_source"],
+                name="ingest_s3_events",
+                handler=_handler("ingest_s3_events"),
+                config={"bucket": "acme-raw-events", "region": "us-west-2"},
+                depends_on=[],
             ),
             StepTemplate(
-                name="load_to_warehouse",
-                handler="examples.data_pipeline_etl.steps.load_to_warehouse",
+                name="ingest_kafka_stream",
+                handler=_handler("ingest_kafka_stream"),
                 config={
-                    "target_table": "events",
+                    "bootstrap": "kafka.prod.internal:9092",
+                    "topic": "clickstream.v3",
+                    "window_seconds": 300,
                 },
-                depends_on=["transform_records"],
+                depends_on=[],
             ),
             StepTemplate(
-                name="update_catalog",
-                handler="examples.data_pipeline_etl.steps.update_catalog",
+                name="ingest_stripe_webhooks",
+                handler=_handler("ingest_stripe_webhooks"),
                 config={},
-                depends_on=["load_to_warehouse"],
+                depends_on=[],
+            ),
+            # --- Per-source schema validation (5 parallel) ---
+            StepTemplate(
+                name="schema_validate_postgres",
+                handler=_handler("schema_validate_postgres"),
+                config={"strict": True},
+                depends_on=["ingest_postgres_cdc"],
+            ),
+            StepTemplate(
+                name="schema_validate_salesforce",
+                handler=_handler("schema_validate_salesforce"),
+                config={"strict": True},
+                depends_on=["ingest_salesforce_api"],
+            ),
+            StepTemplate(
+                name="schema_validate_s3",
+                handler=_handler("schema_validate_s3"),
+                config={"strict": True},
+                depends_on=["ingest_s3_events"],
+            ),
+            StepTemplate(
+                name="schema_validate_kafka",
+                handler=_handler("schema_validate_kafka"),
+                config={"strict": True},
+                depends_on=["ingest_kafka_stream"],
+            ),
+            StepTemplate(
+                name="schema_validate_stripe",
+                handler=_handler("schema_validate_stripe"),
+                config={"strict": True},
+                depends_on=["ingest_stripe_webhooks"],
+            ),
+            # --- Fan-in to the bronze landing zone ---
+            StepTemplate(
+                name="land_raw_parquet",
+                handler=_handler("land_raw_parquet"),
+                config={
+                    "lake_bucket": "acme-lake-bronze",
+                    "compression": "snappy",
+                    "partition_by": "ingest_date",
+                },
+                depends_on=[
+                    "schema_validate_postgres",
+                    "schema_validate_salesforce",
+                    "schema_validate_s3",
+                    "schema_validate_kafka",
+                    "schema_validate_stripe",
+                ],
+            ),
+            # --- Quality & PII branch ---
+            StepTemplate(
+                name="deduplicate_records",
+                handler=_handler("deduplicate_records"),
+                config={},
+                depends_on=["land_raw_parquet"],
+            ),
+            StepTemplate(
+                name="detect_pii",
+                handler=_handler("detect_pii"),
+                config={"confidence_threshold": 0.85},
+                depends_on=["deduplicate_records"],
+            ),
+            StepTemplate(
+                name="mask_pii",
+                handler=_handler("mask_pii"),
+                config={"strategy": "deterministic_hash"},
+                depends_on=["detect_pii"],
+            ),
+            StepTemplate(
+                name="quality_metrics",
+                handler=_handler("quality_metrics"),
+                config={
+                    "completeness_threshold": 0.98,
+                    "freshness_threshold_seconds": 900,
+                },
+                depends_on=["deduplicate_records"],
+            ),
+            # --- Normalization branch ---
+            StepTemplate(
+                name="normalize_currency",
+                handler=_handler("normalize_currency"),
+                config={"reference_currency": "USD", "fx_source": "ecb"},
+                depends_on=["mask_pii"],
+            ),
+            StepTemplate(
+                name="normalize_timestamps",
+                handler=_handler("normalize_timestamps"),
+                config={"target_timezone": "UTC"},
+                depends_on=["mask_pii"],
+            ),
+            # --- Enrichment (async polling) ---
+            StepTemplate(
+                name="enrich_geoip",
+                handler=_handler("enrich_geoip"),
+                config={"provider": "maxmind", "db_version": "GeoLite2-City"},
+                depends_on=["normalize_timestamps"],
+            ),
+            StepTemplate(
+                name="enrich_user_profiles",
+                handler=_handler("enrich_user_profiles"),
+                config={
+                    "user_dim_table": "silver.dim_user",
+                    "join_key": "user_id",
+                },
+                depends_on=["normalize_currency", "normalize_timestamps"],
+            ),
+            # --- Sessionize and aggregate ---
+            StepTemplate(
+                name="compute_sessions",
+                handler=_handler("compute_sessions"),
+                config={"idle_minutes": 30, "max_session_hours": 4},
+                depends_on=["enrich_geoip", "enrich_user_profiles"],
+            ),
+            StepTemplate(
+                name="aggregate_hourly",
+                handler=_handler("aggregate_hourly"),
+                config={},
+                depends_on=["compute_sessions"],
+            ),
+            StepTemplate(
+                name="aggregate_daily",
+                handler=_handler("aggregate_daily"),
+                config={},
+                depends_on=["aggregate_hourly"],
+            ),
+            StepTemplate(
+                name="compute_cohort_metrics",
+                handler=_handler("compute_cohort_metrics"),
+                config={"cohort_by": "signup_week", "retention_weeks": 12},
+                depends_on=["aggregate_daily", "quality_metrics"],
+            ),
+            # --- Feature store training (async polling) ---
+            StepTemplate(
+                name="train_feature_store",
+                handler=_handler("train_feature_store"),
+                config={
+                    "feature_group": "user_activity_v4",
+                    "feature_version": 4,
+                    "offline_store": "s3://acme-feature-store/offline",
+                },
+                depends_on=["compute_sessions", "quality_metrics"],
+            ),
+            # --- Load sinks (two async polling steps in parallel) ---
+            StepTemplate(
+                name="load_to_snowflake",
+                handler=_handler("load_to_snowflake"),
+                config={
+                    "account": "acme-analytics.us-west-2",
+                    "warehouse": "ETL_LOAD_WH",
+                    "database": "ANALYTICS",
+                    "schema_": "EVENTS",
+                },
+                depends_on=["aggregate_daily", "train_feature_store"],
+            ),
+            StepTemplate(
+                name="load_to_elasticsearch",
+                handler=_handler("load_to_elasticsearch"),
+                config={
+                    "cluster": "https://es.prod.internal:9200",
+                    "index_pattern": "events-{yyyy}.{MM}.{dd}",
+                },
+                depends_on=["enrich_user_profiles"],
+            ),
+            # --- Publish + notify ---
+            StepTemplate(
+                name="publish_to_dashboard",
+                handler=_handler("publish_to_dashboard"),
+                config={
+                    "cache_service": "redis://dashboard-cache.prod:6379/1",
+                    "ttl_seconds": 3600,
+                },
+                depends_on=["compute_cohort_metrics", "load_to_elasticsearch"],
+            ),
+            StepTemplate(
+                name="notify_downstream",
+                handler=_handler("notify_downstream"),
+                config={
+                    "slack_channel": "#data-platform",
+                    "pagerduty_service": "PDXXXXXX",
+                },
+                depends_on=["load_to_snowflake", "publish_to_dashboard"],
             ),
         ],
     )
