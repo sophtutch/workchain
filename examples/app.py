@@ -92,15 +92,23 @@ _EXAMPLE_DEFS: list[tuple[str, str, str, list[dict], object]] = [
     (
         "data_pipeline_etl",
         "Data Pipeline ETL",
-        "Extract, validate schema, transform, load to warehouse (async), update catalog",
+        "28-step data-lakehouse pipeline: 5 parallel ingests (Postgres/Salesforce/S3/Kafka/Stripe), "
+        "per-source schema validation, fan-in landing zone, PII/quality branches, async enrichment "
+        "(GeoIP + user profiles), sessionization, aggregation, async feature store + Snowflake + "
+        "Elasticsearch loads, dashboard publish, and downstream notification",
         [
-            {"name": "source_uri", "label": "Source URI", "default": "postgres://src/orders", "type": "text"},
-            {"name": "target_table", "label": "Target Table", "default": "analytics.orders", "type": "text"},
+            {"name": "postgres_dsn", "label": "Postgres DSN", "default": "postgres://pg-demo:5432/core", "type": "text"},
+            {"name": "kafka_bootstrap", "label": "Kafka bootstrap", "default": "kafka-demo:9092", "type": "text"},
+            {"name": "s3_bucket", "label": "S3 raw events bucket", "default": "acme-demo-raw", "type": "text"},
+            {"name": "lake_bucket", "label": "Lake bronze bucket", "default": "acme-demo-lake", "type": "text"},
+            {"name": "snowflake_warehouse", "label": "Snowflake warehouse", "default": "DEMO_LOAD_WH", "type": "text"},
         ],
         lambda params: build_etl(
-            source_uri=params["source_uri"],
-            target_table=params["target_table"],
-            columns=["id", "amount", "date", "customer_id"],
+            postgres_dsn=params["postgres_dsn"],
+            kafka_bootstrap=params["kafka_bootstrap"],
+            s3_bucket=params["s3_bucket"],
+            lake_bucket=params["lake_bucket"],
+            snowflake_warehouse=params["snowflake_warehouse"],
         ),
     ),
     (
