@@ -123,17 +123,48 @@ export function DependencyGraph({ steps, dependencies, onStepClick }: Dependency
               fill="var(--border-structure)">
               <path d="M 0 0 L 10 5 L 0 10 z" />
             </marker>
+            <marker id="arrow-completed" viewBox="0 0 10 10" refX="10" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto-start-reverse"
+              fill="var(--c-completed)">
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
+            <marker id="arrow-waiting" viewBox="0 0 10 10" refX="10" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto-start-reverse"
+              fill="var(--c-pending)">
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
           </defs>
-          {layout.edges.map((e, i) => (
-            <path
-              key={i}
-              d={edgePath(e.points)}
-              fill="none"
-              stroke="var(--border-structure)"
-              strokeWidth={1}
-              markerEnd="url(#arrow)"
-            />
-          ))}
+          {layout.edges.map((e, i) => {
+            const source = stepMap.get(e.source);
+            const target = stepMap.get(e.target);
+            // An edge "fires" once its source step completes — the
+            // dependency has been satisfied and its output has flowed
+            // downstream. We treat it as completed unless the target is
+            // still PENDING (engine hasn't picked it up yet), in which
+            // case it renders as a waiting/marching-ants edge.
+            const sourceDone = source?.status === "completed";
+            const isWaiting = sourceDone && target?.status === "pending";
+            const isCompleted = sourceDone && !isWaiting;
+            let cls = "dep-graph-inline__edge";
+            if (isCompleted) cls += " dep-graph-inline__edge--completed";
+            else if (isWaiting) cls += " dep-graph-inline__edge--waiting";
+            return (
+              <path
+                key={i}
+                d={edgePath(e.points)}
+                fill="none"
+                className={cls}
+                strokeWidth={isCompleted || isWaiting ? 1.5 : 1}
+                markerEnd={
+                  isCompleted
+                    ? "url(#arrow-completed)"
+                    : isWaiting
+                      ? "url(#arrow-waiting)"
+                      : "url(#arrow)"
+                }
+              />
+            );
+          })}
         </svg>
 
         {/* Nodes */}
