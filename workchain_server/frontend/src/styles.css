@@ -1075,6 +1075,36 @@ body,
   left: 0;
 }
 
+.dep-graph-inline__edge {
+  stroke: var(--border-structure);
+}
+
+.dep-graph-inline__edge--completed {
+  stroke: var(--c-completed);
+  filter: drop-shadow(0 0 2px rgba(0, 255, 153, 0.25));
+}
+
+/* Edge from a completed step to a pending step — "marching ants" to
+   suggest the workflow is waiting for the next step to start. */
+.dep-graph-inline__edge--waiting {
+  stroke: var(--c-pending);
+  stroke-dasharray: 6 4;
+  animation: dep-edge-march 1s linear infinite;
+  filter: drop-shadow(0 0 2px rgba(136, 136, 136, 0.3));
+}
+
+@keyframes dep-edge-march {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dep-graph-inline__edge--waiting {
+    animation: none;
+  }
+}
+
 .dep-graph-inline__tier-group {
   display: flex;
   align-items: center;
@@ -1305,12 +1335,28 @@ body,
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--text-primary);
+  width: 200px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-card__header .wf-badge {
+  min-width: 110px;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .step-card__handler {
   font-size: 0.78rem;
   color: var(--text-muted);
   font-family: "SF Mono", "Fira Code", monospace;
+  width: 180px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .step-card__mode {
@@ -1319,6 +1365,9 @@ body,
   text-transform: uppercase;
   padding: 1px 6px;
   border-radius: 3px;
+  flex-shrink: 0;
+  min-width: 56px;
+  text-align: center;
 }
 
 .step-card__mode--async {
@@ -1375,6 +1424,13 @@ body,
   color: var(--text-muted);
   transition: transform 0.2s;
   flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* When a retry button is present, it takes the auto-margin slot and the
+   chevron sits right next to it instead of splitting the free space. */
+.step-card__header:has(.step-card__retry) .step-card__chevron {
+  margin-left: 0;
 }
 
 .step-card__chevron--open {
