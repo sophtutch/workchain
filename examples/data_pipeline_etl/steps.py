@@ -693,9 +693,15 @@ async def detect_pii(
     """Scan the deduplicated dataset for PII fields above the confidence threshold."""
     await asyncio.sleep(_handler_delay())
     deduped = cast(DedupeResult, results["deduplicate_records"])
-    detected = random.sample(
-        config.detectors, k=random.randint(2, len(config.detectors)),
-    )
+    # Pick a random subset of the configured detectors as "hits". Clamp the
+    # lower bound so the handler is safe when a user supplies a custom
+    # config with 0 or 1 detector via templates or the designer.
+    detector_count = len(config.detectors)
+    if detector_count == 0:
+        detected: list[str] = []
+    else:
+        k = random.randint(min(2, detector_count), detector_count)
+        detected = random.sample(config.detectors, k=k)
     pii_rate = random.uniform(0.12, 0.28)
     records_with_pii = int(deduped.rows_out * pii_rate)
     logger.info(
