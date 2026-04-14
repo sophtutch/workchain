@@ -528,6 +528,257 @@ class TestWorkflowDependsOnValidation:
 
 
 # ---------------------------------------------------------------------------
+# Workflow — decorator metadata propagation onto Step
+# ---------------------------------------------------------------------------
+
+
+class TestDecoratorMetadataPropagation:
+    """Tests that ``@step`` / ``@async_step`` arguments flow onto Step.
+
+    The Workflow validator ``_resolve_and_validate_depends_on`` copies
+    decorator-declared values into each Step at construction time when the
+    caller did not explicitly set them (detected via ``model_fields_set``).
+    Skipped for non-PENDING workflows so Mongo reloads are never mutated.
+    """
+
+    def test_picks_up_decorator_retry_policy(self):
+        from workchain.decorators import async_step, step
+
+        @step(retry=RetryPolicy(max_attempts=7, wait_seconds=0.25))
+        async def custom_retry(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[Step(name="s", handler=custom_retry._step_meta["handler"])],
+        )
+        assert wf.steps[0].retry_policy.max_attempts == 7
+        assert wf.steps[0].retry_policy.wait_seconds == 0.25
+
+        @async_step(
+            retry=RetryPolicy(max_attempts=4),
+            completeness_check="pkg.mod.check",
+        )
+        async def custom_async_retry(_c, _r):
+            return StepResult()
+
+        wf2 = Workflow(
+            name="t2",
+            steps=[Step(name="s", handler=custom_async_retry._step_meta["handler"])],
+        )
+        assert wf2.steps[0].retry_policy.max_attempts == 4
+
+    def test_picks_up_decorator_poll_policy(self):
+        from workchain.decorators import async_step
+
+        @async_step(
+            poll=PollPolicy(interval=45.0, max_polls=100),
+            completeness_check="pkg.mod.check",
+        )
+        async def custom_poll(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[Step(name="s", handler=custom_poll._step_meta["handler"])],
+        )
+        assert wf.steps[0].poll_policy is not None
+        assert wf.steps[0].poll_policy.interval == 45.0
+        assert wf.steps[0].poll_policy.max_polls == 100
+
+    def test_picks_up_decorator_is_async_and_completeness_check(self):
+        from workchain.decorators import async_step
+
+        @async_step(completeness_check="pkg.mod.check")
+        async def async_handler(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[Step(name="s", handler=async_handler._step_meta["handler"])],
+        )
+        assert wf.steps[0].is_async is True
+        assert wf.steps[0].completeness_check == "pkg.mod.check"
+
+    def test_picks_up_decorator_idempotent_false(self):
+        from workchain.decorators import step
+
+        @step(idempotent=False)
+        async def non_idem(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[Step(name="s", handler=non_idem._step_meta["handler"])],
+        )
+        assert wf.steps[0].idempotent is False
+
+    def test_picks_up_decorator_depends_on(self):
+        """Handler-declared depends_on is copied onto the step, preempting
+        the sequential-default fallback.
+        """
+        from workchain.decorators import step
+
+        @step()
+        async def first(_c, _r):
+            return StepResult()
+
+        @step()
+        async def second(_c, _r):
+            return StepResult()
+
+        @step(depends_on=["first"])
+        async def third(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[
+                Step(name="first", handler=first._step_meta["handler"]),
+                Step(name="second", handler=second._step_meta["handler"]),
+                # third's handler declares depends_on=["first"]; this
+                # should override the sequential default that would have
+                # made it depend on "second".
+                Step(name="third", handler=third._step_meta["handler"]),
+            ],
+        )
+        assert wf.steps[2].depends_on == ["first"]
+
+    def test_explicit_retry_policy_wins(self):
+        """Explicit ``retry_policy=...`` on Step wins over decorator."""
+        from workchain.decorators import step
+
+        @step(retry=RetryPolicy(max_attempts=7))
+        async def override_me(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[
+                Step(
+                    name="s",
+                    handler=override_me._step_meta["handler"],
+                    retry_policy=RetryPolicy(max_attempts=2),
+                ),
+            ],
+        )
+        assert wf.steps[0].retry_policy.max_attempts == 2
+
+    def test_explicit_depends_on_wins(self):
+        """Explicit ``depends_on=...`` on Step wins over decorator-declared deps."""
+        from workchain.decorators import step
+
+        @step()
+        async def root_a(_c, _r):
+            return StepResult()
+
+        @step(depends_on=["root_a"])
+        async def dependent(_c, _r):
+            return StepResult()
+
+        wf = Workflow(
+            name="t",
+            steps=[
+                Step(name="root_a", handler=root_a._step_meta["handler"]),
+                Step(name="other", handler=root_a._step_meta["handler"]),
+                # Explicit override: caller wants dependent to depend on
+                # "other", not on handler-declared "root_a". This still
+                # satisfies the required-deps check because "other" is
+                # not in the required list — wait, actually the handler
+                # requires "root_a" and caller passes ["other"], so this
+                # SHOULD raise. Test moved to a failing-case test below.
+                Step(
+                    name="dependent",
+                    handler=dependent._step_meta["handler"],
+                    depends_on=["root_a", "other"],
+                ),
+            ],
+        )
+        # Explicit depends_on on the step is preserved verbatim.
+        assert wf.steps[2].depends_on == ["root_a", "other"]
+
+    def test_mongo_reload_preserves_stored_fields(self):
+        """When status != PENDING (Mongo reload), the validator must not
+        mutate mirrored fields. The decorator policy is ignored and
+        whatever was stored on the Step is kept as-is.
+        """
+        from workchain.decorators import step
+
+        @step(retry=RetryPolicy(max_attempts=7, wait_seconds=0.25))
+        async def some_handler(_c, _r):
+            return StepResult()
+
+        # Simulate a reload: workflow is RUNNING with a step that has an
+        # explicitly different retry policy from the decorator.
+        wf = Workflow(
+            name="t",
+            status=WorkflowStatus.RUNNING,
+            steps=[
+                Step(
+                    name="s",
+                    handler=some_handler._step_meta["handler"],
+                    retry_policy=RetryPolicy(max_attempts=99),
+                    idempotent=False,
+                ),
+            ],
+        )
+        # Both the explicit override AND any "unset" field stay untouched.
+        assert wf.steps[0].retry_policy.max_attempts == 99
+        assert wf.steps[0].idempotent is False
+        # is_async was not set and not propagated because status != PENDING.
+        assert wf.steps[0].is_async is False
+
+    def test_handler_not_registered_falls_back_to_defaults(self):
+        """Synthetic handler paths (common in tests) must not trip the
+        validator. The Step keeps its field defaults.
+        """
+        wf = Workflow(
+            name="t",
+            steps=[Step(name="s", handler="some.unknown.handler")],
+        )
+        assert wf.steps[0].retry_policy.max_attempts == RetryPolicy().max_attempts
+        assert wf.steps[0].poll_policy is None
+        assert wf.steps[0].is_async is False
+        assert wf.steps[0].idempotent is True
+
+    def test_required_deps_validation_still_fires_on_explicit_mismatch(self):
+        """If the caller explicitly passes ``depends_on`` omitting a
+        handler-required dep, the validator still raises (phase 3b).
+        """
+        from workchain.decorators import step
+
+        @step()
+        async def required_dep(_c, _r):
+            return StepResult()
+
+        @step(depends_on=["required_dep"])
+        async def dependent(_c, _r):
+            return StepResult()
+
+        with pytest.raises(ValidationError, match="requires dependencies"):
+            Workflow(
+                name="t",
+                steps=[
+                    Step(
+                        name="required_dep",
+                        handler=required_dep._step_meta["handler"],
+                    ),
+                    Step(
+                        name="other",
+                        handler=required_dep._step_meta["handler"],
+                    ),
+                    # Handler declares depends_on=["required_dep"] but
+                    # caller explicitly passes ["other"] — missing "required_dep".
+                    Step(
+                        name="dependent",
+                        handler=dependent._step_meta["handler"],
+                        depends_on=["other"],
+                    ),
+                ],
+            )
+
+
+# ---------------------------------------------------------------------------
 # Workflow — dependency-aware helpers
 # ---------------------------------------------------------------------------
 

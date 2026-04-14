@@ -31,6 +31,7 @@ from workchain.models import (
     PollPolicy,
     RetryPolicy,
     Step,
+    StepConfig,
     StepResult,
     StepStatus,
     Workflow,
@@ -426,6 +427,48 @@ class TestRetryExecution:
         assert loaded.steps[0].status == StepStatus.FAILED
         assert loaded.steps[0].result is not None
         assert loaded.steps[0].result.error is not None
+
+    async def test_engine_uses_decorator_retry_policy(self, store, engine):
+        """End-to-end: when the caller constructs a Step without an
+        explicit ``retry_policy``, the engine must honour the policy
+        declared on the ``@step`` decorator. Define a local flaky
+        handler with its own counter so this test is independent of
+        the shared ``_FLAKY_COUNTER`` fixture.
+        """
+        from workchain.decorators import step
+
+        counter = {"count": 0}
+
+        @step(retry=RetryPolicy(max_attempts=4, wait_seconds=0.01, wait_multiplier=1.0))
+        async def _decorator_retry_flaky(
+            _config: StepConfig, _results: dict[str, StepResult]
+        ) -> StepResult:
+            counter["count"] += 1
+            if counter["count"] <= 1:
+                raise RuntimeError(f"intentional failure #{counter['count']}")
+            return StepResult()
+
+        wf = Workflow(
+            name="decorator_retry_test",
+            steps=[
+                Step(
+                    name="flaky",
+                    handler=_decorator_retry_flaky._step_meta["handler"],
+                    # Deliberately NO retry_policy — should inherit from decorator.
+                ),
+            ],
+        )
+        # Sanity: validator populated the policy from the decorator.
+        assert wf.steps[0].retry_policy.max_attempts == 4
+
+        await store.insert(wf)
+        await engine.start()
+        await asyncio.sleep(2.0)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert counter["count"] == 2  # failed once, succeeded on retry
+        assert loaded.status == WorkflowStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------

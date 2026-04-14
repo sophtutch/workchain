@@ -292,6 +292,40 @@ async def check_deploy(config, results, result: DeployResult) -> CheckResult:
     return CheckResult(complete=status == "ready", progress=status.percent)
 ```
 
+### Decorator defaults and explicit overrides
+
+Arguments passed to `@step` / `@async_step` are automatically propagated onto the `Step` model at workflow construction time, so you rarely need to repeat them when building a workflow. The following decorator arguments flow onto the corresponding Step fields:
+
+| Decorator argument | Step field |
+|---|---|
+| `retry` | `retry_policy` |
+| `poll` | `poll_policy` |
+| `depends_on` | `depends_on` |
+| `idempotent` | `idempotent` |
+| `completeness_check` | `completeness_check` |
+| (implicit `is_async`) | `is_async` |
+
+**Precedence rule: explicit `Step(...)` kwargs override decorator defaults.** If you want the decorator default, leave the Step field unset; if you want a per-workflow override, pass the field explicitly to the `Step` constructor.
+
+```python
+@step(retry=RetryPolicy(max_attempts=5, wait_seconds=2.0))
+async def flaky_api_call(config, results): ...
+
+# Uses the decorator's retry policy (max_attempts=5, wait_seconds=2.0)
+Workflow(steps=[Step(name="call", handler="mypkg.flaky_api_call")])
+
+# Overrides with a stricter policy just for this workflow
+Workflow(steps=[
+    Step(
+        name="call",
+        handler="mypkg.flaky_api_call",
+        retry_policy=RetryPolicy(max_attempts=2, wait_seconds=0.5),
+    ),
+])
+```
+
+The same precedence applies to `WorkflowTemplate` and the designer's workflow drafts: template/draft fields that are left unset inherit the decorator defaults; explicitly set fields win. This is implemented in `Workflow._resolve_and_validate_depends_on` using Pydantic's `model_fields_set` to distinguish caller-supplied values from `default_factory` fallbacks. The propagation is **skipped for workflows loaded from MongoDB** (status ≠ `PENDING`), so persisted field values are never mutated by a subsequent library upgrade — stored workflows continue to run with whatever policy was in effect when they were created.
+
 ## Audit Logging
 
 Pass a `MongoAuditLogger` to capture every state change:

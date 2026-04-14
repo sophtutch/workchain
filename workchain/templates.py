@@ -229,19 +229,25 @@ def instantiate_template(
         config_cls = _import_config_class(descriptor.config_type)
         typed_config = config_cls.model_validate(merged_config)
 
-        built_steps.append(
-            Step(
-                name=tpl_step.name,
-                handler=tpl_step.handler,
-                config=typed_config,
-                depends_on=list(tpl_step.depends_on) if tpl_step.depends_on is not None else None,
-                retry_policy=tpl_step.retry_policy or RetryPolicy(),
-                step_timeout=tpl_step.step_timeout,
-                is_async=descriptor.is_async,
-                completeness_check=descriptor.completeness_check,
-                poll_policy=tpl_step.poll_policy,
-            )
-        )
+        # Build Step kwargs conditionally so template-level overrides still
+        # win but template "unset" fields (None) fall through to the handler
+        # decorator defaults via the Workflow validator's metadata
+        # propagation. Dropping the unconditional ``is_async`` /
+        # ``completeness_check`` mirroring from the descriptor for the same
+        # reason — the validator now handles it.
+        step_kwargs: dict[str, object] = {
+            "name": tpl_step.name,
+            "handler": tpl_step.handler,
+            "config": typed_config,
+            "step_timeout": tpl_step.step_timeout,
+        }
+        if tpl_step.depends_on is not None:
+            step_kwargs["depends_on"] = list(tpl_step.depends_on)
+        if tpl_step.retry_policy is not None:
+            step_kwargs["retry_policy"] = tpl_step.retry_policy
+        if tpl_step.poll_policy is not None:
+            step_kwargs["poll_policy"] = tpl_step.poll_policy
+        built_steps.append(Step(**step_kwargs))
 
     return Workflow(
         name=name_override or template.name,

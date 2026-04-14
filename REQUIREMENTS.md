@@ -232,12 +232,21 @@ Executed in declaration order:
 
 1. **`_validate_unique_step_names`** (`model_validator`, `mode="after"`) — Rejects duplicate step names. Raises `ValueError` listing duplicates.
 
-2. **`_resolve_and_validate_depends_on`** (`model_validator`, `mode="after"`):
-   - If `depends_on is None` for step at index `i`: set to `[steps[i-1].name]` if `i > 0`, else `[]`
-   - Reject self-references and unknown step names
-   - Detect cycles via Kahn's algorithm (see Section 6)
-   - **Handler-declared dependency validation**: for each step, look up its handler in `_STEP_REGISTRY`. If the handler has `_step_meta["depends_on"]` (a `list[str]`), verify every name in that list appears in the step's resolved `depends_on`. Missing names raise `ValueError` with a message listing the step name, required dependencies, and which are missing. Handlers not in the registry (e.g. in tests with mock handler paths) are silently skipped.
-   - Raises `ValueError` on violations
+2. **`_resolve_and_validate_depends_on`** (`model_validator`, `mode="after"`) runs in three phases:
+
+   **Phase 1 — Decorator metadata propagation** (PENDING workflows only). For each step, look up its handler in `_STEP_REGISTRY` and copy decorator-declared values onto the Step when the caller did not explicitly set them. "Explicitly set" is detected via Pydantic's `model_fields_set`: fields produced by `default_factory` are NOT in the set, so the copy proceeds; fields passed to `Step(...)` directly ARE in the set and are left alone. The mirrored fields are `(Step field, meta key)`:
+   - `retry_policy` ← `retry`
+   - `poll_policy` ← `poll`
+   - `is_async` ← `is_async`
+   - `completeness_check` ← `completeness_check`
+   - `idempotent` ← `idempotent`
+   - `depends_on` ← `depends_on` (handled separately: only copied when `meta["depends_on"]` is truthy, preempting the sequential-default fallback below)
+
+   Handlers not in the registry (e.g. in tests with mock handler paths) are silently skipped. The entire phase is gated on `status == PENDING` so Mongo reloads never mutate persisted values — workflows created before a handler gained a new decorator value keep their stored (possibly-default) fields.
+
+   **Phase 2 — Sequential default**. If `depends_on is None` for step at index `i` (still unresolved after phase 1): set to `[steps[i-1].name]` if `i > 0`, else `[]`.
+
+   **Phase 3 — DAG and required-deps validation**. Reject self-references and unknown step names; detect cycles via Kahn's algorithm (see Section 6). On PENDING workflows, re-walk the steps and verify handler-declared `depends_on` requirements are satisfied — this phase is mostly redundant after phase 1 but still catches the case where a caller explicitly passed a `depends_on` list that omits a required handler dep. Missing names raise `ValueError` listing the step name, required dependencies, and which are missing. Raises `ValueError` on any violation.
 
 #### Methods
 
