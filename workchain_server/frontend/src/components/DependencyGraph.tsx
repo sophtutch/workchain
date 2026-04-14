@@ -128,6 +128,11 @@ export function DependencyGraph({ steps, dependencies, onStepClick }: Dependency
               fill="var(--c-completed)">
               <path d="M 0 0 L 10 5 L 0 10 z" />
             </marker>
+            <marker id="arrow-waiting" viewBox="0 0 10 10" refX="10" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto-start-reverse"
+              fill="var(--c-pending)">
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
           </defs>
           {layout.edges.map((e, i) => {
             const source = stepMap.get(e.source);
@@ -150,7 +155,13 @@ export function DependencyGraph({ steps, dependencies, onStepClick }: Dependency
                 fill="none"
                 className={cls}
                 strokeWidth={isCompleted || isWaiting ? 1.5 : 1}
-                markerEnd={isCompleted ? "url(#arrow-completed)" : "url(#arrow)"}
+                markerEnd={
+                  isCompleted
+                    ? "url(#arrow-completed)"
+                    : isWaiting
+                      ? "url(#arrow-waiting)"
+                      : "url(#arrow)"
+                }
               />
             );
           })}
