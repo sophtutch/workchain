@@ -268,11 +268,14 @@ class MongoWorkflowStore:
         async for doc in self._col.aggregate(pipeline_stale, maxTimeMS=self._op_timeout):
             _add(doc["_id"], doc["steps"]["name"], "stale_step_lock")
 
-        # 3. Orphaned workflows — all steps terminal but workflow still RUNNING.
-        #    Use double-negation: no step exists that is NOT in a terminal state.
-        non_terminal = [
-            s.value for s in StepStatus
-            if s not in (StepStatus.COMPLETED, StepStatus.FAILED)
+        # 3. Stuck workflows — RUNNING with no in-flight step. Either all
+        #    steps are terminal (complete or fail), or PENDING steps exist
+        #    but depend transitively on a FAILED step (deadlock). The
+        #    Python-side resolver decides which action to take.
+        in_flight = [
+            StepStatus.SUBMITTED.value,
+            StepStatus.RUNNING.value,
+            StepStatus.BLOCKED.value,
         ]
         cursor_orphan = self._col.find(
             {
@@ -280,7 +283,7 @@ class MongoWorkflowStore:
                 "updated_at": {"$lt": stale_cutoff},
                 "steps.0": {"$exists": True},
                 "steps": {"$not": {"$elemMatch": {
-                    "status": {"$in": non_terminal},
+                    "status": {"$in": in_flight},
                 }}},
             },
             {"_id": 1},

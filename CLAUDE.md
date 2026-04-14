@@ -68,7 +68,7 @@ workchain_server/               — standalone server (pip install workchain[ser
 - `find_claimable_steps()` discovers ready steps across all running workflows (two-phase: broad query → Python readiness filter)
 - Multiple engine instances can concurrently execute independent steps of the same workflow
 - Heartbeat loop renews per-step lock TTLs; stale locks expire and are reclaimed
-- Sweep loop detects anomalies (stuck steps, stale step locks)
+- Sweep loop detects anomalies (stuck steps, stale step locks, and stuck workflows — RUNNING with no in-flight step, including deadlocks where a failed step blocks pending descendants)
 
 **Crash-safe state machine**
 - Before execution: step is marked SUBMITTED (write-ahead)

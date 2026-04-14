@@ -973,6 +973,72 @@ class TestSweepLoop:
         loaded = await store.get(wf.id)
         assert loaded.status == WorkflowStatus.FAILED
 
+    async def test_sweep_resolves_deadlocked_workflow(self, store, engine):
+        """Sweep fails a RUNNING workflow where a step is FAILED and its
+        descendants are PENDING (deadlocked — no in-flight step, no ready
+        step). This is the state produced when a user retries step A while
+        step B concurrently fails, then retries B without re-retrying A.
+        """
+        wf = Workflow(
+            name="deadlocked",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.FAILED, depends_on=[],
+                ),
+                Step(
+                    name="s2", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.PENDING, depends_on=["s1"],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        assert loaded.status == WorkflowStatus.FAILED
+
+    async def test_sweep_skips_pending_without_failure(self, store, engine):
+        """Sweep does NOT fail a workflow with only PENDING steps and no
+        failed step — the claim loop will pick them up next tick.
+        """
+        wf = Workflow(
+            name="pending_only",
+            status=WorkflowStatus.RUNNING,
+            updated_at=datetime.now(UTC) - timedelta(seconds=600),
+            steps=[
+                Step(
+                    name="s1", handler=noop_handler._step_meta["handler"],
+                    status=StepStatus.PENDING, depends_on=[],
+                ),
+            ],
+        )
+        await store.insert(wf)
+
+        anomalies = await store.find_anomalies(step_stuck_seconds=300)
+        orphan_ids = [
+            a["workflow_id"] for a in anomalies
+            if a["anomaly"] == "orphaned_workflow"
+        ]
+        # The workflow IS reported as an anomaly (no in-flight step), but
+        # the resolver must leave it alone because there's no failed step.
+        # Verify by running the sweep and checking status is unchanged.
+        assert wf.id in orphan_ids  # caught by the query
+
+        await engine.start()
+        await asyncio.sleep(0.5)
+        await engine.stop()
+
+        loaded = await store.get(wf.id)
+        # Engine may have claimed s1 and progressed the workflow; that's
+        # acceptable. Critically, it must NOT be marked FAILED by the sweep.
+        assert loaded.status != WorkflowStatus.FAILED
+
     async def test_sweep_skips_active_steps(self, store):
         """Sweep does not force-release steps actively processed by this instance."""
         wf = Workflow(
