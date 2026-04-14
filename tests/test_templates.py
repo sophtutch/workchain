@@ -228,6 +228,71 @@ class TestInstantiateTemplate:
         assert step_obj.is_async is True
         assert step_obj.completeness_check == _tpl_check._step_meta["handler"]
 
+    def test_template_fallback_to_decorator_poll_policy(self) -> None:
+        """A template with no ``poll_policy`` override inherits the
+        ``@async_step(poll=...)`` policy from the handler decorator via
+        the Workflow validator's metadata propagation.
+        """
+        tpl = WorkflowTemplate(
+            name="t",
+            steps=[StepTemplate(name="work", handler=_ASYNC)],
+        )
+        wf = instantiate_template(tpl)
+        step_obj = wf.steps[0]
+        # _tpl_async is decorated with @async_step(poll=PollPolicy(interval=0.1))
+        assert step_obj.poll_policy is not None
+        assert step_obj.poll_policy.interval == 0.1
+
+    def test_template_fallback_to_decorator_retry_policy(self) -> None:
+        """A template with no ``retry_policy`` override inherits the
+        ``@step(retry=...)`` policy from the handler decorator.
+        """
+        from workchain.models import RetryPolicy
+
+        @step(retry=RetryPolicy(max_attempts=9, wait_seconds=0.5))
+        async def custom_retry_handler(
+            _config: _TplConfig, _results: dict[str, StepResult]
+        ) -> _TplResult:
+            return _TplResult(message="ok")
+
+        tpl = WorkflowTemplate(
+            name="t",
+            steps=[
+                StepTemplate(
+                    name="s",
+                    handler=custom_retry_handler._step_meta["handler"],
+                ),
+            ],
+        )
+        wf = instantiate_template(tpl)
+        assert wf.steps[0].retry_policy.max_attempts == 9
+        assert wf.steps[0].retry_policy.wait_seconds == 0.5
+
+    def test_template_explicit_retry_still_wins(self) -> None:
+        """When a template sets ``retry_policy`` explicitly, its value
+        wins over whatever the handler decorator declared.
+        """
+        from workchain.models import RetryPolicy
+
+        @step(retry=RetryPolicy(max_attempts=9))
+        async def decorated_handler(
+            _config: _TplConfig, _results: dict[str, StepResult]
+        ) -> _TplResult:
+            return _TplResult(message="ok")
+
+        tpl = WorkflowTemplate(
+            name="t",
+            steps=[
+                StepTemplate(
+                    name="s",
+                    handler=decorated_handler._step_meta["handler"],
+                    retry_policy=RetryPolicy(max_attempts=2),
+                ),
+            ],
+        )
+        wf = instantiate_template(tpl)
+        assert wf.steps[0].retry_policy.max_attempts == 2
+
     def test_unknown_handler_raises(self) -> None:
         tpl = WorkflowTemplate(
             name="t",

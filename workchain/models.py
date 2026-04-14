@@ -40,6 +40,21 @@ def _new_id() -> str:
     return uuid.uuid4().hex  # full 32-char hex (128-bit entropy)
 
 
+# Step fields auto-populated from the handler's `_step_meta` dict during
+# workflow construction. Each tuple is (Step field name, meta key). See
+# `Workflow._resolve_and_validate_depends_on` for the copy logic and the
+# `model_fields_set` guard that lets explicit values from the caller win.
+# `depends_on` is handled separately because it also interacts with the
+# sequential-default fallback for steps that declare no dependencies.
+_META_MIRRORED_FIELDS: list[tuple[str, str]] = [
+    ("retry_policy", "retry"),
+    ("poll_policy", "poll"),
+    ("is_async", "is_async"),
+    ("completeness_check", "completeness_check"),
+    ("idempotent", "idempotent"),
+]
+
+
 def _validate_dag(
     step_names: list[str],
     depends_on_by_name: dict[str, list[str]],
@@ -288,32 +303,74 @@ class Workflow(BaseModel):
 
     @model_validator(mode="after")
     def _resolve_and_validate_depends_on(self) -> Workflow:
-        """Resolve None → sequential default, then validate the dependency graph.
+        """Propagate decorator metadata, resolve depends_on defaults, validate the DAG.
 
-        - ``depends_on=None`` (the default) means "depend on the previous step",
-          or ``[]`` for the first step.  This preserves backward compatibility.
-        - Rejects unknown step names, self-references, and cycles.
+        Three phases, all skipped when the workflow already has steps (empty
+        workflow is a degenerate case returned early):
+
+        1. **Metadata propagation** (PENDING only): For each step whose
+           handler is registered via ``@step`` / ``@async_step``, copy
+           decorator-declared values (``retry``, ``poll``, ``is_async``,
+           ``completeness_check``, ``idempotent``, ``depends_on``) onto
+           the Step when the caller did not explicitly set them. Uses
+           Pydantic's ``model_fields_set`` to distinguish "user supplied"
+           from "default_factory". Skipped for non-PENDING workflows so
+           Mongo reloads never mutate persisted values.
+        2. **Sequential default**: Any step still lacking ``depends_on``
+           falls back to "depend on the previous step", or ``[]`` for the
+           first step. Preserves backward compatibility for handlers that
+           do not declare dependencies.
+        3. **DAG + required-deps validation**: Detect unknown refs, self-
+           references, and cycles; on PENDING workflows, also verify
+           handler-declared dependency requirements are satisfied. The
+           required-deps check is mostly redundant after phase 1 but
+           still catches the case where a caller explicitly passed a
+           ``depends_on`` list that omits a required handler dep.
         """
         if not self.steps:
             return self
 
-        # --- Resolve sequential defaults ---
+        is_fresh = self.status == WorkflowStatus.PENDING
+
+        # --- Phase 1: propagate decorator metadata onto fresh steps ---
+        if is_fresh:
+            from workchain.decorators import _STEP_META_ATTR, _STEP_REGISTRY
+
+            for step in self.steps:
+                fn = _STEP_REGISTRY.get(step.handler)
+                if fn is None:
+                    continue
+                meta = getattr(fn, _STEP_META_ATTR, None) or {}
+
+                for field_name, meta_key in _META_MIRRORED_FIELDS:
+                    if field_name in step.model_fields_set:
+                        continue
+                    if meta_key not in meta:
+                        continue
+                    setattr(step, field_name, meta[meta_key])
+
+                if (
+                    "depends_on" not in step.model_fields_set
+                    and meta.get("depends_on")
+                ):
+                    step.depends_on = list(meta["depends_on"])
+
+        # --- Phase 2: sequential default for still-unresolved depends_on ---
         for i, step in enumerate(self.steps):
             if step.depends_on is None:
                 step.depends_on = [self.steps[i - 1].name] if i > 0 else []
 
-        # --- Validate references and detect cycles (shared helper) ---
+        # --- Phase 3a: DAG validation (structural — always runs) ---
         _validate_dag(
             step_names=[s.name for s in self.steps],
             depends_on_by_name={s.name: s.depends_on or [] for s in self.steps},
             container="Step",
         )
 
-        # --- Validate handler-declared dependency requirements ---
-        # Only validate on fresh workflows (PENDING status with no steps
-        # in progress).  Workflows loaded from MongoDB may predate handler
-        # depends_on declarations and must not fail on read.
-        if self.status == WorkflowStatus.PENDING:
+        # --- Phase 3b: required-deps validation (PENDING only) ---
+        # Workflows loaded from MongoDB may predate handler depends_on
+        # declarations and must not fail on read.
+        if is_fresh:
             from workchain.decorators import _STEP_META_ATTR, _STEP_REGISTRY
 
             for step in self.steps:

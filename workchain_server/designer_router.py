@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
 from workchain.introspection import HandlerDescriptor, describe_handler, list_handlers
-from workchain.models import RetryPolicy, Step, Workflow
+from workchain.models import Step, Workflow
 from workchain.templates import (
     StepTemplate,
     WorkflowTemplate,
@@ -150,19 +150,24 @@ def _build_workflow_from_draft(draft: WorkflowDraft) -> Workflow:
             )
             continue
 
-        built_steps.append(
-            Step(
-                name=step_draft.name,
-                handler=step_draft.handler,
-                config=typed_config,
-                depends_on=step_draft.depends_on,
-                retry_policy=step_draft.retry_policy or RetryPolicy(),
-                step_timeout=step_draft.step_timeout,
-                is_async=descriptor.is_async,
-                completeness_check=descriptor.completeness_check,
-                poll_policy=step_draft.poll_policy,
-            )
-        )
+        # Build Step kwargs conditionally so draft-level overrides still
+        # win but draft "unset" fields (None) fall through to the handler
+        # decorator defaults via the Workflow validator's metadata
+        # propagation. Dropping the unconditional descriptor mirroring of
+        # ``is_async`` / ``completeness_check`` for the same reason.
+        step_kwargs: dict[str, object] = {
+            "name": step_draft.name,
+            "handler": step_draft.handler,
+            "config": typed_config,
+            "step_timeout": step_draft.step_timeout,
+        }
+        if step_draft.depends_on is not None:
+            step_kwargs["depends_on"] = step_draft.depends_on
+        if step_draft.retry_policy is not None:
+            step_kwargs["retry_policy"] = step_draft.retry_policy
+        if step_draft.poll_policy is not None:
+            step_kwargs["poll_policy"] = step_draft.poll_policy
+        built_steps.append(Step(**step_kwargs))
 
     if errors:
         raise HTTPException(
