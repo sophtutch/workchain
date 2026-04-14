@@ -201,10 +201,13 @@ class MongoWorkflowStore:
            ``lock_expires_at`` already in the past and no recent heartbeat
            (workflow ``updated_at`` is stale). The lock TTL expired but
            was never cleaned up.
-        3. **Orphaned workflows** — workflow status is RUNNING but every
-           step is in a terminal state (COMPLETED or FAILED). The engine
-           instance that ran the last step died before calling
-           ``try_complete_workflow`` / ``try_fail_workflow``.
+        3. **Orphaned workflows** — workflow status is RUNNING but no
+           step is in-flight (SUBMITTED/RUNNING/BLOCKED). Covers two
+           sub-cases distinguished by the Python-side resolver: every
+           step terminal (engine died before ``try_complete_workflow`` /
+           ``try_fail_workflow``), or PENDING steps remain whose
+           dependencies include a FAILED step (deadlock — the pending
+           steps can never become ready).
 
         Returns a list of dicts with keys:
         ``{"workflow_id": str, "step_name": str | None, "anomaly": str}``
@@ -268,11 +271,14 @@ class MongoWorkflowStore:
         async for doc in self._col.aggregate(pipeline_stale, maxTimeMS=self._op_timeout):
             _add(doc["_id"], doc["steps"]["name"], "stale_step_lock")
 
-        # 3. Orphaned workflows — all steps terminal but workflow still RUNNING.
-        #    Use double-negation: no step exists that is NOT in a terminal state.
-        non_terminal = [
-            s.value for s in StepStatus
-            if s not in (StepStatus.COMPLETED, StepStatus.FAILED)
+        # 3. Stuck workflows — RUNNING with no in-flight step. Either all
+        #    steps are terminal (complete or fail), or PENDING steps exist
+        #    but depend transitively on a FAILED step (deadlock). The
+        #    Python-side resolver decides which action to take.
+        in_flight = [
+            StepStatus.SUBMITTED.value,
+            StepStatus.RUNNING.value,
+            StepStatus.BLOCKED.value,
         ]
         cursor_orphan = self._col.find(
             {
@@ -280,7 +286,7 @@ class MongoWorkflowStore:
                 "updated_at": {"$lt": stale_cutoff},
                 "steps.0": {"$exists": True},
                 "steps": {"$not": {"$elemMatch": {
-                    "status": {"$in": non_terminal},
+                    "status": {"$in": in_flight},
                 }}},
             },
             {"_id": 1},

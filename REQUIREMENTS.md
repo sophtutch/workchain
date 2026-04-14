@@ -864,7 +864,7 @@ Three anomaly types detected via aggregation pipelines:
 
 1. **`step_stuck_in_transient_state`** — Steps in SUBMITTED/RUNNING where `workflow.updated_at < now - step_stuck_seconds`
 2. **`stale_step_lock`** — Steps with `locked_by` set, `lock_expires_at` in the past, and stale `updated_at`
-3. **`orphaned_workflow`** — Workflow status is RUNNING, but **no** step has a non-terminal status (double-negation: `$not: {$elemMatch: {status: {$in: non_terminal}}}`). Returns `(workflow_id, None)`.
+3. **`orphaned_workflow`** — Workflow status is RUNNING, `updated_at < stale_cutoff`, and **no** step is in-flight (double-negation: `$not: {$elemMatch: {status: {$in: [SUBMITTED, RUNNING, BLOCKED]}}}`). Matches both "all steps terminal" workflows and deadlocked workflows (a FAILED step with PENDING descendants whose dependencies can never be satisfied). The Python-side resolver disambiguates and decides the action. Returns `(workflow_id, None)`.
 
 Deduplicates `(workflow_id, step_name)` pairs across categories.
 
@@ -979,9 +979,12 @@ WHILE not shutdown:
         IF workflow is locally active: SKIP
 
         IF anomaly == "orphaned_workflow":
-            Re-validate all steps terminal
+            Re-validate: no step is in-flight (SUBMITTED/RUNNING/BLOCKED)
             IF has_failed_step: try_fail_workflow
-            ELSE: try_complete_workflow
+                # pending steps depend transitively on the failed step
+                # and will never run — the workflow is deadlocked
+            ELIF all_steps_completed: try_complete_workflow
+            ELSE: SKIP  # pending steps with no failure → claim loop will pick them up
             Emit SWEEP_ANOMALY event
 
         ELIF step_name exists:   # stuck or stale lock
@@ -1034,8 +1037,8 @@ FUNCTION _run_step(wf_id, step_name, step_fence):
         IF wf.status is terminal (CANCELLED/FAILED/NEEDS_REVIEW):
             // Step result is still valid — persist it so the step reaches a
             // terminal state.  Without this, the step stays SUBMITTED and the
-            // sweep cannot resolve the workflow (orphaned_workflow requires all
-            // steps to be terminal).  Do NOT call try_complete_workflow — the
+            // sweep cannot resolve the workflow (orphaned_workflow requires
+            // no in-flight step).  Do NOT call try_complete_workflow — the
             // workflow is already in a terminal state.
             complete_step_by_name(wf_id, step_name, fence, result, result_type)
             RETURN

@@ -996,8 +996,37 @@ body,
   text-overflow: ellipsis;
 }
 
-.detail-header__timing {
+.detail-header__id {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border: 1.5px solid var(--border-structure);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.detail-header__id-copy {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.detail-header__id-copy:hover {
+  color: var(--neon);
+}
+
+.detail-header__timing {
   display: flex;
   align-items: center;
   gap: 12px;

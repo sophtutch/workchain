@@ -348,8 +348,12 @@ class WorkflowEngine:
         Anomalies handled:
         - **step_stuck_in_transient_state** / **stale_step_lock**: force-release
           the step lock so it can be reclaimed and recovered.
-        - **orphaned_workflow**: all steps are terminal but the workflow is
-          still RUNNING — attempt to finalise via try_complete/try_fail.
+        - **orphaned_workflow**: workflow is RUNNING but no step is
+          in-flight. Either every step is terminal (finalise via
+          try_complete/try_fail) or PENDING steps remain whose
+          dependencies include a FAILED step (deadlock — fail the
+          workflow). Workflows with only PENDING steps and no failure
+          are skipped: the claim loop will pick them up next tick.
         """
         while not self._shutdown_event.is_set():
             try:
@@ -389,21 +393,32 @@ class WorkflowEngine:
     async def _resolve_orphaned_workflow(
         self, wf_id: str, sweep_wf: Workflow, anomaly: str,
     ) -> bool:
-        """Resolve an orphaned workflow where all steps are terminal but status is RUNNING."""
-        # Re-validate: all steps must still be terminal
-        if any(
-            s.status not in (StepStatus.COMPLETED, StepStatus.FAILED)
-            for s in sweep_wf.steps
-        ):
+        """Resolve a stuck workflow: RUNNING but no step is in-flight.
+
+        Either every step is terminal (finalise via try_complete/try_fail),
+        or PENDING steps remain whose dependencies include a FAILED step
+        (a deadlock — fail the workflow). Workflows with PENDING steps and
+        no failed step are skipped: the claim loop will pick them up on
+        its next tick.
+        """
+        # Re-validate: nothing must be in-flight
+        if sweep_wf.active_steps():
             return False
 
         if sweep_wf.has_failed_step():
+            # Any remaining pending steps depend (transitively) on the
+            # failed step and will never run. Fail the workflow.
             result = await self._store.try_fail_workflow(wf_id)
-        else:
+        elif sweep_wf.all_steps_completed():
             result = await self._store.try_complete_workflow(wf_id)
+        else:
+            # Pending steps exist with no failed step — engine will claim
+            # them next tick; not actually stuck.
+            return False
+
         if result is None:
             return False  # concurrent resolution by another instance
-        logger.warning("Sweep resolved orphaned_workflow=%s", wf_id)
+        logger.warning("Sweep resolved stuck workflow=%s", wf_id)
         self._store.emit_sweep_anomaly(sweep_wf, anomaly)
         return True
 
