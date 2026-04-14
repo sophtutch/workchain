@@ -201,10 +201,13 @@ class MongoWorkflowStore:
            ``lock_expires_at`` already in the past and no recent heartbeat
            (workflow ``updated_at`` is stale). The lock TTL expired but
            was never cleaned up.
-        3. **Orphaned workflows** — workflow status is RUNNING but every
-           step is in a terminal state (COMPLETED or FAILED). The engine
-           instance that ran the last step died before calling
-           ``try_complete_workflow`` / ``try_fail_workflow``.
+        3. **Orphaned workflows** — workflow status is RUNNING but no
+           step is in-flight (SUBMITTED/RUNNING/BLOCKED). Covers two
+           sub-cases distinguished by the Python-side resolver: every
+           step terminal (engine died before ``try_complete_workflow`` /
+           ``try_fail_workflow``), or PENDING steps remain whose
+           dependencies include a FAILED step (deadlock — the pending
+           steps can never become ready).
 
         Returns a list of dicts with keys:
         ``{"workflow_id": str, "step_name": str | None, "anomaly": str}``
