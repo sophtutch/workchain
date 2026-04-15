@@ -238,7 +238,7 @@ workchain_server/
 - `SERVER_TITLE` — dashboard page title (default `Workchain Server`)
 
 **API routes**:
-- `GET /` — React SPA (dashboard + designer via client-side routing)
+- `GET /` — React SPA (landing page, dashboard, and designer via client-side routing)
 - `GET /healthz` — health check (pings MongoDB)
 - `GET /api/v1/config` — server config (title + instance ID) for SPA
 - `GET /api/v1/workflows` — list workflows with pagination and filters (`?status=`, `?search=`, `?limit=`, `?skip=`); returns `{items, total}`
@@ -265,7 +265,7 @@ workchain_server/
 - The contrib router (`workchain.contrib.fastapi`) stays read-only — adding workflow creation would widen its public surface. Workflow creation lives in `workchain_server/designer_router.py` instead.
 - Motor client is instantiated at module level (connects lazily) and closed in lifespan teardown
 - The contrib router is mounted at `/api/v1/workflows` (versioned from day one); the designer router is mounted at `/api/v1`
-- The SPA is a unified React app with client-side routing — dashboard at `/`, workflows at `/workflows`, designer at `/designer`
+- The SPA is a unified React app with client-side routing — landing page at `/` (full-bleed, outside the AppShell chrome), dashboard at `/dashboard`, workflows at `/workflows`, designer at `/designer`
 - `StaticFiles(html=True)` must be the last mount so it acts as SPA fallback without shadowing API routes
 
 ### Workflow designer router
@@ -282,13 +282,14 @@ workchain_server/
 
 ### Frontend SPA (React)
 
-`workchain_server/frontend/` is a React 18 + Vite 5 single-page app with client-side routing via `react-router-dom` v6. It serves both the dashboard (`/`) and workflow designer (`/designer`). Build output lands in `workchain_server/static/app/` (gitignored).
+`workchain_server/frontend/` is a React 18 + Vite 5 single-page app with client-side routing via `react-router-dom` v6. It serves the landing page (`/`), dashboard (`/dashboard`), workflows list/detail, and workflow designer (`/designer`). Build output lands in `workchain_server/static/app/` (gitignored).
 
 - **Stack**: React + Vite + react-router-dom v6 + [React Flow](https://reactflow.dev/) for the graph canvas + [`@rjsf/core`](https://rjsf-team.github.io/react-jsonschema-form/) with the Bootstrap 4 theme for schema-driven config forms. Bootstrap 4 chosen over MUI to avoid the Emotion runtime.
 - **Build**: `hatch run frontend:install` (npm install, once), then `hatch run frontend:build` (tsc + vite build → `static/app/`). The hatch env is `detached = true` — no Python deps installed.
 - **Dev loop**: `hatch run frontend:dev` runs Vite on `:5173` with `/api/*` and `/static/*` proxies to FastAPI on `:8000`, so the SPA gets hot reload without CORS.
 - **Wheel packaging**: `[tool.hatch.build.targets.wheel.force-include]` ships `workchain_server/static/app/` into the wheel at publish time, so end users `pip install workchain[server]` without needing Node. The sdist excludes both the built output and `node_modules`.
-- **Routing**: `AppShell` provides shared nav bar (brand from `/api/v1/config`, Dashboard/Workflows/Designer nav links, clickable status badges linking to `/workflows?status=X`) + `<Outlet />`. `DashboardPage` (index route) shows key metrics, status breakdown, recent activity, and template catalog. `WorkflowsPage` (`/workflows`) provides search, status filtering, and paginated workflow browsing. `WorkflowDetailPage` (`/workflows/:id`) shows full execution detail with dependency graph, expandable step cards, error diagnostics, and event timeline — auto-refreshes for live workflows. `DesignerPage` wraps the React Flow canvas.
+- **Routing**: `LandingPage` (`/`, index route) is full-bleed and sits **outside** the AppShell so no product nav bar is rendered. `AppShell` wraps every other page and provides the shared nav bar (brand is a `<Link to="/">` back to the landing page, plus Dashboard/Workflows/Designer NavLinks pointing at `/dashboard`/`/workflows`/`/designer`, clickable status badges linking to `/workflows?status=X`) + `<Outlet />`. `DashboardPage` (`/dashboard`) shows key metrics, status breakdown, recent activity, and template catalog. `WorkflowsPage` (`/workflows`) provides search, status filtering, and paginated workflow browsing. `WorkflowDetailPage` (`/workflows/:id`) shows full execution detail with dependency graph, expandable step cards, error diagnostics, and event timeline — auto-refreshes for live workflows. `DesignerPage` wraps the React Flow canvas.
+- **Landing page components**: `LandingPage` renders a full-bleed hero with an eyebrow pill, monospace title with a solid `--neon` cyan accent on "type-safe", neon cyan primary CTA + outlined secondary, and an animated mini-DAG illustrating completed (green) → running (magenta marching-ants + pulsing node) edges. Below the hero are a 6-card feature grid, a two-column decorator code sample, a CTA band pointing at the template catalog, and a minimal footer. Uses its own grid watermark (`.landing__grid`) with a radial mask and top/bottom radial accent gradients for depth; respects `prefers-reduced-motion` on the marching-ants / pulse animations. All colors are sourced from the existing design tokens so the landing stays visually consistent with the product chrome.
 - **Designer components**: `Toolbar` (top bar: workflow name, Run/Clear + status), `HandlerPalette` (left sidebar: draggable handler list, greys out non-launchable handlers), `DesignerCanvas` (React Flow with custom `StepNode`, `BlockNode` for polling-state indicators, `AnchorNode` for START/END markers, collapsible mini-map, Tidy button in controls), `ConfigPanel` (right sidebar: RJSF form for the selected node). Client-side `draftValidate` runs Kahn's algorithm for cycles before POST; backend is still authoritative.
 - **Dashboard components**: `StatsRow` (4 key metric cards: total workflows, success rate, 24h throughput, avg duration), `StatusBreakdown` (6 clickable status pills linking to filtered workflows page), `ActivityFeed` (8 most recently updated workflows with status dot, name, and relative timestamp linking to audit reports).
 - **Workflows page components**: `WorkflowFilters` (search input with debounce + toggleable status filter pills), `WorkflowTable` (paginated table with progress bars), `Pagination` (prev/next with page info).

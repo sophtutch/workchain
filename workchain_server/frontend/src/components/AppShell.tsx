@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, PenTool, Workflow, List,
   Clock, Loader, CheckCircle2, XCircle, AlertTriangle, Ban,
@@ -24,9 +24,11 @@ export function AppShell() {
   return (
     <div className="shell">
       <nav className="nav-bar">
-        <div className="nav-bar__brand"><Workflow size={22} /> {title}</div>
+        <Link to="/" className="nav-bar__brand">
+          <Workflow size={22} /> {title}
+        </Link>
         <div className="nav-bar__links">
-          <NavLink to="/" end className={({ isActive }) => `nav-bar__link ${isActive ? "nav-bar__link--active" : ""}`}>
+          <NavLink to="/dashboard" className={({ isActive }) => `nav-bar__link ${isActive ? "nav-bar__link--active" : ""}`}>
             <LayoutDashboard size={16} /> Dashboard
           </NavLink>
           <NavLink to="/workflows" className={({ isActive }) => `nav-bar__link ${isActive ? "nav-bar__link--active" : ""}`}>
