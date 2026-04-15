@@ -79,6 +79,89 @@ body,
 }
 
 /* ==========================================================================
+   Default form controls — grey border + soft cyan glow baseline.
+   Wrapped in :where() so the specificity is (0,0,0). Any component with
+   a class-based selector (e.g. .landing__cta, .step-card__retry, Bootstrap
+   .btn, React Flow controls, RJSF inputs, etc.) automatically wins.
+   ========================================================================== */
+
+:where(
+  input[type="text"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  textarea,
+  select
+) {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-structure);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.88rem;
+  outline: none;
+  box-shadow: 0 0 12px 1px rgba(0, 240, 255, 0.28);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+:where(
+  input[type="text"]:hover,
+  input[type="email"]:hover,
+  input[type="number"]:hover,
+  input[type="password"]:hover,
+  input[type="search"]:hover,
+  input[type="tel"]:hover,
+  input[type="url"]:hover,
+  textarea:hover,
+  select:hover
+) {
+  box-shadow: 0 0 16px 2px rgba(0, 240, 255, 0.4);
+}
+
+:where(
+  input[type="text"]:focus,
+  input[type="email"]:focus,
+  input[type="number"]:focus,
+  input[type="password"]:focus,
+  input[type="search"]:focus,
+  input[type="tel"]:focus,
+  input[type="url"]:focus,
+  textarea:focus,
+  select:focus
+) {
+  border-color: var(--neon-border);
+  box-shadow: 0 0 20px 3px rgba(0, 240, 255, 0.55);
+}
+
+:where(button) {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-structure);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+  box-shadow: 0 0 12px 1px rgba(0, 240, 255, 0.28);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+:where(button:hover) {
+  border-color: var(--neon-border);
+  box-shadow: 0 0 16px 2px rgba(0, 240, 255, 0.4);
+}
+
+:where(button:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ==========================================================================
    Shell layout (nav + content)
    ========================================================================== */
 
@@ -753,15 +836,20 @@ body,
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
   box-sizing: border-box;
+  box-shadow: 0 0 12px 1px rgba(0, 240, 255, 0.28);
 }
 
 .wf-filters__input::placeholder {
   color: var(--text-muted);
 }
 
+.wf-filters__input:hover {
+  box-shadow: 0 0 16px 2px rgba(0, 240, 255, 0.4);
+}
+
 .wf-filters__input:focus {
   border-color: var(--neon-border);
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.15);
+  box-shadow: 0 0 20px 3px rgba(0, 240, 255, 0.55);
 }
 
 .wf-filters__clear {
@@ -1789,12 +1877,18 @@ body,
   font-size: 1rem;
   background: var(--bg-base);
   color: var(--text-primary);
+  box-shadow: 0 0 12px 1px rgba(0, 240, 255, 0.28);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.toolbar__name-input:hover {
+  box-shadow: 0 0 16px 2px rgba(0, 240, 255, 0.4);
 }
 
 .toolbar__name-input:focus {
   outline: none;
   border-color: var(--neon);
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.2);
+  box-shadow: 0 0 20px 3px rgba(0, 240, 255, 0.55);
 }
 
 .toolbar__name-input::placeholder {
@@ -1930,10 +2024,17 @@ body,
   color: var(--text-primary);
   font-size: 0.9rem;
   outline: none;
+  box-shadow: 0 0 12px 1px rgba(0, 240, 255, 0.28);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.palette__search:hover {
+  box-shadow: 0 0 16px 2px rgba(0, 240, 255, 0.4);
 }
 
 .palette__search:focus {
-  border-color: #6366f1;
+  border-color: var(--neon-border);
+  box-shadow: 0 0 20px 3px rgba(0, 240, 255, 0.55);
 }
 
 .palette__search::placeholder {
@@ -3152,11 +3253,11 @@ body,
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 90% 70% at 50% 35%, black 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 35%, black 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 35%, black 50%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 35%, black 50%, transparent 100%);
   z-index: 0;
 }
 
