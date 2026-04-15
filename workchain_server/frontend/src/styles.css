@@ -120,6 +120,12 @@ body,
   align-items: center;
   gap: 8px;
   text-shadow: var(--neon-glow);
+  text-decoration: none;
+  transition: filter 0.15s;
+}
+
+.nav-bar__brand:hover {
+  filter: brightness(1.2);
 }
 
 .nav-bar__links {
