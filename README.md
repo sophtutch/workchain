@@ -598,7 +598,7 @@ The server mounts a designer router at `/api/v1` that powers the upcoming drag-a
 | `DELETE` | `/api/v1/templates/{id}` | Delete a template |
 | `POST` | `/api/v1/templates/{id}/launch` | Instantiate a template into a runnable `Workflow` (supports `name_override` + per-step `config_overrides`) |
 
-**Web UI**: the server serves a React SPA at `/` with four pages — a dashboard (`/`, key metrics + status breakdown + activity feed + template catalog), a workflows browser (`/workflows`, search + filter + paginated table), a workflow detail page (`/workflows/:id`, dependency graph + expandable step cards with error diagnostics + event timeline), and a drag-and-drop workflow designer (`/designer`). Build it once before running the server for the first time:
+**Web UI**: the server serves a React SPA at `/` with five pages — a full-bleed landing page (`/`, hero + feature grid + code sample + template-catalog CTA), a dashboard (`/dashboard`, key metrics + status breakdown + activity feed + template catalog), a workflows browser (`/workflows`, search + filter + paginated table), a workflow detail page (`/workflows/:id`, dependency graph + expandable step cards with error diagnostics + event timeline), and a drag-and-drop workflow designer (`/designer`). Build it once before running the server for the first time:
 
 ```bash
 hatch run frontend:install   # npm install (one-time)
